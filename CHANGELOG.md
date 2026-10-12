@@ -167,8 +167,16 @@ journal says what it cost. Build steps 1–6 of [`PROGRESS.md`](PROGRESS.md).
 
 ## 0.0.2 — 2026-10-03
 
-The first release cut by the workflow rather than by hand: tagged, checked
-against `package.json`, published with provenance.
+The first release cut by the workflow rather than by hand — and the first one
+that did not reach anybody. `v0.0.2` was tagged, the release workflow ran on
+the tag and the version matched `package.json`, but the publish step failed.
+This version is not on the registry, which holds only `0.0.0-stage` and
+`0.0.1`, both uploaded by hand on 2026-10-03. Everything below happened in the
+repository; none of it was ever installable at this version.
+
+This entry claimed the publish succeeded until 2026-10-13, which is the kind
+of unchecked claim the project exists to refuse. Why the step failed is a
+separate question.
 
 ### Added
 
@@ -192,7 +200,7 @@ against `package.json`, published with provenance.
 ### Changed
 
 - `detent promote` is listed in `detent --help`, and exits 70 like every other
-  command that does not exist yet. This is the only change to the published
+  command that does not exist yet. This is the only change to the packaged
   artifact; the rest of the release is the reasoning behind it.
 - The package metadata spells the GitHub account `kazimVakhobov` —
   `repository`, `homepage`, `bugs` and `author` previously resolved only
