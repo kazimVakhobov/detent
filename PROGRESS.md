@@ -17,19 +17,19 @@ This file is a claim about what exists, so the claim is checked:
 | # | Step | State | Proof | Date |
 |---|---|---|---|---|
 | 0 | the name, the CLI skeleton, the repo's own gauge, the specification | done | `test/cli.test.mjs` | 2026-10-03 |
-| 1 | `product.json` + task reading + frontmatter validation | todo | — | — |
-| 2 | the gauge and the lock — useful on their own, before any run exists | todo | — | — |
-| 3 | the gate, `state.json`, unconditional return, `recover` | todo | — | — |
-| 4 | one task from file to commit on a task branch, sequentially | todo | — | — |
-| 5 | merge into `agent/dev`, with abort on conflict | todo | — | — |
-| 6 | journal + `summary` | todo | — | — |
-| 7 | `doctor` and `init` pass 1 — the deterministic scan they share | todo | — | — |
-| 8 | `dashboard` — reading what already exists | todo | — | — |
-| 9 | the scheduler: repository occupancy and barriers | todo | — | — |
-| 10 | `promote`: `agent/staging`, the batch profile, its journal line | todo | — | — |
-| 11 | the acceptance pass | todo | — | — |
-| 12 | `init` pass 2 — the model pass and its schema | todo | — | — |
-| 13 | `plan` | todo | — | — |
+| 1 | `product.json` + task reading + frontmatter validation | done | `test/product.test.mjs`, `test/task.test.mjs` | 2026-10-06 |
+| 2 | the gauge and the lock — useful on their own, before any run exists | done | `test/gauge.test.mjs` | 2026-10-06 |
+| 3 | the gate, `state.json`, unconditional return, `recover` | done | `test/workspace.test.mjs` | 2026-10-06 |
+| 4 | one task from file to commit on a task branch, sequentially | done | `test/run.test.mjs`, `test/agents.test.mjs` | 2026-10-06 |
+| 5 | merge into `agent/dev`, with abort on conflict | done | `test/run.test.mjs` | 2026-10-06 |
+| 6 | journal + `summary` | done | `test/journal.test.mjs`, `test/run.test.mjs` | 2026-10-06 |
+| 7 | `doctor` and `init` pass 1 — the deterministic scan they share | done | `test/init.test.mjs`, `test/doctor.test.mjs` | 2026-10-06 |
+| 8 | `dashboard` — reading what already exists | done | `test/dashboard.test.mjs` | 2026-10-06 |
+| 9 | the scheduler: repository occupancy and barriers | done | `test/scheduler.test.mjs` | 2026-10-06 |
+| 10 | `promote`: `agent/staging`, the batch profile, its journal line | done | `test/promote.test.mjs`, `test/doctor.test.mjs` | 2026-10-06 |
+| 11 | the acceptance pass | done | `test/acceptance.test.mjs` | 2026-10-06 |
+| 12 | `init` pass 2 — the model pass and its schema | done | `test/model-pass.test.mjs` | 2026-10-07 |
+| 13 | `plan` | done | `test/plan.test.mjs` | 2026-10-07 |
 
 States are `todo`, `wip`, `done`. Step 3 is where the tests live: it holds the
 invariant that every exit leaves the repository on `agent/dev` with a clean tree
@@ -45,13 +45,16 @@ and moves no ref outside `refs/heads/agent/`.
 
 ## Versions
 
-`0.0.x` is the skeleton and holds the name. Published to npm as
-`@kazimvakhobov/detent`; not yet installable for any purpose.
+`0.0.x` is the skeleton and holds the name: published to npm as
+`@kazimvakhobov/detent`, and not installable for any purpose. `0.3.0` is the
+first version that is — `0.1.0` and `0.2.0` were cut here and never tagged, so
+the registry skips them.
 
 | Version | Means |
 |---|---|
 | `0.1.0` | end to end — step 6 |
 | `0.2.0` | worth showing — step 8 |
+| `0.3.0` | all thirteen steps — the build order is complete |
 | `1.0.0` | all thirteen steps, and a real batch of tasks run against a real product |
 
 ## detent does not build itself yet

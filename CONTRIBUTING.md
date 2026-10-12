@@ -32,14 +32,55 @@ of supervision.
 So the work of a session lands on `agent/dev` and reaches `dev` through a pull
 request. `feature/*` is for the changes you type.
 
-**Until the queue exists (build order step 1), session work goes straight onto
-`agent/dev`** rather than through `agent/task-<id>-<slug>`. There is no task
-file to take an id from: detent's queue lives in a product folder
-([ADR 0005](docs/adr/0005-queue-in-the-product-folder.md)) and this repository
-is not one. A numbered branch with an invented number is the decorative green
-this project refuses, and one session at a time already provides the isolation
-the task branch would. After step 1, session work gets a real task file and a
-real number.
+**Session work is a task, on a task branch.** Each piece of work gets a task
+file in the shape of [DESIGN.md §4](DESIGN.md#4-tasks), a real number, and its
+own `agent/task-<id>-<slug>` branch off `agent/dev`. When `npm run verify` is
+green it merges into `agent/dev` with `--no-ff`, so the task stays visible as
+one unit in the history, and its commits carry a `Task: NNNN` trailer.
+
+The task files live where detent expects them: in a product folder, beside the
+repository rather than inside it
+([ADR 0005](docs/adr/0005-queue-in-the-product-folder.md)). For detent that
+folder is whichever directory holds the clone:
+
+```
+<folder>/
+  .detent/product.json      one repository, "detent", compared against dev
+  tasks/{todo,hold,done,failed}/NNNN-<slug>.md
+  detent/                   this repository
+```
+
+with `.detent/product.json`:
+
+```json
+{
+  "version": 1,
+  "product": { "name": "detent" },
+  "repos": [
+    {
+      "name": "detent",
+      "compare": "dev",
+      "gauge": {
+        "exit": [
+          { "stage": "deps", "command": "node scripts/check-no-deps.mjs" },
+          { "stage": "progress", "command": "node scripts/check-progress.mjs" },
+          { "stage": "test", "command": "node --test" }
+        ]
+      }
+    }
+  ]
+}
+```
+
+The queue is not versioned, by design, so a fresh clone starts with an empty
+one. The counter then continues from git rather than from the folders: the next
+number is one past the highest `Task:` trailer on `agent/dev`
+(`git log agent/dev --format='%(trailers:key=Task,valueonly)'`). The task's text
+survives in the body of its merge commit.
+
+Work done before step 1 landed went straight onto `agent/dev`: there was no
+queue to take a number from, and a numbered branch with an invented number is
+the decorative green this project refuses.
 
 Three human stages rather than two because the package is published: `staging`
 is the branch where a version is a release candidate under the `next` dist-tag,
@@ -80,8 +121,9 @@ Commits made by detent carry the trailers from
 
 ```
 Task: 0042
-Gauge: lint ✓ typecheck ✓ test ✗ — 3 failing tests
-Outcome: escalated — three identical failures on one stage
+Gauge: lint ✓ typecheck ✓ test ✗
+Outcome: escalated — 3 identical failures on test
+Agent: claude (claude-sonnet-5)
 ```
 
 Human commits do not. The side effect is worth having: `git log` says who did
@@ -136,6 +178,21 @@ unless the tag matches the version in `package.json`, derives the dist-tag from
 the version (a prerelease goes to `next`, everything else to `latest`), and
 publishes with `--provenance` so the chain from package to commit to workflow is
 verifiable rather than asserted.
+
+**There is no publish token.** npm trusts this repository and this workflow file
+by name — configured once under Trusted Publisher on the package's npm settings
+page — and exchanges the run's OIDC identity for a short-lived credential. The
+repository stores no publishing secret: nothing to rotate, nothing to leak, and
+nothing that stops working when npm retires the 2FA-bypassing tokens it is
+retiring.
+
+Two consequences worth knowing before a release goes red:
+
+- **The workflow that runs is the one at the tagged commit.** Changing
+  `release.yml` means the change must reach `main` before the tag is placed, or
+  moved if it is already there.
+- **The trusted publisher is matched by workflow filename.** Renaming
+  `release.yml` breaks publishing until the npm side is updated to match.
 
 **Bring the merge commits back down.** A pull request puts its merge commit on
 the *target*, so after a release `staging` and `dev` sit a commit or two behind
