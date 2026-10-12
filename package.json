@@ -1,6 +1,6 @@
 {
   "name": "@kazimvakhobov/detent",
-  "version": "0.0.2",
+  "version": "0.3.0",
   "description": "Autonomy bounded by a machine-checkable gauge, and measured.",
   "type": "module",
   "bin": {
@@ -11,8 +11,7 @@
   },
   "files": [
     "cli.mjs",
-    "core",
-    "templates"
+    "core"
   ],
   "keywords": [
     "coding-agents",
