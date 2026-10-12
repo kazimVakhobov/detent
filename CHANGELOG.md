@@ -4,6 +4,167 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
+## 0.3.0 — 2026-10-12
+
+The build order is complete: steps 9, 10, 12 and 13 of
+[`PROGRESS.md`](PROGRESS.md) on top of 0.2.0 — the scheduler, `promote`,
+`init`'s model pass and `plan` — and with `prune`, every command in
+`detent --help` does something.
+
+Also the first version worth installing. 0.1.0 and 0.2.0 were cut in the
+repository and never tagged, so the registry goes from 0.0.2 to here; the
+entries below them record what each of those two was, because a version that
+nobody could install is still a claim this project has to keep straight.
+
+What 1.0.0 still wants is not code but evidence: a real batch of tasks run
+against a real product, and detent running them instead of a person.
+
+### Added
+
+- `detent prune` deletes task branches whose work is already on `agent/dev`,
+  and keeps paused work. Every command in `detent --help` now does something.
+- Build step 13: `detent plan` opens an interactive session with the agent to
+  talk the work through and write the task files, then lists what was written,
+  validates the queue as `run` will, and names anything else that changed.
+- Build step 12: `detent init` asks the implementing agent, read-only, what the
+  scan cannot see — each repository's role, relations, a gauge where nothing is
+  declared — forced to a schema and retried on a mismatch; then drops whatever
+  the scan does not support. `--no-agent` stops after the scan.
+- Build step 10: `detent promote` merges `agent/dev` into `agent/staging`
+  behind the `promote` profile run on the merged tree. Red promotes nothing and
+  reverts nothing; a conflict is aborted; both tell the developer. A
+  promotion is its own journal line, and `summary` and the dashboard report how
+  often a batch came out red with every task in it green.
+- `branches.staging` and `gauge.promote` are accepted. `doctor` fails a promote
+  gauge with no staging branch — a declared check nothing runs — and a declared
+  staging branch that does not exist, printing the command that creates it.
+- Build step 9: `detent run` works up to `concurrency` tasks at once — never
+  two in one repository, a barrier (`touches_contract: true`) alone with the
+  pool drained before it and nothing started past it, and a barrier that does
+  not pass ends the run there.
+
+### Fixed
+
+- The gauge is green on macOS, where two of the agent tests were measuring the
+  machine rather than detent: one compared a path against the symlink the
+  temporary directory is, the other gave a fake CLI 300ms to start when `sh`
+  needs up to half a second to reach its first line there. The timeout they
+  cover was never at fault. A gauge that is red on one of the two platforms the
+  product declares teaches the people reading it to look past a red, which is
+  the habit this project exists to break.
+- A task file that cannot be read still takes part in the check for repeated
+  numbers: a broken task is no excuse for a second one with its number.
+- `detent summary | head` and every other command piped into a reader that
+  stops early end quietly, not with an EPIPE stack trace.
+- Two tasks running at once no longer trip each other's boundary check: the
+  journal may grow by lines detent appended, and by nothing else.
+
+## 0.2.0 — 2026-10-06
+
+Worth showing: there are numbers, and a page that displays them. Build steps
+7, 8 and 11 of [`PROGRESS.md`](PROGRESS.md), on top of 0.1.0 — `init` and
+`doctor`, the dashboard, and the acceptance pass.
+
+### Added
+
+- Build step 11: the acceptance pass. Between a green gauge and the merge,
+  `models.accept` reads the diff against the task in its CLI's read-only mode
+  and may raise doubts; a doubt pauses the task as `rejected`, a verdict detent
+  cannot read is an error, and nothing is ever approved by it. `summary`
+  reports how often a green run was not done. `implement` and `accept` must be
+  different models.
+- Build step 8: `detent dashboard` serves a read-only page on localhost —
+  what is running, where each `agent/dev` stands against its human branch,
+  the queue, every paused task with why, and the journal's numbers.
+- Build step 7: `detent doctor` checks the nine conditions and the namespace
+  with the same scan, says what to change — as a command where there is one,
+  such as the `git branch agent/dev <compare>` it never runs itself — and
+  writes nothing.
+- `detent init` scans the product folder — repositories, branches, scripts,
+  lockfiles, submodules, installed agent CLIs — and writes `product.json`.
+  Re-run, it proposes a diff in `product.proposed.json` and keeps what a person
+  wrote. Gauge stages are proposed only from scripts a repository declares.
+- Every agent call has a time limit: `timeout` in `product.json`, in minutes,
+  30 by default and settable per repository. Past it the agent and everything
+  it started are stopped, and the task is paused with its work kept.
+- A resumed task's agent is told why it was paused, and is handed the doubts
+  of a rejection.
+
+- After every agent turn, `.detent/product.json`, the task's own file and the
+  journal are compared with what they were before it; an agent that edits the
+  files that judge it pauses the task.
+
+## 0.1.0 — 2026-10-06
+
+End to end: a task goes from a file to a merge commit on `agent/dev`, and the
+journal says what it cost. Build steps 1–6 of [`PROGRESS.md`](PROGRESS.md).
+
+### Added
+
+- Build step 1: `core/product.mjs` loads `.detent/product.json` strictly — every
+  problem at once, each naming its path; branch values checked against
+  `agent/` and as git ref names; `branches.staging` and `gauge.promote` refused
+  by name until step 10. `core/task.mjs` reads the queue in
+  `tasks/{todo,hold,done,failed}` and rejects one that cannot be executed.
+  Nothing calls either yet.
+- Build step 2: `core/gauge.mjs` runs a profile's declared stages and names the
+  one that went red; `core/lock.mjs` turns a history of gauge results into the
+  decision on the agent's way out — leave, retry with the failure text, or
+  escalate after `attempts` identical failures in a row. DESIGN.md §6 now says
+  what "identical" means.
+- Build step 3: `core/workspace.mjs` holds the invariant — every exit from a
+  task, including Ctrl-C, leaves the repository on `agent/dev` with a clean tree
+  and moves no ref outside `refs/heads/agent/`. Unfinished work is parked as a
+  wip commit on the task branch, written without running hooks.
+  `.detent/state.json` records which repository is out, and `detent recover` —
+  the first command that does something — returns what a hard kill left behind.
+
+- `detent gauge [repo…] [--profile exit|merge]` runs a repository's gauge by
+  hand, outside any run.
+- A notify command that does not read its stdin is judged by its exit code, not
+  by the broken pipe it leaves behind.
+
+- Claude Code, Codex and Gemini CLI run behind one call, `core/agents.mjs`,
+  each tested against the output its CLI really prints
+  ([ADR 0010](docs/adr/0010-three-agent-clis.md)).
+
+- Build step 4: `detent run` works the queue one task at a time — the
+  implementing agent on its task branch, the gauge on its way out, a commit
+  with `Task`, `Gauge` and `Agent` trailers when green, a pause and a
+  notification when the budget is spent. The boundary is checked after every
+  agent turn: `agent/dev` is restored if the agent moved it, a moved human ref
+  is named and left alone.
+
+- Build step 5: a green task lands on `agent/dev` as one merge commit, built
+  on a detached HEAD and held behind the `merge` profile run on the merged
+  tree, so `agent/dev` never sees a red merge. A conflict is aborted, named and
+  paused, never resolved.
+
+- Build step 6: every run appends one line to `runs/journal.jsonl`, and
+  `detent summary` reports pass rate, attempts per run and cost per pass, per
+  repository and per agent and model. A repository with no gauge shows a dash,
+  not a pass rate.
+
+- A task paused on a merge conflict says what to do about it: the notification
+  names the paths and the command that brings `agent/dev` into the task branch,
+  and once a person has resolved it there, resuming lands the task.
+
+### Changed
+
+- A role in `models` names its agent: `{ "agent": "claude" | "codex" |
+  "gemini", "model"?: string }`, instead of a bare model name.
+
+- A task gets `attempts` attempts (default 3); red on the last one pauses it in
+  `tasks/hold/`, keeps its branch, and notifies the developer through the
+  `notify` command in `product.json` or a desktop notification. Moving it back
+  to `todo/` resumes it on the same branch. Identical failures no longer decide
+  when to stop, only how the escalation reads
+  ([ADR 0009](docs/adr/0009-three-attempts-then-pause.md)).
+
+- Session work on detent itself now goes through a task file and an
+  `agent/task-<id>-<slug>` branch, as `CONTRIBUTING.md` said it would once the
+  queue existed.
+
 ## 0.0.2 — 2026-10-03
 
 The first release cut by the workflow rather than by hand: tagged, checked
@@ -24,8 +185,9 @@ against `package.json`, published with provenance.
   cannot be marked done without a proof that exists.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md): branches, commit format, when a change
   needs an ADR, how a release is cut.
-- A release workflow that publishes from a tag with provenance, and refuses a
-  tag that disagrees with `package.json`.
+- A release workflow that publishes from a tag with provenance and **no stored
+  credential** — npm trusts the repository and the workflow file over OIDC — and
+  refuses a tag that disagrees with `package.json`.
 
 ### Changed
 

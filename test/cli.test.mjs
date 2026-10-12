@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
@@ -23,7 +23,7 @@ test('bare invocation prints usage and succeeds', () => {
 
 test('every command is listed in usage', () => {
   const { out } = run(['--help'])
-  const commands = ['doctor', 'init', 'plan', 'run', 'promote', 'summary', 'dashboard', 'recover', 'prune']
+  const commands = ['doctor', 'init', 'plan', 'run', 'promote', 'summary', 'dashboard', 'gauge', 'recover', 'prune']
   for (const command of commands) {
     assert.match(out, new RegExp(`\\b${command}\\b`), `usage is missing "${command}"`)
   }
@@ -55,8 +55,17 @@ test('an unknown command fails with usage, not a stack trace', () => {
   assert.doesNotMatch(out, /at \S+:\d+:\d+/)
 })
 
-test('a known but unbuilt command says so instead of pretending', () => {
-  const { code, out } = run(['run'])
-  assert.equal(code, 70)
-  assert.match(out, /not implemented yet/)
+test('every command in usage is built: none answers "not implemented"', () => {
+  for (const command of ['doctor', 'init', 'plan', 'run', 'promote', 'summary', 'dashboard', 'gauge', 'recover', 'prune']) {
+    const { code, out } = run([command, '--product', '/nonexistent-product'])
+    assert.notEqual(code, 70, `${command}: ${out}`)
+    assert.doesNotMatch(out, /not implemented/, command)
+  }
+})
+
+test('a reader that closes early ends the command quietly', () => {
+  // The reader closes its end at once, so every write meets a closed pipe.
+  const result = spawnSync('sh', ['-c', `"${process.execPath}" "${cli}" --help | (exec 0<&-; sleep 0.3)`], { encoding: 'utf8' })
+  assert.equal(result.stderr, '')
+  assert.equal(result.status, 0)
 })

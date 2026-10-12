@@ -7,6 +7,19 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
+import { parseArgs } from 'node:util'
+import { ConfigError, loadProduct } from './core/product.mjs'
+import * as dashboard from './core/commands/dashboard.mjs'
+import * as doctor from './core/commands/doctor.mjs'
+import * as gauge from './core/commands/gauge.mjs'
+import * as init from './core/commands/init.mjs'
+import * as plan from './core/commands/plan.mjs'
+import * as promoteCommand from './core/commands/promote.mjs'
+import * as prune from './core/commands/prune.mjs'
+import * as recover from './core/commands/recover.mjs'
+import * as runCommand from './core/commands/run.mjs'
+import * as summary from './core/commands/summary.mjs'
+import { UsageError } from './core/commands/usage.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const { version } = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8'))
@@ -19,9 +32,13 @@ const COMMANDS = {
   promote: 'merge agent/dev into agent/staging behind the batch gauge',
   summary: 'pass rate, iterations, cost per pass',
   dashboard: 'a page that watches this product',
+  gauge: "run a repository's gauge by hand: [repo…] [--profile exit|merge|promote]",
   recover: 'return repositories an interrupted run left behind',
   prune: 'delete agent/task-* branches already merged into agent/dev',
 }
+
+// Commands that exist, each a module: { options, run(product, positionals, values) }.
+const BUILT = { dashboard, doctor, gauge, init, plan, promote: promoteCommand, prune, recover, run: runCommand, summary }
 
 function usage() {
   const width = Math.max(...Object.keys(COMMANDS).map((c) => c.length))
@@ -38,7 +55,7 @@ function usage() {
   ].join('\n')
 }
 
-function main(argv) {
+async function main(argv) {
   const [command, ...rest] = argv
 
   if (!command || command === '--help' || command === '-h' || command === 'help') {
@@ -56,10 +73,45 @@ function main(argv) {
     return 2
   }
 
-  // Each command lands here as it is built; see the build order in the design
-  // notes. Until then, say so plainly rather than pretending to work.
+  if (Object.hasOwn(BUILT, command)) {
+    const module = BUILT[command]
+    let parsed
+    try {
+      parsed = parseArgs({
+        args: rest,
+        allowPositionals: true,
+        options: { product: { type: 'string', default: '.' }, ...module.options },
+      })
+    } catch (error) {
+      process.stderr.write(`detent ${command}: ${error.message}\n`)
+      return 2
+    }
+    try {
+      // A command that makes or checks product.json works without one.
+      const target = module.needsProduct === false ? parsed.values.product : loadProduct(parsed.values.product)
+      return await module.run(target, parsed.positionals, parsed.values)
+    } catch (error) {
+      if (error instanceof UsageError) {
+        process.stderr.write(`detent ${command}: ${error.message}\n`)
+        return 2
+      }
+      if (!(error instanceof ConfigError)) throw error
+      process.stderr.write(`detent: ${error.message}\n`)
+      return 78
+    }
+  }
+
+  // Every listed command is built. Should one ever be listed before it is,
+  // it says so plainly rather than pretending to work.
   process.stderr.write(`detent: "${command}" is not implemented yet (${version})\n`)
   return 70
 }
 
-process.exit(main(process.argv.slice(2)))
+// A reader that stops reading — `detent summary | head` — is not an error: the
+// output it wanted has been written.
+process.stdout.on('error', (error) => {
+  if (error.code === 'EPIPE') process.exit(0)
+  throw error
+})
+
+process.exitCode = await main(process.argv.slice(2))
