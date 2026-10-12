@@ -13,12 +13,10 @@ Notable changes, newest first. The format follows
 - Build step 13: `detent plan` opens an interactive session with the agent to
   talk the work through and write the task files, then lists what was written,
   validates the queue as `run` will, and names anything else that changed.
-
 - Build step 12: `detent init` asks the implementing agent, read-only, what the
   scan cannot see — each repository's role, relations, a gauge where nothing is
   declared — forced to a schema and retried on a mismatch; then drops whatever
   the scan does not support. `--no-agent` stops after the scan.
-
 - Build step 10: `detent promote` merges `agent/dev` into `agent/staging`
   behind the `promote` profile run on the merged tree. Red promotes nothing and
   reverts nothing; a conflict is aborted; both tell the developer. A
@@ -27,7 +25,6 @@ Notable changes, newest first. The format follows
 - `branches.staging` and `gauge.promote` are accepted. `doctor` fails a promote
   gauge with no staging branch — a declared check nothing runs — and a declared
   staging branch that does not exist, printing the command that creates it.
-
 - Build step 9: `detent run` works up to `concurrency` tasks at once — never
   two in one repository, a barrier (`touches_contract: true`) alone with the
   pool drained before it and nothing started past it, and a barrier that does
@@ -35,9 +32,15 @@ Notable changes, newest first. The format follows
 
 ### Fixed
 
+- The gauge is green on macOS, where two of the agent tests were measuring the
+  machine rather than detent: one compared a path against the symlink the
+  temporary directory is, the other gave a fake CLI 300ms to start when `sh`
+  needs up to half a second to reach its first line there. The timeout they
+  cover was never at fault. A gauge that is red on one of the two platforms the
+  product declares teaches the people reading it to look past a red, which is
+  the habit this project exists to break.
 - A task file that cannot be read still takes part in the check for repeated
   numbers: a broken task is no excuse for a second one with its number.
-
 - `detent summary | head` and every other command piped into a reader that
   stops early end quietly, not with an EPIPE stack trace.
 - Two tasks running at once no longer trip each other's boundary check: the

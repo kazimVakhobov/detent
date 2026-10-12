@@ -6,16 +6,19 @@ A detent is the catch that holds a mechanism in a defined position until it is
 deliberately released. Here it is released by a green gauge — the project's own
 checks — and by nothing else.
 
-> **Status: 0.2.0, worth showing.** `detent run` takes tasks from a queue to
-> `agent/dev` with Claude Code, Codex or Gemini CLI behind the gauge, and
-> `detent summary` reports what it cost; a second model reads every green diff
-> and may send it back, never wave it through; `init` writes `product.json`
-> from a scan, `doctor` says what to change, and `dashboard` serves a page that
-> watches it all; tasks in different repositories run side by side, and
-> `promote` checks a whole batch on `agent/staging`, and `plan` talks a task
-> through with an agent and checks the files it writes. [PROGRESS.md](PROGRESS.md) says where the build is.
+> **Status: 0.2.0, and all thirteen build steps are done.** `detent run` takes
+> tasks from a queue to `agent/dev` with Claude Code, Codex or Gemini CLI behind
+> the gauge, and `detent summary` reports what it cost; a second model reads
+> every green diff and may send it back, never wave it through; `init` writes
+> `product.json` from a scan, `doctor` says what to change, and `dashboard`
+> serves a page that watches it all; tasks in different repositories run side by
+> side, `promote` checks a whole batch on `agent/staging`, `plan` talks a task
+> through with an agent and checks the files it writes, and `prune` clears the
+> task branches whose work has landed. Every command in `detent --help` does
+> something. What 1.0.0 still wants is a real batch of tasks run against a real
+> product. [PROGRESS.md](PROGRESS.md) says where the build is.
 
-## What it will do
+## What it does
 
 Runs coding agents against a queue of tasks, refuses to let them finish while
 the project's own checks are red, and writes down what every run cost in
@@ -88,7 +91,7 @@ to everything:
 [DESIGN.md](DESIGN.md) is the specification the code is being written against:
 the branch boundary and the invariant that guards it, the task lifecycle with
 every outcome it can have, the shape of `product.json` and of a journal line,
-what the gauge is and why it has two profiles, and what is deliberately left
+what the gauge is and why it has three profiles, and what is deliberately left
 out.
 
 It is written before the code rather than after it, which is also how detent
@@ -102,13 +105,13 @@ are recorded with the alternatives they displaced; and progress is a table the
 gauge refuses to let lie.
 
 - [CONTRIBUTING.md](CONTRIBUTING.md) — branches, commit format, how a release is cut
-- [docs/adr/](docs/adr/) — eight decisions, each with what it rejected and what that cost
+- [docs/adr/](docs/adr/) — ten decisions, each with what it rejected and what that cost
 - [PROGRESS.md](PROGRESS.md) — where the build actually is, against the build order
 - [CHANGELOG.md](CHANGELOG.md)
 
-detent does not build itself yet: until there is a journal there is nothing to
-dispatch with, so the branch model and the commit format are followed by hand,
-under the names the tool will use. What changes at self-hosting is who types the
+detent does not build itself yet: the branch model, the commit format and the
+queue are followed by hand, by a person and an agent in a session, under the
+names the tool will use. What changes at self-hosting is who types the
 commands.
 
 ## License
