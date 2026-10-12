@@ -45,13 +45,16 @@ and moves no ref outside `refs/heads/agent/`.
 
 ## Versions
 
-`0.0.x` is the skeleton and holds the name. Published to npm as
-`@kazimvakhobov/detent`; not yet installable for any purpose.
+`0.0.x` is the skeleton and holds the name: published to npm as
+`@kazimvakhobov/detent`, and not installable for any purpose. `0.3.0` is the
+first version that is — `0.1.0` and `0.2.0` were cut here and never tagged, so
+the registry skips them.
 
 | Version | Means |
 |---|---|
 | `0.1.0` | end to end — step 6 |
 | `0.2.0` | worth showing — step 8 |
+| `0.3.0` | all thirteen steps — the build order is complete |
 | `1.0.0` | all thirteen steps, and a real batch of tasks run against a real product |
 
 ## detent does not build itself yet

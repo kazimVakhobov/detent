@@ -4,7 +4,20 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
-## Unreleased
+## 0.3.0 — 2026-10-12
+
+The build order is complete: steps 9, 10, 12 and 13 of
+[`PROGRESS.md`](PROGRESS.md) on top of 0.2.0 — the scheduler, `promote`,
+`init`'s model pass and `plan` — and with `prune`, every command in
+`detent --help` does something.
+
+Also the first version worth installing. 0.1.0 and 0.2.0 were cut in the
+repository and never tagged, so the registry goes from 0.0.2 to here; the
+entries below them record what each of those two was, because a version that
+nobody could install is still a claim this project has to keep straight.
+
+What 1.0.0 still wants is not code but evidence: a real batch of tasks run
+against a real product, and detent running them instead of a person.
 
 ### Added
 
