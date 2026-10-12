@@ -5,7 +5,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { invoke, stopAgents } from '../core/agents.mjs'
@@ -69,7 +69,9 @@ exit ${code}
   }
 }
 
-const cwd = mkdtempSync(join(tmpdir(), 'detent-agent-cwd-'))
+// Resolved, because on macOS the temporary directory is a symlink and the
+// fake CLI's `pwd` reports where it really stands, not the way in.
+const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'detent-agent-cwd-')))
 
 test('claude: unattended print mode, prompt on stdin, cost and model as reported', async () => {
   const cli = fake('claude', JSON.stringify(CLAUDE))
@@ -187,15 +189,21 @@ function hanging(name, script) {
   return { ...process.env, PATH: `${bin}:${process.env.PATH}` }
 }
 
+// The only test here that looks at what the fake CLI did rather than only at
+// what detent returned, so its limit has to clear process startup: `sh` can
+// take half a second to reach its first line from a temporary directory on
+// macOS, and a shorter limit kills the fixture before it records anything.
+// Two seconds is still a fifteenth of the sleep it stands in for.
 test('a call past its limit is stopped with everything it started, and says which limit', async () => {
   const pidfile = join(mkdtempSync(join(tmpdir(), 'detent-pid-')), 'pid')
-  // The way an agent runs a command: a child that holds the output open.
-  const env = hanging('claude', `cat > /dev/null; sleep 30 & echo $! > ${pidfile}; wait`)
+  // The way an agent runs a command: a child that holds the output open. The
+  // pid is written first, so it is there however slowly the shell started.
+  const env = hanging('claude', `sleep 30 & echo $! > ${pidfile}; cat > /dev/null; wait`)
   const started = Date.now()
-  const result = await invoke({ agent: 'claude' }, { cwd, prompt: 'x', env, timeoutMs: 300 })
+  const result = await invoke({ agent: 'claude' }, { cwd, prompt: 'x', env, timeoutMs: 2000 })
   assert.ok(Date.now() - started < 5000, 'it did not wait for the agent')
   assert.equal(result.ok, false)
-  assert.equal(result.error, 'claude ran past the 0.3-second limit and was stopped')
+  assert.equal(result.error, 'claude ran past the 2.0-second limit and was stopped')
   const child = Number(readFileSync(pidfile, 'utf8'))
   const alive = () => {
     try {
