@@ -41,7 +41,7 @@ and moves no ref outside `refs/heads/agent/`.
 |---|---|
 | **end to end** | after step 6 — a task goes from a file to a commit on `agent/dev`, and the journal says what it cost |
 | **worth showing** | after step 8 — there are numbers, and a page that displays them |
-| **self-hosting** | the first time detent runs a task in this repository instead of a person running it by hand |
+| **self-hosting** | reached **2026-10-13** with task 0026, commit `f9b97b5` — the first time detent ran a task in this repository instead of a person running it by hand. The proof is this repository's own history: `git log --grep='^Acceptance: ' --date=short --pretty='%h %ad %s'` lists every task detent has worked here and the date each one landed, and every commit it names carries the `Task:`, `Gauge:`, `Agent:` and `Acceptance:` trailers [DESIGN.md §10](DESIGN.md#10-commits) specifies, none of which a person typed |
 
 ## Versions
 
@@ -58,14 +58,27 @@ never tagged, so the registry goes from `0.0.1` to it.
 | `0.3.0` | all thirteen steps — the build order is complete |
 | `1.0.0` | all thirteen steps, and a real batch of tasks run against a real product |
 
-## detent does not build itself yet
+## detent builds itself, as far as agent/dev
 
-Until step 6 there is nothing to dispatch with, so the branch model, the commit
-format and the acceptance of work are followed **by hand** — by a person and an
-agent in a session, under the same names and the same rules the tool will use.
+Until step 6 there was nothing to dispatch with, so the branch model, the commit
+format and the acceptance of work were followed **by hand** — by a person and an
+agent in a session, under the same names and the same rules the tool would use.
+That ended on 2026-10-13. Since task 0026, work here is dispatched by `detent
+run`, held behind the gauge on its way out, read by the acceptance pass and
+merged onto `agent/dev` by the tool. The pass has sent one task back, which is
+why 0027 appears twice in the history the milestone names — once rejected, once
+merged.
 
-**The names do not change when that flips.** `agent/dev` is already the
-integration branch, `agent/task-<id>-<slug>` is already the shape of a task
-branch, and `npm run verify` is already the gauge. What changes at self-hosting
-is who types the commands, and that is the point: a process that only works when
-a person is careful is not the process this project is about.
+**The names did not change when it flipped.** `agent/dev` was already the
+integration branch, `agent/task-<id>-<slug>` was already the shape of a task
+branch, and `npm run verify` was already the gauge. What changed is who types
+the commands, and that is the point: a process that only works when a person is
+careful is not the process this project is about.
+
+**As far as `agent/dev` and no further.** detent reads and writes refs under
+`refs/heads/agent/` and nothing else. It has opened no pull request, placed no
+tag, and moved neither `dev`, `staging` nor `main`; that boundary is the product
+rather than a part of it left unfinished. Still a person's, and not on a list of
+things to automate: writing the task file — `detent plan` exists and has not
+been used here — reading what lands on `agent/dev`, opening the pull request
+that carries it to `dev`, and cutting the release.

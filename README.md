@@ -6,7 +6,7 @@ A detent is the catch that holds a mechanism in a defined position until it is
 deliberately released. Here it is released by a green gauge — the project's own
 checks — and by nothing else.
 
-> **Status: 0.3.1 — all thirteen build steps are done.** `detent run` takes
+> **Status: 0.4.0 — all thirteen build steps are done.** `detent run` takes
 > tasks from a queue to `agent/dev` with Claude Code, Codex or Gemini CLI behind
 > the gauge, and `detent summary` reports what it cost; a second model reads
 > every green diff and may send it back, never wave it through; `init` writes
@@ -181,14 +181,16 @@ are recorded with the alternatives they displaced; and progress is a table the
 gauge refuses to let lie.
 
 - [CONTRIBUTING.md](CONTRIBUTING.md) — branches, commit format, how a release is cut
-- [docs/adr/](docs/adr/) — ten decisions, each with what it rejected and what that cost
+- [docs/adr/](docs/adr/) — eleven decisions, each with what it rejected and what that cost
 - [PROGRESS.md](PROGRESS.md) — where the build actually is, against the build order
 - [CHANGELOG.md](CHANGELOG.md)
 
-detent does not build itself yet: the branch model, the commit format and the
-queue are followed by hand, by a person and an agent in a session, under the
-names the tool will use. What changes at self-hosting is who types the
-commands.
+detent builds itself as far as `agent/dev`. Since 2026-10-13 the tasks in this
+repository have been dispatched by `detent run`, held behind the gauge on the
+way out, read by the acceptance pass and merged by the tool —
+`git log --grep='^Acceptance: '` is the record, and nobody typed those trailers
+by hand. The task files are still written by a person, and so is everything
+past `agent/dev`: the pull request to `dev`, the tag, the release.
 
 ## License
 

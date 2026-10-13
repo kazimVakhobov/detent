@@ -15,6 +15,7 @@ that changed**.
 | [0008](0008-optional-agent-staging.md) | Optional agent-side staging, for a gauge that checks a batch | accepted |
 | [0009](0009-three-attempts-then-pause.md) | Three attempts, then the task is paused and a person is told | accepted |
 | [0010](0010-three-agent-clis.md) | Three agent CLIs behind one call, and a role names its agent | accepted |
+| [0011](0011-a-gauge-that-cannot-read-the-change.md) | A gauge that cannot read the change it gates says nothing | accepted |
 
 ## The rules
 
