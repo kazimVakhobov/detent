@@ -11,6 +11,26 @@ export const FOLDERS = ['todo', 'hold', 'done', 'failed']
 const FILE = /^(\d{4,})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$/
 const FRONTMATTER_KEYS = ['id', 'repo', 'touches_contract']
 
+// The four folders, created if they are not there. A folder that exists is
+// left exactly as it is — what is queued in it is someone's work, and this
+// never looks inside. Returns the folders it had to create, so init can say so.
+export function createQueue(productDir) {
+  const created = []
+  for (const folder of FOLDERS) {
+    const dir = join(productDir, 'tasks', folder)
+    if (existsSync(dir)) continue
+    mkdirSync(dir, { recursive: true })
+    created.push(folder)
+  }
+  return created
+}
+
+// Which of the four are missing: a queue `run` cannot read from and `plan`
+// cannot write into. `doctor` reports this and creates nothing.
+export function missingQueue(productDir) {
+  return FOLDERS.filter((folder) => !existsSync(join(productDir, 'tasks', folder)))
+}
+
 export class QueueError extends Error {
   constructor(problems) {
     super(`the queue cannot be executed:\n${problems.map((p) => `  ${p}`).join('\n')}`)

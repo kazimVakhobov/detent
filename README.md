@@ -66,13 +66,13 @@ Then, from that folder:
 ```
 git -C acme-api branch agent/dev dev    # integration branch, off the one it is compared against
 detent init                             # scan, then ask the agent what a scan cannot see
-mkdir -p tasks/{todo,hold,done,failed}  # the queue
 detent doctor                           # the nine conditions, and what to change
 ```
 
-`init` reads the repositories and asks the implementing agent, read-only, about
-what it could not determine; `--no-agent` stops after the scan. Read the two
-things it cannot decide for you before an agent is held to them:
+`init` reads the repositories, creates the queue, and asks the implementing
+agent, read-only, about what it could not determine; `--no-agent` stops after
+the scan. Read the two things it cannot decide for you before an agent is held
+to them:
 
 - **the gauge.** Stages are proposed only from scripts a repository declares, so
   what you get is what the repository advertises, not what you would have
