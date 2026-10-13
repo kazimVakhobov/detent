@@ -4,7 +4,18 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
-## Unreleased
+## 0.4.0 — 2026-10-13
+
+The release where the repository started checking what it says about itself.
+detent reached self-hosting and the documents said otherwise for a day, and the
+gauge had been green on every documentation change ever made here because none
+of its stages opened a markdown file. One of those is now recorded; the other
+is now checked, and it caught this release's own stale version line before the
+commit was written.
+
+Nothing in `cli.mjs` or `core/` changed, so the tool behaves exactly as 0.3.1
+did. What changed is what this repository claims and what it verifies before
+claiming it.
 
 ### Added
 
