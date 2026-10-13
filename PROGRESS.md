@@ -41,7 +41,7 @@ and moves no ref outside `refs/heads/agent/`.
 |---|---|
 | **end to end** | after step 6 — a task goes from a file to a commit on `agent/dev`, and the journal says what it cost |
 | **worth showing** | after step 8 — there are numbers, and a page that displays them |
-| **self-hosting** | reached **2026-10-13** with task 0026 — the first time detent ran a task in this repository instead of a person running it by hand. The proof is this repository's own history: `git log --grep='^Acceptance: '` lists every task detent has worked here, each commit carrying the `Task:`, `Gauge:`, `Agent:` and `Acceptance:` trailers [DESIGN.md §10](DESIGN.md#10-commits) specifies, and no person typed one of them |
+| **self-hosting** | reached **2026-10-13** with task 0026, commit `f9b97b5` — the first time detent ran a task in this repository instead of a person running it by hand. The proof is this repository's own history: `git log --grep='^Acceptance: ' --date=short --pretty='%h %ad %s'` lists every task detent has worked here and the date each one landed, and every commit it names carries the `Task:`, `Gauge:`, `Agent:` and `Acceptance:` trailers [DESIGN.md §10](DESIGN.md#10-commits) specifies, none of which a person typed |
 
 ## Versions
 
