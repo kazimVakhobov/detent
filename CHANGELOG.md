@@ -4,6 +4,25 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
+## Unreleased
+
+### Added
+
+- A `docs` stage in this repository's own gauge, `scripts/check-docs.mjs`,
+  run by `npm run verify` as a step of its own. It checks that every relative
+  link in a tracked markdown file resolves, that a version a document states as
+  the **current** one is the version in `package.json`, and that
+  [`docs/adr/README.md`](docs/adr/README.md) lists exactly the files in
+  `docs/adr/` — the three kinds of drift that had already reached `main` here.
+  An `#anchor` is part of the link and not part of the path, and a changelog
+  heading naming a past release is a record rather than a claim about now.
+- `DESIGN.md` §6 now says what green covers: a profile's stages define it, and
+  green means nothing outside them. Two of the first four tasks run here
+  changed only documentation, and for those two the gauge was green because
+  none of its stages opened a markdown file — the same honesty detent already
+  owed a repository that declares no gauge at all
+  ([0011](docs/adr/0011-a-gauge-that-cannot-read-the-change.md)).
+
 ## 0.3.1 — 2026-10-13
 
 What a first run on a clean machine found. Both entries below come from

@@ -31,7 +31,7 @@
     "access": "public"
   },
   "scripts": {
-    "verify": "node scripts/check-no-deps.mjs && node scripts/check-progress.mjs && node --test",
+    "verify": "node scripts/check-no-deps.mjs && node scripts/check-progress.mjs && node scripts/check-docs.mjs && node --test",
     "test": "node --test",
     "prepublishOnly": "npm run verify"
   }
