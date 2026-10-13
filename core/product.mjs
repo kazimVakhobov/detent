@@ -3,8 +3,8 @@
 // Every problem is collected rather than the first one thrown, because the
 // person fixing the file wants the whole list, and each one names its path.
 
-import { readFileSync } from 'node:fs'
-import { isAbsolute, join, normalize, resolve, sep } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { basename, isAbsolute, join, normalize, resolve, sep } from 'node:path'
 import { isAgentBranch, refNameProblem } from './refs.mjs'
 
 export const PRODUCT_FILE = join('.detent', 'product.json')
@@ -32,6 +32,21 @@ export class ConfigError extends Error {
   }
 }
 
+// The first thing a newcomer gets wrong is where they are standing: detent
+// works from the folder the repositories sit in, and `cd my-project` lands you
+// one level inside it. A `.git` here says that is what happened.
+//
+// It does not name the parent as the answer. The folder above a clone is
+// usually a projects directory full of unrelated ones, and detent would take
+// every repository in it for part of the same product — the mistake this
+// message exists to prevent, arrived at by following the message.
+function missingProductFile(dir) {
+  if (existsSync(join(dir, '.git'))) {
+    return `does not exist, and ${basename(dir) || dir} is a git repository — detent works from the folder your repositories sit in, not from one of them, and that folder holds one product's repositories and nothing else`
+  }
+  return 'does not exist — `detent init` writes it, in the folder your repositories sit in'
+}
+
 export function loadProduct(productDir) {
   const dir = resolve(productDir)
   const file = join(dir, PRODUCT_FILE)
@@ -40,7 +55,7 @@ export function loadProduct(productDir) {
   try {
     text = readFileSync(file, 'utf8')
   } catch (error) {
-    if (error.code === 'ENOENT') throw new ConfigError(file, ['does not exist — `detent init` writes it'])
+    if (error.code === 'ENOENT') throw new ConfigError(file, [missingProductFile(dir)])
     throw error
   }
 
