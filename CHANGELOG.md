@@ -23,10 +23,12 @@ The build order is complete: steps 9, 10, 12 and 13 of
 `init`'s model pass and `plan` — and with `prune`, every command in
 `detent --help` does something.
 
-Also the first version worth installing. 0.1.0 and 0.2.0 were cut in the
-repository and never tagged, so the registry goes from 0.0.2 to here; the
-entries below them record what each of those two was, because a version that
-nobody could install is still a claim this project has to keep straight.
+Also the first version worth installing. The last version the registry served
+is 0.0.1: 0.0.2 was tagged but its publish step failed, and 0.1.0 and 0.2.0
+were cut in the repository and never tagged. So the registry goes from 0.0.1 to
+here, and the entries below record what each of those three was, because a
+version that nobody could install is still a claim this project has to keep
+straight.
 
 What 1.0.0 still wants is not code but evidence: a real batch of tasks run
 against a real product, and detent running them instead of a person.
