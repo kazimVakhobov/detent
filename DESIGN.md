@@ -700,6 +700,10 @@ detent prune        delete agent/task-* branches already merged into agent/dev
 3. **Validation against the scan.** A repository the model invents is dropped
    rather than written, because a gap is visible and an invention is not.
 
+`init` also creates `tasks/{todo,hold,done,failed}` if they are not there,
+before any of the three passes: the queue is deterministic, so a folder that
+exists is left alone and `--no-agent` creates it too.
+
 `init --no-agent` stops after pass 1 and leaves the model's fields empty for a
 person to fill. The tool has to work for someone who has no agent installed,
 or the first such person leaves.
@@ -746,8 +750,11 @@ submodule outside `neverCommit`, an `agent/dev` that tracks a remote. It
 exits 1 on a failure and writes nothing; where there is a command that fixes a
 finding, it prints the command.
 
-### Three things `doctor` checks beyond the nine conditions
+### Four things `doctor` checks beyond the nine conditions
 
+- **the queue exists** — `tasks/{todo,hold,done,failed}` (§11); a product with
+  nowhere to put a task is not ready, whatever else the report says. `init`
+  creates it, and that is the command the finding prints
 - **no branch named exactly `agent`** — it makes the whole namespace
   uncreatable, and the error arrives mid-run looking like something else (§2)
 - **every value in `branches` matches `^agent/`** — the guarantee that no
