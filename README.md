@@ -6,7 +6,7 @@ A detent is the catch that holds a mechanism in a defined position until it is
 deliberately released. Here it is released by a green gauge — the project's own
 checks — and by nothing else.
 
-> **Status: 0.3.0 — all thirteen build steps are done.** `detent run` takes
+> **Status: 0.3.1 — all thirteen build steps are done.** `detent run` takes
 > tasks from a queue to `agent/dev` with Claude Code, Codex or Gemini CLI behind
 > the gauge, and `detent summary` reports what it cost; a second model reads
 > every green diff and may send it back, never wave it through; `init` writes

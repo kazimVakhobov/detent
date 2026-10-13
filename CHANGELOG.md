@@ -4,7 +4,26 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
-## Unreleased
+## 0.3.1 — 2026-10-13
+
+What a first run on a clean machine found. Both entries below come from
+walking the install path as a stranger would, which is also how the README
+section was written.
+
+0.3.0 reached the registry in the meantime. It was tagged on 2026-10-12 and
+its publish step failed because the package had no trusted publisher
+configured — npm had nothing to check the workflow's identity against. The
+repository side had been right since the workflow was written; configuring the
+npm side and re-running the same tag published it, and that first publish is
+what validates the configuration, so tags from here publish themselves.
+
+### Added
+
+- A **Getting started** section in the README: how to install, what a product
+  folder is and why it is not the folder your repositories happen to sit in,
+  the four commands that get to `ready`, the shape of a task file, and
+  `detent run`. The README explained what detent refuses to do and never said
+  what to type.
 
 ### Fixed
 
