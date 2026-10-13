@@ -185,10 +185,12 @@ gauge refuses to let lie.
 - [PROGRESS.md](PROGRESS.md) — where the build actually is, against the build order
 - [CHANGELOG.md](CHANGELOG.md)
 
-detent does not build itself yet: the branch model, the commit format and the
-queue are followed by hand, by a person and an agent in a session, under the
-names the tool will use. What changes at self-hosting is who types the
-commands.
+detent builds itself as far as `agent/dev`. Since 2026-10-13 the tasks in this
+repository have been dispatched by `detent run`, held behind the gauge on the
+way out, read by the acceptance pass and merged by the tool —
+`git log --grep='^Acceptance: '` is the record, and nobody typed those trailers
+by hand. The task files are still written by a person, and so is everything
+past `agent/dev`: the pull request to `dev`, the tag, the release.
 
 ## License
 

@@ -23,6 +23,18 @@ Notable changes, newest first. The format follows
   owed a repository that declares no gauge at all
   ([0011](docs/adr/0011-a-gauge-that-cannot-read-the-change.md)).
 
+### Fixed
+
+- [`PROGRESS.md`](PROGRESS.md) and the README record that **self-hosting was
+  reached on 2026-10-13**, with task 0026. Both still said detent did not build
+  itself yet, a day after it started to. The milestone names evidence a reader
+  of this repository can check without the product folder the journal lives in:
+  `git log --grep='^Acceptance: '` lists what detent has worked here, carrying
+  the trailers `DESIGN.md` §10 specifies. The claim is bounded to what
+  happened — detent merges onto `agent/dev` and has opened no pull request,
+  placed no tag and moved no branch of a person's, and the task files are
+  still written by hand.
+
 ## 0.3.1 — 2026-10-13
 
 What a first run on a clean machine found. Both entries below come from
