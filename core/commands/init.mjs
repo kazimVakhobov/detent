@@ -11,6 +11,7 @@ import { diffLines, hunks, mergeProposal, proposeProduct } from '../propose.mjs'
 import { invoke as defaultInvoke } from '../agents.mjs'
 import { modelPass } from '../model-pass.mjs'
 import { scanProduct } from '../scan.mjs'
+import { createQueue } from '../task.mjs'
 import { UsageError } from './usage.mjs'
 
 export const options = { 'no-agent': { type: 'boolean', default: false } }
@@ -25,6 +26,14 @@ export async function run(dir, _positionals = [], values = {}, { invoke = defaul
   if (scan.repos.length === 0) {
     process.stderr.write(`detent init: no git repository directly inside ${root} — a product is a folder of repositories side by side\n`)
     return 1
+  }
+
+  // The queue, before any model is asked: a product declared ready with
+  // nowhere to put a task is the on-ramp broken. Deterministic, so --no-agent
+  // creates it too.
+  const created = createQueue(root)
+  if (created.length) {
+    process.stdout.write(`created ${created.map((f) => `tasks/${f}`).join(', ')} — the queue run reads and plan writes into\n`)
   }
 
   const file = join(root, PRODUCT_FILE)

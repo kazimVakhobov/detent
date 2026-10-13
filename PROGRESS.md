@@ -45,10 +45,11 @@ and moves no ref outside `refs/heads/agent/`.
 
 ## Versions
 
-`0.0.x` is the skeleton and holds the name: published to npm as
-`@kazimvakhobov/detent`, and not installable for any purpose. `0.3.0` is the
-first version that is — `0.1.0` and `0.2.0` were cut here and never tagged, so
-the registry skips them.
+`0.0.x` is the skeleton and holds the name. `0.0.0-stage` and `0.0.1` are on npm
+as `@kazimvakhobov/detent` and not installable for any purpose; `0.0.2` was
+tagged but its publish step failed, so the registry never served it. `0.3.0` is
+the first version that is installable — `0.1.0` and `0.2.0` were cut here and
+never tagged, so the registry goes from `0.0.1` to it.
 
 | Version | Means |
 |---|---|

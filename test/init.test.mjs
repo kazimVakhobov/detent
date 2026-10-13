@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { validateProduct } from '../core/product.mjs'
@@ -163,6 +163,29 @@ test('detent init writes product.json, then proposes rather than overwrites', ()
   assert.ok(proposal.repos.some((r) => r.name === 'shop-admin'))
 })
 
+test('detent init creates the queue, with --no-agent too, and leaves what is queued alone', () => {
+  const dir = shop()
+  const queued = join(dir, 'tasks', 'todo', '0001-wallet-endpoint.md')
+  mkdirSync(join(dir, 'tasks', 'todo'), { recursive: true })
+  writeFileSync(queued, '---\nid: 0001\nrepo: shop-api\n---\n\n# Goal\n')
+  const env = withAgents(['claude', 'codex'], (path) => ({ ...process.env, PATH: `${path}:${process.execPath.replace(/\/node$/, '')}` }))
+
+  const out = execFileSync(process.execPath, [cli, 'init', '--product', dir, '--no-agent'], { encoding: 'utf8', env })
+  assert.match(out, /^created tasks\/hold, tasks\/done, tasks\/failed — the queue run reads and plan writes into$/m, 'only the folders it created are named')
+  for (const folder of ['todo', 'hold', 'done', 'failed']) {
+    assert.equal(statSync(join(dir, 'tasks', folder)).isDirectory(), true, `tasks/${folder}`)
+  }
+  assert.deepEqual(readdirSync(join(dir, 'tasks', 'todo')), ['0001-wallet-endpoint.md'], 'nothing queued was moved')
+  assert.equal(readFileSync(queued, 'utf8'), '---\nid: 0001\nrepo: shop-api\n---\n\n# Goal\n', 'or rewritten')
+
+  const again = execFileSync(process.execPath, [cli, 'init', '--product', dir, '--no-agent'], { encoding: 'utf8', env })
+  assert.doesNotMatch(again, /^created tasks\//m, 'a folder that is already there is left alone, and not announced')
+
+  const fresh = shop()
+  execFileSync(process.execPath, [cli, 'init', '--product', fresh, '--no-agent'], { encoding: 'utf8', env })
+  assert.deepEqual(readdirSync(join(fresh, 'tasks')).sort(), ['done', 'failed', 'hold', 'todo'])
+})
+
 test('detent init in a folder with no repositories says what a product is', () => {
   const dir = mkdtempSync(join(tmpdir(), 'detent-empty-'))
   let error
@@ -174,4 +197,5 @@ test('detent init in a folder with no repositories says what a product is', () =
   assert.equal(error.status, 1)
   assert.match(error.stderr, /no git repository directly inside/)
   assert.ok(!existsSync(join(dir, '.detent')))
+  assert.ok(!existsSync(join(dir, 'tasks')), 'a folder that is not a product gets no queue either')
 })
