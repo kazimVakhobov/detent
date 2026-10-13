@@ -40,6 +40,82 @@ model should run this repository" from an opinion into a number.
 judgement may only raise a doubt and send the task to a person. Otherwise
 "proven" quietly becomes "a second model agreed".
 
+## Getting started
+
+```
+npm i -g @kazimvakhobov/detent
+```
+
+Node 22, and one of Claude Code, Codex or Gemini CLI installed and signed in.
+detent drives the agent you already pay for and ships none of its own.
+
+**A product folder is not the folder your repositories happen to sit in.**
+detent treats everything directly inside it as one product, so give it a folder
+of its own and put the repositories it dispatches to inside:
+
+```
+~/work/acme/
+  .detent/product.json      written by init
+  tasks/{todo,hold,done,failed}/
+  acme-api/                 a full clone, on any branch
+  acme-web/
+```
+
+Then, from that folder:
+
+```
+git -C acme-api branch agent/dev dev    # integration branch, off the one it is compared against
+detent init                             # scan, then ask the agent what a scan cannot see
+mkdir -p tasks/{todo,hold,done,failed}  # the queue
+detent doctor                           # the nine conditions, and what to change
+```
+
+`init` reads the repositories and asks the implementing agent, read-only, about
+what it could not determine; `--no-agent` stops after the scan. Read the two
+things it cannot decide for you before an agent is held to them:
+
+- **the gauge.** Stages are proposed only from scripts a repository declares, so
+  what you get is what the repository advertises, not what you would have
+  chosen. `detent gauge` runs them by hand.
+- **`models.accept`.** Left empty, there is no acceptance pass at all. It must
+  name a different model from `implement` — a different CLI if you have one, and
+  at minimum a different model of the same one.
+
+`doctor` answers `ready` when the shape is right. Then write a task. The
+frontmatter is bookkeeping and **only the body reaches the agent** — the spec
+written before the work is the prompt:
+
+```markdown
+---
+id: 0001
+repo: acme-api
+touches_contract: false
+---
+
+# Goal
+
+One paragraph: what must work when this is done.
+
+# Acceptance criteria
+
+- [ ] a checkable statement
+
+# Out of scope
+
+What not to do while you are in there.
+```
+
+Save it as `tasks/todo/0001-wallet-endpoint.md`, and:
+
+```
+detent run
+```
+
+The agent works on `agent/task-0001-wallet-endpoint`, the gauge runs on its way
+out, and a green task lands on `agent/dev` as one merge commit carrying what it
+cost. `detent summary` reports the numbers, `detent dashboard` serves a page
+that watches them, and nothing has touched a branch of yours.
+
 ## The line agents do not cross
 
 ```
