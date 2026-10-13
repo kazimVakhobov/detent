@@ -342,6 +342,17 @@ A gauge of `lint + typecheck` with no tests checks that the code compiles, not
 that it works. detent will run it and will say so in the summary; it will not
 call it behaviour.
 
+**A profile's stages define what green covers, and green means nothing outside
+them.** A stage checks what its command reads, and a change the command never
+opens has not been checked — however green the run, however real the gauge. A
+repository whose gauge is `lint + typecheck + test` and whose task edited only
+the README has been told that the code still compiles and the tests still pass,
+and nothing at all about the README. This is the honesty of `"lock": "absent"`
+extended to a gauge that is real but blind to the change in front of it: detent
+reports the stages that ran and reads no further into them. Covering a gap like
+that is a stage somebody adds, never an interpretation detent supplies
+([0011](docs/adr/0011-a-gauge-that-cannot-read-the-change.md)).
+
 ### The lock
 
 Stages run in order and the first red one ends the gauge: it is the answer, and

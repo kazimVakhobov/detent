@@ -64,6 +64,7 @@ with `.detent/product.json`:
         "exit": [
           { "stage": "deps", "command": "node scripts/check-no-deps.mjs" },
           { "stage": "progress", "command": "node scripts/check-progress.mjs" },
+          { "stage": "docs", "command": "node scripts/check-docs.mjs" },
           { "stage": "test", "command": "node --test" }
         ]
       }
@@ -102,11 +103,20 @@ npm run verify
 
 Zero dependencies, so there is no install step. It must be green before a pull
 request, and CI runs the same command on `main`, `dev`, `staging` and anything
-under `agent/`. Three things run in it:
+under `agent/`. Four things run in it, each its own stage so that a failure
+names itself:
 
 1. `check-no-deps.mjs` — the zero-dependency claim
 2. `check-progress.mjs` — `PROGRESS.md` says nothing it cannot prove
-3. `node --test` — the tests
+3. `check-docs.mjs` — links resolve, a version called current is the current
+   one, and the ADR index matches `docs/adr/`
+4. `node --test` — the tests
+
+The `docs` stage exists because two of the first four tasks run here changed
+only documentation, and for those two the gauge was green by construction:
+none of its stages opened a markdown file ([0011](docs/adr/0011-a-gauge-that-cannot-read-the-change.md)).
+It settles what can be settled without judgement; whether a sentence is true is
+still nobody's stage.
 
 ## Commits
 
