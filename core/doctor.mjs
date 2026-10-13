@@ -7,6 +7,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { operationInProgress } from './git.mjs'
 import { PRODUCT_FILE, validateProduct } from './product.mjs'
+import { FOLDERS, missingQueue } from './task.mjs'
 
 export const OK = 'ok'
 export const FAIL = 'fail'
@@ -22,6 +23,22 @@ export function diagnose(dir, scan) {
   const major = Number(scan.node.split('.')[0])
   const platformOk = scan.platform === 'darwin' || scan.platform === 'linux'
   say(product, platformOk && major >= 22 ? OK : FAIL, 9, `${scan.platform}, Node ${scan.node}`, platformOk ? (major >= 22 ? null : 'install Node 22 or newer') : 'detent runs on macOS or Linux')
+
+  // The queue (§11): a product with nowhere to put a task is not ready,
+  // whatever the rest of the report says. Checked from the folder alone, and
+  // never created here — doctor writes nothing.
+  const missing = missingQueue(dir)
+  if (missing.length) {
+    say(
+      product,
+      FAIL,
+      null,
+      `${missing.map((f) => `tasks/${f}`).join(', ')} ${missing.length === 1 ? 'does' : 'do'} not exist — run has no queue to read and plan nowhere to write`,
+      `detent init --product ${dir}`,
+    )
+  } else {
+    say(product, OK, null, `the queue is there: tasks/{${FOLDERS.join(',')}}`)
+  }
 
   // The file everything else is read from.
   const file = join(dir, PRODUCT_FILE)

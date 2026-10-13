@@ -1,11 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { FAIL, INFO, LOOK, OK, diagnose, failed } from '../core/doctor.mjs'
 import { scanProduct } from '../core/scan.mjs'
+import { FOLDERS } from '../core/task.mjs'
 
 const cli = join(import.meta.dirname, '..', 'cli.mjs')
 const sh = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8' })
@@ -23,9 +24,10 @@ function repo(dir, name, { branches = ['agent/dev'], files = { 'a.txt': 'a\n' } 
   return path
 }
 
-function product(raw, build) {
+function product(raw, build, { queue = true } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'detent-doctor-'))
   build?.(dir)
+  if (queue) for (const folder of FOLDERS) mkdirSync(join(dir, 'tasks', folder), { recursive: true })
   if (raw) {
     mkdirSync(join(dir, '.detent'))
     writeFileSync(join(dir, '.detent', 'product.json'), typeof raw === 'string' ? raw : JSON.stringify(raw))
@@ -58,6 +60,23 @@ test('a product in shape: nothing fails', () => {
   assert.equal(report.product.find((c) => c.condition === 9).status, OK)
   assert.equal(report.product.find((c) => c.condition === 8).status, INFO, 'one person per workspace cannot be checked, and says so')
   assert.equal(report.product.filter((c) => c.condition === 6).every((c) => c.status === OK), true)
+})
+
+test('the queue is a check of its own: there is a pass, missing is a failure naming the command', () => {
+  const whole = product(healthy, (d) => repo(d, 'api'))
+  assert.equal(find(diagnose(whole, scan(whole)).product, /the queue is there/).status, OK)
+
+  const dir = product(healthy, (d) => repo(d, 'api'), { queue: false })
+  const report = diagnose(dir, scan(dir))
+  const check = find(report.product, /tasks\/todo/)
+  assert.equal(check.status, FAIL)
+  assert.equal(check.fix, `detent init --product ${dir}`)
+  assert.equal(failed(report), 1, 'a product with nowhere to put a task is not ready')
+  assert.equal(existsSync(join(dir, 'tasks')), false, 'doctor created nothing')
+
+  mkdirSync(join(dir, 'tasks', 'todo'), { recursive: true })
+  const half = find(diagnose(dir, scan(dir)).product, /do not exist/)
+  assert.match(half.text, /^tasks\/hold, tasks\/done, tasks\/failed do not exist/, 'only the folders that are missing are named')
 })
 
 test('no agent/dev: the command to create it, from the compare branch, and nothing more', () => {
@@ -167,6 +186,18 @@ test('detent doctor exits 1 on a failure, 0 when ready, and writes nothing', () 
   sh(join(dir, 'api'), 'branch', 'agent/dev')
   const out = execFileSync(process.execPath, [cli, 'doctor', '--product', dir], { encoding: 'utf8', env })
   assert.match(out, /^ready/m)
+
+  // A product whose queue is gone is not ready, and does not exit 0.
+  rmSync(join(dir, 'tasks'), { recursive: true })
+  let gone
+  try {
+    execFileSync(process.execPath, [cli, 'doctor', '--product', dir], { encoding: 'utf8', stdio: 'pipe', env })
+  } catch (e) {
+    gone = e
+  }
+  assert.equal(gone.status, 1)
+  assert.doesNotMatch(gone.stdout, /^ready/m)
+  assert.match(gone.stdout, /^ +→ detent init --product /m)
 })
 
 test('staging: a promote gauge with no staging fails, a declared staging must exist', () => {

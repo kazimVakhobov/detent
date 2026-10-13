@@ -4,6 +4,37 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
+## 0.3.1 — 2026-10-13
+
+What a first run on a clean machine found. Both entries below come from
+walking the install path as a stranger would, which is also how the README
+section was written.
+
+0.3.0 reached the registry in the meantime. It was tagged on 2026-10-12 and
+its publish step failed because the package had no trusted publisher
+configured — npm had nothing to check the workflow's identity against. The
+repository side had been right since the workflow was written; configuring the
+npm side and re-running the same tag published it, and that first publish is
+what validates the configuration, so tags from here publish themselves.
+
+### Added
+
+- A **Getting started** section in the README: how to install, what a product
+  folder is and why it is not the folder your repositories happen to sit in,
+  the four commands that get to `ready`, the shape of a task file, and
+  `detent run`. The README explained what detent refuses to do and never said
+  what to type.
+
+### Fixed
+
+- `detent init` creates `tasks/{todo,hold,done,failed}`, and `detent doctor`
+  reports the queue as its own check. `init` wrote `product.json` and stopped,
+  so the queue `run` reads and `plan` writes into was never created; `doctor`
+  had no check for it and answered `ready` for a product with nowhere to put a
+  task. The README quickstart papered over it with a `mkdir -p`, which is gone.
+  A folder that already exists is left alone, and a missing one is now a
+  failure that prints the command creating it.
+
 ## 0.3.0 — 2026-10-12
 
 The build order is complete: steps 9, 10, 12 and 13 of
@@ -11,10 +42,12 @@ The build order is complete: steps 9, 10, 12 and 13 of
 `init`'s model pass and `plan` — and with `prune`, every command in
 `detent --help` does something.
 
-Also the first version worth installing. 0.1.0 and 0.2.0 were cut in the
-repository and never tagged, so the registry goes from 0.0.2 to here; the
-entries below them record what each of those two was, because a version that
-nobody could install is still a claim this project has to keep straight.
+Also the first version worth installing. The last version the registry served
+is 0.0.1: 0.0.2 was tagged but its publish step failed, and 0.1.0 and 0.2.0
+were cut in the repository and never tagged. So the registry goes from 0.0.1 to
+here, and the entries below record what each of those three was, because a
+version that nobody could install is still a claim this project has to keep
+straight.
 
 What 1.0.0 still wants is not code but evidence: a real batch of tasks run
 against a real product, and detent running them instead of a person.
@@ -167,8 +200,16 @@ journal says what it cost. Build steps 1–6 of [`PROGRESS.md`](PROGRESS.md).
 
 ## 0.0.2 — 2026-10-03
 
-The first release cut by the workflow rather than by hand: tagged, checked
-against `package.json`, published with provenance.
+The first release cut by the workflow rather than by hand — and the first one
+that did not reach anybody. `v0.0.2` was tagged, the release workflow ran on
+the tag and the version matched `package.json`, but the publish step failed.
+This version is not on the registry, which holds only `0.0.0-stage` and
+`0.0.1`, both uploaded by hand on 2026-10-03. Everything below happened in the
+repository; none of it was ever installable at this version.
+
+This entry claimed the publish succeeded until 2026-10-13, which is the kind
+of unchecked claim the project exists to refuse. Why the step failed is a
+separate question.
 
 ### Added
 
@@ -192,7 +233,7 @@ against `package.json`, published with provenance.
 ### Changed
 
 - `detent promote` is listed in `detent --help`, and exits 70 like every other
-  command that does not exist yet. This is the only change to the published
+  command that does not exist yet. This is the only change to the packaged
   artifact; the rest of the release is the reasoning behind it.
 - The package metadata spells the GitHub account `kazimVakhobov` —
   `repository`, `homepage`, `bugs` and `author` previously resolved only
