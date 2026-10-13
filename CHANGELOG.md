@@ -4,6 +4,18 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
+## Unreleased
+
+### Fixed
+
+- `detent init` creates `tasks/{todo,hold,done,failed}`, and `detent doctor`
+  reports the queue as its own check. `init` wrote `product.json` and stopped,
+  so the queue `run` reads and `plan` writes into was never created; `doctor`
+  had no check for it and answered `ready` for a product with nowhere to put a
+  task. The README quickstart papered over it with a `mkdir -p`, which is gone.
+  A folder that already exists is left alone, and a missing one is now a
+  failure that prints the command creating it.
+
 ## 0.3.0 — 2026-10-12
 
 The build order is complete: steps 9, 10, 12 and 13 of
