@@ -196,8 +196,19 @@ test('a missing product.json inside a repository says so, and does not send anyo
   mkdirSync(join(versioned, '.git'))
   mkdirSync(join(versioned, 'acme-api', '.git'), { recursive: true })
   const versionedProblem = problemIn(versioned)
-  assert.match(versionedProblem, /the folder your repositories sit in/)
-  assert.ok(!/is a git repository/.test(versionedProblem), `a versioned product folder is the right place, got: ${versionedProblem}`)
+  assert.match(versionedProblem, /1 repository is sitting here/)
+  assert.match(versionedProblem, /run `detent init`/)
+  assert.ok(!/not from one of them/.test(versionedProblem), `a versioned product folder is the right place, got: ${versionedProblem}`)
+
+  // Standing in the product folder: the answer is what to run, not a
+  // description of where the file belongs. Whoever is reading this is already
+  // standing there, and being told so is not help.
+  const product = mkdtempSync(join(tmpdir(), 'detent-productdir-'))
+  for (const name of ['acme-api', 'acme-web', 'acme-docs']) mkdirSync(join(product, name, '.git'), { recursive: true })
+  mkdirSync(join(product, 'notes'))
+  const productProblem = problemIn(product)
+  assert.match(productProblem, /3 repositories are sitting here/, 'a folder that is not a repository is not counted')
+  assert.match(productProblem, /run `detent init`/)
 })
 
 test('loadProduct reads .detent/product.json and throws a ConfigError naming the file', () => {

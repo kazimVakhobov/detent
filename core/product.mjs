@@ -48,17 +48,25 @@ export class ConfigError extends Error {
 // every repository in it for part of the same product — the mistake this
 // message exists to prevent, arrived at by following the message.
 function missingProductFile(dir) {
-  if (!holdsRepositories(dir) && existsSync(join(dir, '.git'))) {
+  const inside = repositoriesIn(dir)
+  // Standing in the right place: say so and say what to run. Describing where
+  // the file belongs to somebody already standing there is not help.
+  if (inside.length > 0) {
+    return `does not exist, and ${inside.length} ${inside.length === 1 ? 'repository is' : 'repositories are'} sitting here — this looks like the product folder, so run \`detent init\``
+  }
+  if (existsSync(join(dir, '.git'))) {
     return `does not exist, and ${basename(dir) || dir} is a git repository with no repositories inside it — detent works from the folder your repositories sit in, not from one of them`
   }
   return 'does not exist — `detent init` writes it, in the folder your repositories sit in'
 }
 
-function holdsRepositories(dir) {
+function repositoriesIn(dir) {
   try {
-    return readdirSync(dir, { withFileTypes: true }).some((entry) => entry.isDirectory() && entry.name !== '.git' && existsSync(join(dir, entry.name, '.git')))
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name !== '.git' && existsSync(join(dir, entry.name, '.git')))
+      .map((entry) => entry.name)
   } catch {
-    return false
+    return []
   }
 }
 
