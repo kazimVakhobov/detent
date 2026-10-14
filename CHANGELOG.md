@@ -8,13 +8,16 @@ Notable changes, newest first. The format follows
 
 ### Fixed
 
-- A missing `.detent/product.json` answers with what to run. Standing in a
-  folder where repositories sit, the message counts them and says to run
-  `detent init`, instead of describing where the file belongs to somebody
-  already standing there. Standing inside a clone still names that mistake,
-  and a product folder kept under version control is no longer mistaken for
-  one: what decides it is the repositories inside, not whether the folder
-  itself is a repository.
+- A missing `.detent/product.json` explains itself. The one-line answer was
+  right and useless to its most likely reader, who has not met the tool: the
+  message now says what the file is for, draws the folder it belongs in, names
+  the repositories it can see from where it was pointed, and ends in the
+  command to run. Three situations get three answers — standing in the product
+  folder, standing inside a clone, and standing somewhere with nothing in it —
+  and the clone one is still careful never to name the parent directory as the
+  fix, since that is usually a projects directory and following it would build
+  one product out of everything in it. `ConfigError` carries an optional hint
+  for this: problems stay a list, prose comes after them.
 - `detent init` on a `product.json` somebody broke says `is not valid JSON`
   and where to go from there, instead of a `SyntaxError` and a stack trace.
   It read the file with a bare `JSON.parse` while every other command went

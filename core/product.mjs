@@ -23,12 +23,17 @@ const AGENT_NAMES = ['claude', 'codex', 'gemini']
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 const SOURCES = new Set(['scan', 'model'])
 
+// `problems` are one line each, because the person fixing the file wants a
+// list. `hint` is prose, printed after them, and exists for the one problem
+// that cannot be fixed by reading a list: the file is not there at all, and
+// whoever is reading has not met this tool before.
 export class ConfigError extends Error {
-  constructor(file, problems) {
-    super(`${file} is not usable:\n${problems.map((p) => `  ${p}`).join('\n')}`)
+  constructor(file, problems, hint = null) {
+    super(`${file} is not usable:\n${problems.map((p) => `  ${p}`).join('\n')}${hint ? `\n\n${hint}\n` : ''}`)
     this.name = 'ConfigError'
     this.file = file
     this.problems = problems
+    this.hint = hint
   }
 }
 
@@ -47,17 +52,87 @@ export class ConfigError extends Error {
 // usually a projects directory full of unrelated ones, and detent would take
 // every repository in it for part of the same product — the mistake this
 // message exists to prevent, arrived at by following the message.
+// The file being absent is the one problem a list cannot fix: whoever reads it
+// has usually not met the tool, and the question behind the message is not
+// "which key is wrong" but "what is this file and where am I". So it answers
+// that, with what it can see from where it was pointed.
 function missingProductFile(dir) {
   const inside = repositoriesIn(dir)
-  // Standing in the right place: say so and say what to run. Describing where
-  // the file belongs to somebody already standing there is not help.
+  const here = basename(dir) || dir
+
   if (inside.length > 0) {
-    return `does not exist, and ${inside.length} ${inside.length === 1 ? 'repository is' : 'repositories are'} sitting here — this looks like the product folder, so run \`detent init\``
+    const shown = inside.slice(0, 8).join(', ') + (inside.length > 8 ? `, and ${inside.length - 8} more` : '')
+    const counted = `${inside.length} ${inside.length === 1 ? 'repository is' : 'repositories are'} here: ${shown}`
+    return {
+      problem: 'does not exist',
+      hint: [
+        'detent reads one file to know what a product is: which repositories it',
+        'has, the human branch each is compared against, the gauge that decides',
+        'when an agent may stop, and which agent fills which role. It sits beside',
+        'the repositories, never inside one, with the queue:',
+        '',
+        `  ${here}/`,
+        '    .detent/product.json',
+        '    tasks/{todo,hold,done,failed}/',
+        `    ${inside.slice(0, 2).map((n) => `${n}/`).join('  ')}${inside.length > 2 ? '  …' : ''}`,
+        '',
+        ...wrap(counted),
+        '',
+        '  detent init             scan them, write the file, then ask an agent',
+        '                          read-only what the scan cannot see',
+        '  detent init --no-agent  the scan only',
+      ].join('\n'),
+    }
   }
+
   if (existsSync(join(dir, '.git'))) {
-    return `does not exist, and ${basename(dir) || dir} is a git repository with no repositories inside it — detent works from the folder your repositories sit in, not from one of them`
+    return {
+      problem: `does not exist, and ${here} is a repository`,
+      hint: [
+        'detent does not work from inside a repository. It works from the folder',
+        'your repositories sit in, side by side, because a task names which',
+        'repository it belongs to and the gauge is declared per repository.',
+        '',
+        'Not the folder above this one, unless that folder holds this product and',
+        'nothing else: every repository directly inside becomes part of the same',
+        'product, so a projects directory would make one product out of all of',
+        'them.',
+        '',
+        '  mkdir ~/work/<product> && cd ~/work/<product>',
+        '  git clone <each repository of the product>',
+        '  detent init',
+      ].join('\n'),
+    }
   }
-  return 'does not exist — `detent init` writes it, in the folder your repositories sit in'
+
+  return {
+    problem: 'does not exist, and no repositories are here',
+    hint: [
+      'detent works from a product folder: the repositories of one product',
+      'sitting side by side, with .detent/product.json and the queue beside them.',
+      '',
+      '  mkdir ~/work/<product> && cd ~/work/<product>',
+      '  git clone <each repository of the product>',
+      '  detent init',
+    ].join('\n'),
+  }
+}
+
+// A list of names is the one part of the hint whose length is not ours to
+// choose, so it is the one part that wraps.
+function wrap(text, width = 76) {
+  const lines = []
+  let line = ''
+  for (const word of text.split(' ')) {
+    if (line && `${line} ${word}`.length > width) {
+      lines.push(line)
+      line = word
+    } else {
+      line = line ? `${line} ${word}` : word
+    }
+  }
+  if (line) lines.push(line)
+  return lines
 }
 
 function repositoriesIn(dir) {
@@ -78,7 +153,10 @@ export function loadProduct(productDir) {
   try {
     text = readFileSync(file, 'utf8')
   } catch (error) {
-    if (error.code === 'ENOENT') throw new ConfigError(file, [missingProductFile(dir)])
+    if (error.code === 'ENOENT') {
+      const { problem, hint } = missingProductFile(dir)
+      throw new ConfigError(file, [problem], hint)
+    }
     throw error
   }
 

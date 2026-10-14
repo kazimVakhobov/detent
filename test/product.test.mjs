@@ -166,28 +166,29 @@ test('a missing product.json inside a repository says so, and does not send anyo
   const inRepo = mkdtempSync(join(tmpdir(), 'detent-inrepo-'))
   mkdirSync(join(inRepo, '.git'))
 
-  const problemIn = (dir) => {
+  const errorIn = (dir) => {
     try {
       loadProduct(dir)
       throw new Error('loadProduct did not throw')
     } catch (error) {
-      return error.problems[0]
+      return error
     }
   }
+  const problemIn = (dir) => errorIn(dir).problems[0]
+  const hintIn = (dir) => errorIn(dir).hint ?? ''
 
-  // Standing somewhere ordinary: the plain answer, and where to stand.
-  const plainProblem = problemIn(plain)
-  assert.match(plainProblem, /does not exist/)
-  assert.match(plainProblem, /the folder your repositories sit in/)
-  assert.ok(!/git repository/.test(plainProblem), plainProblem)
+  // Standing somewhere ordinary: nothing here, and how a product folder is made.
+  assert.match(problemIn(plain), /does not exist, and no repositories are here/)
+  assert.match(hintIn(plain), /the repositories of one product/)
+  assert.match(hintIn(plain), /detent init/)
 
   // Standing in a clone: the mistake is named, because it is the usual one.
-  const repoProblem = problemIn(inRepo)
-  assert.match(repoProblem, /is a git repository/)
-  assert.match(repoProblem, /not from one of them/)
+  assert.match(problemIn(inRepo), /is a repository/)
+  assert.match(hintIn(inRepo), /does not work from inside a repository/)
   // Never the parent as the fix: it is normally a projects directory, and
   // following that advice builds a product out of unrelated repositories.
-  assert.ok(!repoProblem.includes(dirname(inRepo)), repoProblem)
+  assert.ok(!hintIn(inRepo).includes(dirname(inRepo)), hintIn(inRepo))
+  assert.match(hintIn(inRepo), /Not the folder above this one/)
 
   // A product folder kept under version control — the queue and the journal
   // are text worth a history — is where you should be standing, not a clone to
@@ -195,20 +196,29 @@ test('a missing product.json inside a repository says so, and does not send anyo
   const versioned = mkdtempSync(join(tmpdir(), 'detent-versioned-'))
   mkdirSync(join(versioned, '.git'))
   mkdirSync(join(versioned, 'acme-api', '.git'), { recursive: true })
-  const versionedProblem = problemIn(versioned)
-  assert.match(versionedProblem, /1 repository is sitting here/)
-  assert.match(versionedProblem, /run `detent init`/)
-  assert.ok(!/not from one of them/.test(versionedProblem), `a versioned product folder is the right place, got: ${versionedProblem}`)
+  assert.match(hintIn(versioned), /1 repository is here: acme-api/)
+  assert.ok(!/inside a repository/.test(hintIn(versioned)), hintIn(versioned))
 
-  // Standing in the product folder: the answer is what to run, not a
-  // description of where the file belongs. Whoever is reading this is already
-  // standing there, and being told so is not help.
+  // Standing in the product folder: the hint explains what the file is, names
+  // what it can see, and ends in the command. Whoever reads this has not met
+  // the tool, so a list of keys would answer a question they did not ask.
   const product = mkdtempSync(join(tmpdir(), 'detent-productdir-'))
   for (const name of ['acme-api', 'acme-web', 'acme-docs']) mkdirSync(join(product, name, '.git'), { recursive: true })
   mkdirSync(join(product, 'notes'))
-  const productProblem = problemIn(product)
-  assert.match(productProblem, /3 repositories are sitting here/, 'a folder that is not a repository is not counted')
-  assert.match(productProblem, /run `detent init`/)
+  const hint = hintIn(product)
+  assert.match(hint, /3 repositories are here: acme-api, acme-docs, acme-web/, 'a folder that is not a repository is not counted')
+  assert.match(hint, /the gauge that decides/, 'it says what the file is for')
+  assert.match(hint, /tasks\/\{todo,hold,done,failed\}\//, 'and what the folder looks like')
+  assert.match(hint, /detent init --no-agent/)
+
+  // A long list wraps rather than running off the terminal.
+  const many = mkdtempSync(join(tmpdir(), 'detent-many-'))
+  for (let i = 0; i < 12; i += 1) mkdirSync(join(many, `acme-service-number-${i}`, '.git'), { recursive: true })
+  const manyHint = hintIn(many)
+  // Wrapping splits it across lines, so the claim is checked on the text and
+  // the width on the lines.
+  assert.match(manyHint.replace(/\n/g, ' '), /and 4 more/, 'eight are named, the rest counted')
+  assert.ok(manyHint.split('\n').every((line) => line.length <= 80), 'no line runs off the terminal')
 })
 
 test('loadProduct reads .detent/product.json and throws a ConfigError naming the file', () => {
