@@ -6,7 +6,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import process from 'node:process'
-import { PRODUCT_FILE, validateProduct } from '../product.mjs'
+import { ConfigError, PRODUCT_FILE, validateProduct } from '../product.mjs'
 import { diffLines, hunks, mergeProposal, proposeProduct } from '../propose.mjs'
 import { invoke as defaultInvoke } from '../agents.mjs'
 import { modelPass } from '../model-pass.mjs'
@@ -38,7 +38,17 @@ export async function run(dir, _positionals = [], values = {}, { invoke = defaul
 
   const file = join(root, PRODUCT_FILE)
   const exists = existsSync(file)
-  const existing = exists ? JSON.parse(readFileSync(file, 'utf8')) : null
+  // A file a person edited by hand is expected input, so a comma in the wrong
+  // place is a message and never a stack trace. `loadProduct` has always said
+  // this; init read the same file and did not.
+  let existing = null
+  if (exists) {
+    try {
+      existing = JSON.parse(readFileSync(file, 'utf8'))
+    } catch (error) {
+      throw new ConfigError(file, [`is not valid JSON: ${error.message}`, 'fix it, or move it aside and let init write a new one'])
+    }
+  }
 
   // Pass 1, the scan; then passes 2 and 3 unless asked not to, or unless there
   // is no agent to ask — the tool has to work for someone without one.
@@ -70,19 +80,29 @@ export async function run(dir, _positionals = [], values = {}, { invoke = defaul
     process.stdout.write(`wrote ${PRODUCT_FILE} — ${scan.repos.length} ${scan.repos.length === 1 ? 'repository' : 'repositories'}: ${scan.repos.map((r) => r.name).join(', ')}\n`)
   } else {
     const before = `${JSON.stringify(existing, null, 2)}\n`
+    // Nothing to propose is not nothing to report: the model pass may have
+    // failed, the gauge may be empty, and returning here used to swallow both
+    // behind a sentence that reads like success.
     if (before === text) {
       process.stdout.write(`${PRODUCT_FILE} already says everything the scan found\n`)
-      return problems.length ? report(problems) : 0
+    } else {
+      writeFileSync(join(root, PROPOSED_FILE), text)
+      process.stdout.write(`${PRODUCT_FILE} exists, so nothing was overwritten. The scan proposes:\n\n`)
+      process.stdout.write(`${hunks(diffLines(before.trimEnd(), text.trimEnd())).join('\n')}\n\n`)
+      process.stdout.write(`The whole proposal is in ${PROPOSED_FILE}; move it over ${PRODUCT_FILE} to accept it.\n`)
     }
-    writeFileSync(join(root, PROPOSED_FILE), text)
-    process.stdout.write(`${PRODUCT_FILE} exists, so nothing was overwritten. The scan proposes:\n\n`)
-    process.stdout.write(`${hunks(diffLines(before.trimEnd(), text.trimEnd())).join('\n')}\n\n`)
-    process.stdout.write(`The whole proposal is in ${PROPOSED_FILE}; move it over ${PRODUCT_FILE} to accept it.\n`)
   }
 
   const notes = [...passNotes]
   if (!proposal.models?.implement) notes.push('no agent CLI found on PATH — set models.implement by hand (claude, codex or gemini)')
-  else if (!proposal.models?.accept) notes.push(`only ${proposal.models.implement.agent} is installed — set models.accept to a different model, or there is no acceptance pass`)
+  // What is installed comes from the scan, never from what the file declares:
+  // a product.json naming an agent nobody has would otherwise be reported as
+  // that agent being the only one installed.
+  else if (!proposal.models?.accept) {
+    notes.push(scan.agents.length === 1
+      ? `only ${scan.agents[0]} is installed — set models.accept to a different model, or there is no acceptance pass`
+      : 'models.accept is not set — without it there is no acceptance pass')
+  }
   for (const repo of proposal.repos) {
     if (!repo.gauge?.exit?.length) notes.push(`${repo.name}: no gauge stages — without them it has no lock`)
   }

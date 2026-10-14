@@ -4,6 +4,25 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
+## Unreleased
+
+### Fixed
+
+- `detent init` on a `product.json` somebody broke says `is not valid JSON`
+  and where to go from there, instead of a `SyntaxError` and a stack trace.
+  It read the file with a bare `JSON.parse` while every other command went
+  through the loader that has always reported this properly — and the path to
+  it is the ordinary one: edit the file by hand, misplace a comma, re-run
+  `init` to regenerate.
+- A run of `detent init` that finds nothing to propose still reports. The
+  early exit on "already says everything the scan found" was taken before the
+  notes were printed, so a failed model pass, a repository with no gauge
+  stages and a missing `models.accept` were all swallowed behind a sentence
+  that reads like success.
+- What `init` says is installed comes from the scan rather than from what
+  `product.json` declares. A file naming an agent nobody has was reported as
+  that agent being the only one installed.
+
 ## 0.4.1 — 2026-10-14
 
 One message, from watching somebody meet detent for the first time and run a

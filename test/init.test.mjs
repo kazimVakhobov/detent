@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { validateProduct } from '../core/product.mjs'
@@ -161,6 +161,36 @@ test('detent init writes product.json, then proposes rather than overwrites', ()
   const proposal = JSON.parse(readFileSync(join(dir, '.detent', 'product.proposed.json'), 'utf8'))
   assert.equal(proposal.repos[0].role, 'the API, by hand')
   assert.ok(proposal.repos.some((r) => r.name === 'shop-admin'))
+})
+
+test('a product.json a person broke is a message, and nothing to propose still reports', () => {
+  const dir = shop()
+  const env = withAgents(['claude'], (path) => ({ ...process.env, PATH: `${path}:${process.execPath.replace(/\/node$/, '')}` }))
+  const init = (extra = []) => {
+    try {
+      return { out: execFileSync(process.execPath, [cli, 'init', '--product', dir, ...extra], { encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'pipe'] }), code: 0 }
+    } catch (error) {
+      return { out: `${error.stdout ?? ''}${error.stderr ?? ''}`, code: error.status }
+    }
+  }
+
+  init(['--no-agent'])
+
+  // A comma in the wrong place is expected input from a file people edit, so
+  // it is named like any other config problem — never a stack trace.
+  writeFileSync(join(dir, '.detent', 'product.json'), '{ "version": 1, broken\n')
+  const broken = init(['--no-agent'])
+  assert.match(broken.out, /is not valid JSON/)
+  assert.match(broken.out, /move it aside/)
+  assert.doesNotMatch(broken.out, /SyntaxError|at Module\./, 'a stack trace is not an error message')
+
+  // Nothing to propose is not nothing to report: the notes still print, so a
+  // run that changed no file still says what is missing.
+  rmSync(join(dir, '.detent', 'product.json'))
+  init(['--no-agent'])
+  const unchanged = init(['--no-agent'])
+  assert.match(unchanged.out, /already says everything the scan found/)
+  assert.match(unchanged.out, /read the gauge stages before an agent is held to them/, 'the notes survive the early exit')
 })
 
 test('detent init creates the queue, with --no-agent too, and leaves what is queued alone', () => {
