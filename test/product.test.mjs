@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { ConfigError, loadProduct, validateProduct } from '../core/product.mjs'
 
 function minimal(overrides = {}) {
@@ -159,6 +159,35 @@ test('every edge names known repositories and says where it came from', () => {
 test('every problem is reported, not just the first', () => {
   const problems = problemsOf({ version: 2, product: {}, repos: [{ name: 'a' }], extra: true })
   assert.ok(problems.length >= 4, problems.join('\n'))
+})
+
+test('a missing product.json inside a repository says so, and does not send anyone one level up', () => {
+  const plain = mkdtempSync(join(tmpdir(), 'detent-plain-'))
+  const inRepo = mkdtempSync(join(tmpdir(), 'detent-inrepo-'))
+  mkdirSync(join(inRepo, '.git'))
+
+  const problemIn = (dir) => {
+    try {
+      loadProduct(dir)
+      throw new Error('loadProduct did not throw')
+    } catch (error) {
+      return error.problems[0]
+    }
+  }
+
+  // Standing somewhere ordinary: the plain answer, and where to stand.
+  const plainProblem = problemIn(plain)
+  assert.match(plainProblem, /does not exist/)
+  assert.match(plainProblem, /the folder your repositories sit in/)
+  assert.ok(!/git repository/.test(plainProblem), plainProblem)
+
+  // Standing in a clone: the mistake is named, because it is the usual one.
+  const repoProblem = problemIn(inRepo)
+  assert.match(repoProblem, /is a git repository/)
+  assert.match(repoProblem, /not from one of them/)
+  // Never the parent as the fix: it is normally a projects directory, and
+  // following that advice builds a product out of unrelated repositories.
+  assert.ok(!repoProblem.includes(dirname(inRepo)), repoProblem)
 })
 
 test('loadProduct reads .detent/product.json and throws a ConfigError naming the file', () => {
