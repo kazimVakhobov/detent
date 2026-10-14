@@ -4,6 +4,21 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
+## 0.4.1 — 2026-10-14
+
+One message, from watching somebody meet detent for the first time and run a
+command from the wrong directory.
+
+### Changed
+
+- A missing `.detent/product.json` says where to stand, and names the mistake
+  when it can see it: run from inside a clone — the usual first attempt —
+  every command that reads the product now answers `<name> is a git
+  repository; detent works from the folder your repositories sit in, not from
+  one of them`. It deliberately does **not** offer the parent directory as the
+  fix: that is normally a projects directory full of unrelated clones, and
+  detent would take every one of them for part of the same product.
+
 ## 0.4.0 — 2026-10-13
 
 The release where the repository started checking what it says about itself.

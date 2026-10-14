@@ -1,6 +1,6 @@
 {
   "name": "@kazimvakhobov/detent",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Autonomy bounded by a machine-checkable gauge, and measured.",
   "type": "module",
   "bin": {
