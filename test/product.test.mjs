@@ -188,6 +188,16 @@ test('a missing product.json inside a repository says so, and does not send anyo
   // Never the parent as the fix: it is normally a projects directory, and
   // following that advice builds a product out of unrelated repositories.
   assert.ok(!repoProblem.includes(dirname(inRepo)), repoProblem)
+
+  // A product folder kept under version control — the queue and the journal
+  // are text worth a history — is where you should be standing, not a clone to
+  // escape from. What settles it is the repositories inside, not the `.git`.
+  const versioned = mkdtempSync(join(tmpdir(), 'detent-versioned-'))
+  mkdirSync(join(versioned, '.git'))
+  mkdirSync(join(versioned, 'acme-api', '.git'), { recursive: true })
+  const versionedProblem = problemIn(versioned)
+  assert.match(versionedProblem, /the folder your repositories sit in/)
+  assert.ok(!/is a git repository/.test(versionedProblem), `a versioned product folder is the right place, got: ${versionedProblem}`)
 })
 
 test('loadProduct reads .detent/product.json and throws a ConfigError naming the file', () => {

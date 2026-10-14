@@ -8,6 +8,11 @@ Notable changes, newest first. The format follows
 
 ### Fixed
 
+- A product folder kept under version control is no longer told it is a clone
+  to escape from. What decides the message is the repositories inside it, not
+  whether the folder itself is a repository — and keeping a product folder in
+  git is reasonable: the queue and the journal are text, and the journal is
+  the only record of what a run cost.
 - `detent init` on a `product.json` somebody broke says `is not valid JSON`
   and where to go from there, instead of a `SyntaxError` and a stack trace.
   It read the file with a bare `JSON.parse` while every other command went

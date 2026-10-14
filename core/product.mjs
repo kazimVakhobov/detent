@@ -3,7 +3,7 @@
 // Every problem is collected rather than the first one thrown, because the
 // person fixing the file wants the whole list, and each one names its path.
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, isAbsolute, join, normalize, resolve, sep } from 'node:path'
 import { isAgentBranch, refNameProblem } from './refs.mjs'
 
@@ -34,17 +34,32 @@ export class ConfigError extends Error {
 
 // The first thing a newcomer gets wrong is where they are standing: detent
 // works from the folder the repositories sit in, and `cd my-project` lands you
-// one level inside it. A `.git` here says that is what happened.
+// one level inside it.
 //
-// It does not name the parent as the answer. The folder above a clone is
+// What settles it is what is *inside*, not whether this is a repository: a
+// product folder may be versioned itself — the queue and the journal are text
+// worth keeping — and saying "you are in a clone" to someone standing in their
+// own product folder is confidently wrong. A `.git` here with no repository
+// under it is the mistake; a `.git` here with repositories under it is a
+// product folder that has not been initialised yet.
+//
+// Neither branch names the parent as the answer. The folder above a clone is
 // usually a projects directory full of unrelated ones, and detent would take
 // every repository in it for part of the same product — the mistake this
 // message exists to prevent, arrived at by following the message.
 function missingProductFile(dir) {
-  if (existsSync(join(dir, '.git'))) {
-    return `does not exist, and ${basename(dir) || dir} is a git repository — detent works from the folder your repositories sit in, not from one of them, and that folder holds one product's repositories and nothing else`
+  if (!holdsRepositories(dir) && existsSync(join(dir, '.git'))) {
+    return `does not exist, and ${basename(dir) || dir} is a git repository with no repositories inside it — detent works from the folder your repositories sit in, not from one of them`
   }
   return 'does not exist — `detent init` writes it, in the folder your repositories sit in'
+}
+
+function holdsRepositories(dir) {
+  try {
+    return readdirSync(dir, { withFileTypes: true }).some((entry) => entry.isDirectory() && entry.name !== '.git' && existsSync(join(dir, entry.name, '.git')))
+  } catch {
+    return false
+  }
 }
 
 export function loadProduct(productDir) {
