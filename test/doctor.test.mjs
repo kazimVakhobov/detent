@@ -60,6 +60,7 @@ test('a product in shape: nothing fails', () => {
   assert.equal(report.product.find((c) => c.condition === 9).status, OK)
   assert.equal(report.product.find((c) => c.condition === 8).status, INFO, 'one person per workspace cannot be checked, and says so')
   assert.equal(report.product.filter((c) => c.condition === 6).every((c) => c.status === OK), true)
+  assert.equal(find(api, /submodule/), undefined, 'a repository that mounts nothing is told nothing about submodules')
 })
 
 test('the queue is a check of its own: there is a pass, missing is a failure naming the command', () => {
@@ -124,14 +125,11 @@ test('a shallow clone, a dirty tree and a merge in progress fail', () => {
   assert.ok(find(report.product, /origin is a repository in this folder and not in/), 'an undeclared repository is worth a look')
 })
 
-test('worth a look: no gauge, no reviewer, a submodule outside neverCommit, agent/dev tracking a remote', () => {
+test('worth a look: no gauge, no reviewer, agent/dev tracking a remote', () => {
   const dir = product(
     { ...healthy, models: { implement: { agent: 'claude' } }, repos: [{ name: 'api', compare: 'dev' }] },
     (d) => {
-      repo(d, 'docs')
       const api = repo(d, 'api')
-      execFileSync('git', ['-c', 'protocol.file.allow=always', 'submodule', 'add', '--quiet', '../docs', 'docs'], { cwd: api, stdio: 'ignore' })
-      sh(api, 'commit', '--quiet', '-m', 'docs')
       sh(api, 'remote', 'add', 'origin', 'https://example.com/api.git')
       sh(api, 'config', 'branch.agent/dev.remote', 'origin')
     },
@@ -139,10 +137,48 @@ test('worth a look: no gauge, no reviewer, a submodule outside neverCommit, agen
   const report = diagnose(dir, scan(dir))
   const api = report.repos.api
   assert.equal(api.find((c) => c.condition === 4).status, LOOK)
-  assert.equal(find(api, /submodule docs is not in neverCommit/).status, LOOK)
   assert.equal(api.find((c) => c.condition === 7).status, LOOK)
   assert.equal(find(report.product, /api has no acceptance pass/).status, LOOK)
   assert.equal(failed(report), 0, 'none of these stops a run')
+})
+
+// ADR 0012: one list, read two ways. Outside neverCommit is the deliberate
+// configuration, and the only thing wrong with it is a commit nobody else has.
+test('a submodule outside neverCommit is tracked, not a problem; one with unpushed commits fails and is named', () => {
+  const build = (d) => {
+    repo(d, 'docs')
+    const api = repo(d, 'api')
+    execFileSync('git', ['-c', 'protocol.file.allow=always', 'submodule', 'add', '--quiet', '../docs', 'docs'], { cwd: api, stdio: 'ignore' })
+    sh(api, 'commit', '--quiet', '-m', 'docs')
+    return api
+  }
+
+  const dir = product({ ...healthy, repos: [{ name: 'api', compare: 'dev', gauge: healthy.repos[0].gauge }] }, build)
+  const tracked = find(diagnose(dir, scan(dir)).repos.api, /submodule docs/)
+  assert.equal(tracked.status, OK)
+  assert.match(tracked.text, /is tracked — .*its pointer is committed with the task once that commit is verified to be on a remote branch/)
+  assert.equal(failed(diagnose(dir, scan(dir))), 0)
+
+  // The submodule in neverCommit is the one detent never touches: as before,
+  // doctor has nothing to say about it.
+  const guarded = product({ ...healthy, repos: [{ name: 'api', compare: 'dev', neverCommit: ['docs'] }] }, build)
+  assert.equal(find(diagnose(guarded, scan(guarded)).repos.api, /submodule docs/), undefined)
+
+  // A commit made in the submodule and not pushed is the pointer to nowhere
+  // the run refuses before the commit (§13) — here before the run.
+  const unpushed = product({ ...healthy, repos: [{ name: 'api', compare: 'dev' }] }, (d) => {
+    const sub = join(build(d), 'docs')
+    sh(sub, 'config', 'user.name', 'P')
+    sh(sub, 'config', 'user.email', 'p@x')
+    writeFileSync(join(sub, 'a.txt'), 'mine, and only mine\n')
+    sh(sub, 'commit', '--quiet', '-am', 'a decision nobody else has')
+  })
+  const report = diagnose(unpushed, scan(unpushed))
+  const check = find(report.repos.api, /submodule docs/)
+  assert.equal(check.status, FAIL)
+  assert.match(check.text, /^submodule docs is at [0-9a-f]{7}, which is in none of its remote branches — it has unpushed commits, and a run would pause on it/)
+  assert.equal(check.fix, `git -C ${join(unpushed, 'api', 'docs')} push`)
+  assert.ok(failed(report) > 0, 'a run would pause on it, so it is a failure')
 })
 
 test('an agent that is not installed fails condition 6', () => {

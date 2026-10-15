@@ -198,7 +198,7 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
         const answer = await invoke(role, {
           cwd,
           timeoutMs: repo.timeout * 60_000,
-          prompt: implementPrompt({ task, repo, branch, attempt, limit, resumed, feedback, previous: resumed ? previous : null }),
+          prompt: implementPrompt({ task, repo, branch, attempt, limit, resumed, feedback, previous: resumed ? previous : null, tracked }),
         })
         account(record, answer)
 

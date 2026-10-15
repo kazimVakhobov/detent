@@ -239,6 +239,14 @@ export function submodulePaths(cwd) {
   return out.split('\n').filter(Boolean).map((line) => line.slice(line.indexOf(' ') + 1))
 }
 
+// Whether a declared submodule is checked out here. An uninitialised one is an
+// empty folder, and a git question asked inside it is answered by the
+// superproject — so it is asked of the filesystem instead. A run initialises
+// one on its way to the remote's tip; until then there is no commit to judge.
+export function submoduleCheckedOut(cwd, path) {
+  return existsSync(join(cwd, path, '.git'))
+}
+
 // Fetch a submodule and move it to its remote's tip. Leaves it detached there,
 // which is what the superproject's pointer will record.
 export function refreshSubmodule(cwd, path) {
