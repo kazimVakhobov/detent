@@ -3,15 +3,15 @@
 // check of the model's answer against the scan. Re-running it proposes a diff
 // rather than overwriting what a person wrote.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import process from 'node:process'
-import { ConfigError, PRODUCT_FILE, validateProduct } from '../product.mjs'
+import { ConfigError, PRODUCT_FILE, queueOf, readConfig, validateProduct } from '../product.mjs'
 import { diffLines, hunks, mergeProposal, proposeProduct } from '../propose.mjs'
 import { invoke as defaultInvoke } from '../agents.mjs'
 import { modelPass } from '../model-pass.mjs'
 import { scanProduct } from '../scan.mjs'
-import { createQueue } from '../task.mjs'
+import { createQueue, QUEUE } from '../task.mjs'
 import { UsageError } from './usage.mjs'
 
 export const options = { 'no-agent': { type: 'boolean', default: false } }
@@ -22,7 +22,23 @@ export const PROPOSED_FILE = join('.detent', 'product.proposed.json')
 export async function run(dir, _positionals = [], values = {}, { invoke = defaultInvoke } = {}) {
   const root = resolve(dir)
   if (!existsSync(root)) throw new UsageError(`${root} does not exist`)
-  const scan = scanProduct(root)
+
+  const file = join(root, PRODUCT_FILE)
+  // Read before anything is scanned or created, because where the queue goes
+  // is one of the things it says (`queue`, ADR 0012). A file a person edited
+  // by hand is expected input, so a comma in the wrong place is a message and
+  // never a stack trace. `loadProduct` has always said this; init read the
+  // same file and did not.
+  const { raw: existing, error, found: exists } = readConfig(root)
+  if (error) {
+    if (!exists) throw error
+    throw new ConfigError(file, [`is not valid JSON: ${error.message}`, 'fix it, or move it aside and let init write a new one'])
+  }
+  // A `queue` that is not usable is refused by the validation below rather
+  // than acted on: nothing is created at a path the product cannot have.
+  const queue = queueOf(existing)
+
+  const scan = scanProduct(root, { queue: queue ?? QUEUE })
   if (scan.repos.length === 0) {
     process.stderr.write(`detent init: no git repository directly inside ${root} — a product is a folder of repositories side by side\n`)
     return 1
@@ -30,24 +46,10 @@ export async function run(dir, _positionals = [], values = {}, { invoke = defaul
 
   // The queue, before any model is asked: a product declared ready with
   // nowhere to put a task is the on-ramp broken. Deterministic, so --no-agent
-  // creates it too.
-  const created = createQueue(root)
+  // creates it too, and at the configured path when there is one.
+  const created = queue === null ? [] : createQueue(root, queue)
   if (created.length) {
-    process.stdout.write(`created ${created.map((f) => `tasks/${f}`).join(', ')} — the queue run reads and plan writes into\n`)
-  }
-
-  const file = join(root, PRODUCT_FILE)
-  const exists = existsSync(file)
-  // A file a person edited by hand is expected input, so a comma in the wrong
-  // place is a message and never a stack trace. `loadProduct` has always said
-  // this; init read the same file and did not.
-  let existing = null
-  if (exists) {
-    try {
-      existing = JSON.parse(readFileSync(file, 'utf8'))
-    } catch (error) {
-      throw new ConfigError(file, [`is not valid JSON: ${error.message}`, 'fix it, or move it aside and let init write a new one'])
-    }
+    process.stdout.write(`created ${created.map((f) => `${queue}/${f}`).join(', ')} — the queue run reads and plan writes into\n`)
   }
 
   // Pass 1, the scan; then passes 2 and 3 unless asked not to, or unless there

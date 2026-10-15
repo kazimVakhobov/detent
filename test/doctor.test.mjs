@@ -215,3 +215,39 @@ test('staging: a promote gauge with no staging fails, a declared staging must ex
   assert.equal(failed(report), 0)
   assert.match(find(report.repos.api, /agent\/staging exists/).text, /promote: e2e/)
 })
+
+test('the queue is looked for where product.json says, and a queue that escapes is that problem', () => {
+  const dir = product({ ...healthy, queue: 'agent-loop/tasks' }, (d) => repo(d, 'api'), { queue: false })
+  const missing = find(diagnose(dir, scan(dir)).product, /do not exist/)
+  assert.equal(missing.status, FAIL)
+  assert.match(missing.text, /^agent-loop\/tasks\/todo, agent-loop\/tasks\/hold, agent-loop\/tasks\/done, agent-loop\/tasks\/failed do not exist/)
+  assert.equal(existsSync(join(dir, 'tasks')), false, 'and the default is not where it looked')
+
+  for (const folder of FOLDERS) mkdirSync(join(dir, 'agent-loop', 'tasks', folder), { recursive: true })
+  assert.equal(find(diagnose(dir, scan(dir)).product, /the queue is there/).text, `the queue is there: agent-loop/tasks/{${FOLDERS.join(',')}}`)
+
+  // A queue outside the product folder has no folders to look for: the value
+  // is the problem, and four missing folders would name the wrong one.
+  const escaping = product({ ...healthy, queue: '../elsewhere' }, (d) => repo(d, 'api'), { queue: false })
+  const report = diagnose(escaping, scan(escaping))
+  assert.equal(find(report.product, /queue: "\.\.\/elsewhere" must stay inside the product folder/).status, FAIL)
+  assert.equal(find(report.product, /do not exist|the queue is there/), undefined)
+})
+
+test('detent doctor does not take the folder the queue lives in for a repository of the product', () => {
+  const dir = product({ ...healthy, queue: 'agent-loop/tasks' }, (d) => {
+    repo(d, 'api')
+    repo(d, 'agent-loop')
+  }, { queue: false })
+  for (const folder of FOLDERS) mkdirSync(join(dir, 'agent-loop', 'tasks', folder), { recursive: true })
+  const bin = mkdtempSync(join(tmpdir(), 'detent-agents-'))
+  for (const agent of ['claude', 'codex']) {
+    writeFileSync(join(bin, agent), '#!/bin/sh\n')
+    chmodSync(join(bin, agent), 0o755)
+  }
+
+  const out = execFileSync(process.execPath, [cli, 'doctor', '--product', dir], { encoding: 'utf8', env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } })
+  assert.match(out, /the queue is there: agent-loop\/tasks\//)
+  assert.doesNotMatch(out, /agent-loop is a repository in this folder/)
+  assert.match(out, /^ready/m)
+})

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { ConfigError, loadProduct, validateProduct } from '../core/product.mjs'
+import { ConfigError, loadProduct, queueOf, validateProduct } from '../core/product.mjs'
 
 function minimal(overrides = {}) {
   return {
@@ -61,6 +61,31 @@ test('defaults fill what a minimal file leaves out', () => {
   assert.equal(product.attempts, 3)
   assert.equal(product.repos[0].path, 'acme-api', 'path defaults to the name')
   assert.deepEqual(product.repos[0].gauge, { exit: [], merge: [], promote: [] }, 'no gauge is carried as empty, not refused')
+})
+
+test('the queue is where the product says, and tasks where it says nothing', () => {
+  assert.equal(validateProduct(minimal(), '/p').product.queue, 'tasks', 'a product that says nothing keeps 0005')
+  assert.equal(validateProduct(minimal({ queue: 'agent-loop/tasks' }), '/p').product.queue, 'agent-loop/tasks')
+  assert.equal(validateProduct(minimal({ queue: './queue/' }), '/p').product.queue, 'queue', 'read as a path, like a repository\'s')
+
+  // Validated exactly like repos[].path: a queue outside the product folder is
+  // a problem naming the value it was given.
+  assertProblem(minimal({ queue: '../shared/tasks' }), /^queue: "\.\.\/shared\/tasks" must stay inside the product folder$/)
+  assertProblem(minimal({ queue: '/var/tasks' }), /^queue: "\/var\/tasks" must stay inside the product folder$/)
+  assertProblem(minimal({ queue: '' }), /^queue: must be a relative path$/)
+  assertProblem(minimal({ queue: 4 }), /^queue: must be a relative path$/)
+
+  // And never inside a repository, whose tree a task file moving folders would
+  // dirty — the folder the scan leaves alone is the one the queue sits in.
+  assertProblem(minimal({ queue: 'acme-api/tasks' }), /^queue: "acme-api\/tasks" is inside acme-api — the queue sits beside the repositories, never in one$/)
+  assertProblem(minimal({ queue: 'acme-api' }), /is inside acme-api/)
+})
+
+test('queueOf reads the queue before the rest of the file can be judged', () => {
+  assert.equal(queueOf({ version: 1, queue: 'agent-loop/tasks' }), 'agent-loop/tasks')
+  assert.equal(queueOf({ version: 1 }), 'tasks', 'a file that says nothing')
+  assert.equal(queueOf(null), 'tasks', 'and no file at all')
+  assert.equal(queueOf({ queue: '../elsewhere' }), null, 'a queue that escapes has no location to look in')
 })
 
 test('a repository overrides a role, never the models as a whole', () => {

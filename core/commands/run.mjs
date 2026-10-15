@@ -14,11 +14,11 @@ export async function run(product, ids, _values, { runTask: runOne = runTask } =
   if (ids.length > 0) {
     const wanted = new Set(ids.map(Number))
     const missing = ids.filter((id) => !tasks.some((task) => Number(task.id) === Number(id)))
-    if (missing.length > 0) throw new UsageError(`not in tasks/todo/: ${missing.join(', ')}`)
+    if (missing.length > 0) throw new UsageError(`not in ${product.queue}/todo/: ${missing.join(', ')}`)
     tasks = tasks.filter((task) => wanted.has(Number(task.id)))
   }
   if (tasks.length === 0) {
-    process.stdout.write('nothing to run: tasks/todo/ is empty\n')
+    process.stdout.write(`nothing to run: ${product.queue}/todo/ is empty\n`)
     return 0
   }
 

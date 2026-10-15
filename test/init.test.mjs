@@ -229,3 +229,35 @@ test('detent init in a folder with no repositories says what a product is', () =
   assert.ok(!existsSync(join(dir, '.detent')))
   assert.ok(!existsSync(join(dir, 'tasks')), 'a folder that is not a product gets no queue either')
 })
+
+test('a configured queue: init creates it there, and the folder it lives in is no repository of the product', () => {
+  const dir = shop()
+  // A queue of its own, in a repository a session writes and pushes (ADR 0012).
+  // It sits in the product folder like any other, and is not one.
+  repo(dir, 'agent-loop', { files: { 'README.md': '# the queue' } })
+  mkdirSync(join(dir, '.detent'))
+  writeFileSync(
+    join(dir, '.detent', 'product.json'),
+    JSON.stringify({
+      version: 1,
+      product: { name: 'shop' },
+      queue: 'agent-loop/tasks',
+      models: { implement: { agent: 'claude' } },
+      repos: [{ name: 'shop-api', compare: 'dev' }],
+    }),
+  )
+  const env = withAgents(['claude', 'codex'], (path) => ({ ...process.env, PATH: `${path}:${process.execPath.replace(/\/node$/, '')}` }))
+
+  const out = execFileSync(process.execPath, [cli, 'init', '--product', dir, '--no-agent'], { encoding: 'utf8', env })
+  assert.match(out, /^created agent-loop\/tasks\/todo, agent-loop\/tasks\/hold, agent-loop\/tasks\/done, agent-loop\/tasks\/failed — the queue run reads and plan writes into$/m)
+  assert.deepEqual(readdirSync(join(dir, 'agent-loop', 'tasks')).sort(), ['done', 'failed', 'hold', 'todo'])
+  assert.equal(existsSync(join(dir, 'tasks')), false, 'and nothing where the default would be')
+
+  // The scan proposes the repositories of the product; the queue's folder is
+  // not one of them, whatever it is called.
+  const proposed = JSON.parse(readFileSync(join(dir, '.detent', 'product.proposed.json'), 'utf8'))
+  assert.deepEqual(proposed.repos.map((r) => r.name), ['shop-api', 'shop-docs', 'shop-svc', 'shop-web'])
+  assert.equal(proposed.queue, 'agent-loop/tasks', 'and the key a person wrote survives the proposal')
+  assert.deepEqual(scanProduct(dir, { queue: 'agent-loop/tasks' }).repos.map((r) => r.name), ['shop-api', 'shop-docs', 'shop-svc', 'shop-web'])
+  assert.ok(scanProduct(dir).repos.some((r) => r.name === 'agent-loop'), 'a product that says nothing has no reason to skip it')
+})
