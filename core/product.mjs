@@ -6,12 +6,14 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, isAbsolute, join, normalize, resolve, sep } from 'node:path'
 import { isAgentBranch, refNameProblem } from './refs.mjs'
+import { QUEUE } from './task.mjs'
 
 export const PRODUCT_FILE = join('.detent', 'product.json')
 
 export const DEFAULTS = Object.freeze({
   integration: 'agent/dev',
   task: 'agent/task-{id}-{slug}',
+  queue: QUEUE,
   concurrency: 1,
   attempts: 3,
   timeout: 30,
@@ -145,27 +147,48 @@ function repositoriesIn(dir) {
   }
 }
 
-export function loadProduct(productDir) {
-  const dir = resolve(productDir)
-  const file = join(dir, PRODUCT_FILE)
-
+// The parsed product.json and nothing judged yet: `{ raw, error, found }`.
+// `found` is whether the file is there at all, and `error` is why it could not
+// be read or parsed. Two readers need the file before `loadProduct` can hand
+// them a product — `doctor`, which reports the file's problems rather than
+// throwing them, and `init`, which may be about to write it — and both need
+// one key out of it first: `queue` says where the queue is (ADR 0012).
+export function readConfig(productDir) {
+  const file = join(resolve(productDir), PRODUCT_FILE)
   let text
   try {
     text = readFileSync(file, 'utf8')
   } catch (error) {
-    if (error.code === 'ENOENT') {
-      const { problem, hint } = missingProductFile(dir)
-      throw new ConfigError(file, [problem], hint)
-    }
-    throw error
+    return { raw: null, error: error.code === 'ENOENT' ? null : error, found: false }
   }
-
-  let raw
   try {
-    raw = JSON.parse(text)
+    return { raw: JSON.parse(text), error: null, found: true }
   } catch (error) {
-    throw new ConfigError(file, [`is not valid JSON: ${error.message}`])
+    return { raw: null, error, found: true }
   }
+}
+
+// `queue` on its own, from a parsed product.json or from nothing: a path
+// relative to the product folder, `tasks` when the file says nothing (ADR
+// 0012). `null` when the value is there and unusable — the product has no
+// queue location, and looking for four folders somewhere else would name the
+// wrong problem; the value itself is reported by whoever validates the file.
+export function queueOf(raw) {
+  if (!isObject(raw) || raw.queue === undefined) return DEFAULTS.queue
+  return relativePath(raw.queue, 'queue', () => {})
+}
+
+export function loadProduct(productDir) {
+  const dir = resolve(productDir)
+  const file = join(dir, PRODUCT_FILE)
+
+  const { raw, error, found } = readConfig(dir)
+  if (!found) {
+    if (error) throw error
+    const { problem, hint } = missingProductFile(dir)
+    throw new ConfigError(file, [problem], hint)
+  }
+  if (error) throw new ConfigError(file, [`is not valid JSON: ${error.message}`])
 
   const { product, problems } = validateProduct(raw, dir)
   if (problems.length > 0) throw new ConfigError(file, problems)
@@ -182,7 +205,7 @@ export function validateProduct(raw, dir = '.') {
     return { product: null, problems }
   }
 
-  strict(raw, '(root)', ['version', 'product', 'branches', 'concurrency', 'attempts', 'timeout', 'notify', 'models', 'repos', 'edges'], fail)
+  strict(raw, '(root)', ['version', 'product', 'branches', 'queue', 'concurrency', 'attempts', 'timeout', 'notify', 'models', 'repos', 'edges'], fail)
 
   if (raw.version !== 1) fail('version', `must be 1, got ${JSON.stringify(raw.version)}`)
 
@@ -220,6 +243,11 @@ export function validateProduct(raw, dir = '.') {
     }
   }
 
+  // queue — where the four folders are, relative to the product folder, and
+  // `tasks` for a product that says nothing (ADR 0012). Validated like a
+  // repository's path: it must stay inside the product folder.
+  const queue = raw.queue === undefined ? DEFAULTS.queue : relativePath(raw.queue, 'queue', fail)
+
   // repos
   const repos = []
   if (!Array.isArray(raw.repos) || raw.repos.length === 0) {
@@ -241,6 +269,14 @@ export function validateProduct(raw, dir = '.') {
       repos.push(repo)
     })
   }
+
+  // The queue is detent's bookkeeping and not part of any repository: a task
+  // file moving between folders inside one would dirty its tree, which §11
+  // refuses and condition 5 would skip the repository for. It is also the
+  // folder the scan leaves alone, and leaving a declared repository alone
+  // would lose it.
+  const held = queue === null ? null : repos.find((repo) => repo.path !== null && (queue === repo.path || queue.startsWith(`${repo.path}/`)))
+  if (held) fail('queue', `"${queue}" is inside ${held.name ?? held.path} — the queue sits beside the repositories, never in one`)
 
   const concurrency = positiveInteger(raw.concurrency, 'concurrency', DEFAULTS.concurrency, fail)
   // One active task per repository (§8): more slots than repositories is a
@@ -302,6 +338,7 @@ export function validateProduct(raw, dir = '.') {
       name,
       summary,
       branches,
+      queue,
       concurrency,
       attempts,
       timeout,

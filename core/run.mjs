@@ -249,10 +249,10 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
 // run leaves — skipped runs included, so the journal is the whole history.
 function settle(product, task, record, notify) {
   if (record.outcome === 'passed') {
-    moveTask(product.dir, task, 'done')
+    moveTask(product.dir, task, 'done', product.queue)
   } else if (['escalated', 'rejected', 'error'].includes(record.outcome)) {
-    moveTask(product.dir, task, 'hold')
-    const file = `tasks/hold/${task.id}-${task.slug}.md`
+    moveTask(product.dir, task, 'hold', product.queue)
+    const file = `${product.queue}/hold/${task.id}-${task.slug}.md`
     // A conflict is the one pause a resume cannot get past by itself: detent
     // never resolves one, and the agent is not let into a merge. So the person
     // is told the step that is theirs.

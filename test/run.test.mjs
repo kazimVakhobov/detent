@@ -10,7 +10,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileS
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { snapshotRefs } from '../core/git.mjs'
-import { readQueue } from '../core/task.mjs'
+import { createQueue, readQueue } from '../core/task.mjs'
 import { readJournal } from '../core/journal.mjs'
 import { runTask } from '../core/run.mjs'
 import { assertInvariant, gitProduct, sh, show } from './support/product.mjs'
@@ -458,4 +458,71 @@ test('every agent call carries the repository\'s time limit, and a stopped one p
   assert.equal(show(s.repoDir, BRANCH, 'value.txt'), 'half', 'the work up to the cut is kept')
   assert.equal(n.sent.length, 1)
   assertInvariant(s.repoDir, s.before, s.product)
+})
+
+// --- a queue somewhere else ---------------------------------------------------
+
+test('a configured queue is read, written and reported where the product says', async () => {
+  const s = gitProduct({ gauge: GAUGE, models: { implement: { agent: 'claude', model: 'claude-opus-5' } } }, { queue: 'agent-loop/tasks' })
+  const todo = join(s.dir, 'agent-loop', 'tasks', 'todo')
+  mkdirSync(todo, { recursive: true })
+  writeFileSync(join(todo, '0042-wallet-endpoint.md'), '---\nid: 0042\nrepo: acme-api\n---\n\n# Goal\n\nWallet balance.\n\n# Acceptance criteria\n\n- [ ] value.txt says ok\n')
+  writeFileSync(join(todo, '0043-paused.md'), '---\nid: 0043\nrepo: acme-api\n---\n\n# Goal\n\nSomething red.\n\n# Acceptance criteria\n\n- [ ] value.txt says ok\n')
+
+  const queued = readQueue(s.dir, s.product)
+  assert.deepEqual(queued.map((t) => `${t.folder}/${t.id}`), ['todo/0042', 'todo/0043'], 'the queue is read where it is')
+
+  const green = await runTask(s.product, s.repo, queued[0], { invoke: agent(write('ok')).invoke, notify: notifier().notify })
+  assert.equal(green.outcome, 'passed')
+  assert.ok(existsSync(join(s.dir, 'agent-loop', 'tasks', 'done', '0042-wallet-endpoint.md')), 'and written where it is')
+
+  // Nothing the person is told names tasks/, which this product does not have.
+  const n = notifier()
+  const red = await runTask(s.product, s.repo, queued[1], { invoke: agent(write('no'), write('no'), write('no')).invoke, notify: n.notify })
+  assert.equal(red.outcome, 'escalated')
+  assert.ok(existsSync(join(s.dir, 'agent-loop', 'tasks', 'hold', '0043-paused.md')))
+  assert.match(n.sent[0].message, /move agent-loop\/tasks\/hold\/0043-paused\.md back to todo\/ to resume\./)
+
+  assert.equal(existsSync(join(s.dir, 'tasks')), false, 'and the default queue was never touched')
+})
+
+test('detent run works a configured queue, and names it in what it prints', () => {
+  const s = gitProduct({ gauge: GAUGE, models: { implement: { agent: 'claude', model: 'claude-opus-5' } } }, { queue: 'agent-loop/tasks' })
+  const detent = (...args) => execFileSync(process.execPath, [join(import.meta.dirname, '..', 'cli.mjs'), 'run', '--product', s.dir, ...args], {
+    encoding: 'utf8',
+    stdio: 'pipe',
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+  })
+  const bin = mkdtempSync(join(tmpdir(), 'detent-bin-'))
+  writeFileSync(
+    join(bin, 'claude'),
+    `#!/bin/sh
+cat > /dev/null
+echo ok > value.txt
+printf '%s' '${JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'Commit: feat(wallet): from a queue elsewhere', total_cost_usd: 0.3, usage: { input_tokens: 5, output_tokens: 7 }, session_id: 'x' })}'
+`,
+  )
+  chmodSync(join(bin, 'claude'), 0o755)
+
+  // Empty before anything is queued, and it says where it looked.
+  createQueue(s.dir, s.product.queue)
+  assert.equal(detent(), 'nothing to run: agent-loop/tasks/todo/ is empty\n')
+
+  writeFileSync(
+    join(s.dir, 'agent-loop', 'tasks', 'todo', '0042-wallet-endpoint.md'),
+    '---\nid: 0042\nrepo: acme-api\n---\n\n# Goal\n\nWallet balance.\n\n# Acceptance criteria\n\n- [ ] value.txt says ok\n',
+  )
+  assert.match(detent(), /^0042 {2}passed — merged into agent\/dev \([0-9a-f]{7}\), 1 attempt, \$0\.30$/m)
+  assert.equal(sh(s.repoDir, 'log', '-1', '--format=%s', 'agent/dev^2'), 'feat(wallet): from a queue elsewhere')
+  assert.ok(existsSync(join(s.dir, 'agent-loop', 'tasks', 'done', '0042-wallet-endpoint.md')))
+
+  let asked
+  try {
+    detent('0042')
+  } catch (error) {
+    asked = error
+  }
+  assert.equal(asked.status, 2, 'asking for a task that is not queued is a usage error')
+  assert.match(asked.stderr, /^detent run: not in agent-loop\/tasks\/todo\/: 0042$/m)
+  assert.equal(existsSync(join(s.dir, 'tasks')), false, 'and the default queue was never created')
 })

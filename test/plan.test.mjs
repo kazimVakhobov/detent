@@ -125,3 +125,23 @@ test('the prompt names edges and marks the proposed ones', () => {
   )
   assert.match(planPrompt(product, { next: ['0001'], brief: null }), /- web → api: api-contract \(proposed, unconfirmed\)/)
 })
+
+test('a configured queue is where plan writes, and what it reports', async () => {
+  const s = gitProduct({ role: 'REST API backend' }, { models: { implement: { agent: 'claude' } }, queue: 'agent-loop/tasks' })
+  mkdirSync(join(s.dir, 'agent-loop', 'tasks', 'done'), { recursive: true })
+  writeFileSync(join(s.dir, 'agent-loop', 'tasks', 'done', '0007-old.md'), 'landed long ago')
+
+  const { code, out, calls } = await plan(s, [], {}, (cwd) => {
+    mkdirSync(join(cwd, 'agent-loop', 'tasks', 'todo'), { recursive: true })
+    writeFileSync(join(cwd, 'agent-loop', 'tasks', 'todo', '0008-wallet-endpoint.md'), TASK('0008'))
+    // Strayed: a task rewritten outside todo/ is a breach wherever the queue is.
+    writeFileSync(join(cwd, 'agent-loop', 'tasks', 'done', '0007-old.md'), 'rewritten')
+  })
+  const prompt = calls[0].args.at(-1)
+  assert.match(prompt, /A task is one file in agent-loop\/tasks\/todo\//)
+  assert.match(prompt, /Write only files in agent-loop\/tasks\/todo\//)
+  assert.match(prompt, /The next free numbers are 0008, 0009, 0010/, 'counted from the queue it was given')
+  assert.equal(code, 1, out)
+  assert.match(out, /^new {6}agent-loop\/tasks\/todo\/0008-wallet-endpoint\.md$/m)
+  assert.match(out, /agent-loop\/tasks\/done\/0007-old\.md changed — plan writes only new or revised tasks in agent-loop\/tasks\/todo\/$/m)
+})

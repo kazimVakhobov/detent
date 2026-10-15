@@ -6,6 +6,22 @@ Notable changes, newest first. The format follows
 
 ## Unreleased
 
+### Added
+
+- `queue` in `product.json`: where the four folders of the queue live, as a
+  path relative to the product folder, `tasks` when it is left out. Validated
+  like `repos[].path` — a value that escapes the product folder is refused by
+  name, and so is one inside a repository, whose tree a task file moving
+  between folders would dirty — and used by everything that reads, writes,
+  moves or reports a task,
+  what the tool prints included, so a product with
+  `"queue": "agent-loop/tasks"` is never told about `tasks/todo/`. `init`
+  creates the folders there, `doctor` looks for them there, and the scan does
+  not take the folder the queue lives in for a repository of the product,
+  whatever it is called. A product that says nothing behaves exactly as before.
+  The first of the three parts of
+  [ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md).
+
 ### Fixed
 
 - A missing `.detent/product.json` explains itself. The one-line answer was

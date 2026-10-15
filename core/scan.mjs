@@ -8,6 +8,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import process from 'node:process'
 import { isAgentBranch } from './refs.mjs'
+import { QUEUE } from './task.mjs'
 
 export const AGENT_COMMANDS = { claude: 'claude', codex: 'codex', gemini: 'gemini' }
 
@@ -29,13 +30,19 @@ const LOCKFILES = {
 
 const MANIFESTS = ['package.json', 'Cargo.toml', 'go.mod', 'pyproject.toml', 'requirements.txt', 'Makefile', 'Gemfile', 'pom.xml', 'build.gradle', 'composer.json']
 
-const SKIP = new Set(['.detent', 'tasks', 'runs', 'node_modules', '.git'])
+const SKIP = new Set(['.detent', 'runs', 'node_modules', '.git'])
 
-export function scanProduct(dir) {
+// The queue is detent's own bookkeeping and never a repository of the product,
+// whatever it is called: the folder `queue` starts in is skipped, which for a
+// product that says nothing is the literal `tasks` this set used to carry
+// (ADR 0012). Skipped even when it is a repository — especially then, since
+// that is what the configuration is for.
+export function scanProduct(dir, { queue = QUEUE } = {}) {
+  const skip = new Set([...SKIP, queue.split('/')[0]])
   const repos = []
   const other = []
   for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-    if (!entry.isDirectory() || entry.name.startsWith('.') || SKIP.has(entry.name)) continue
+    if (!entry.isDirectory() || entry.name.startsWith('.') || skip.has(entry.name)) continue
     const path = join(dir, entry.name)
     if (isGitRoot(path)) repos.push(scanRepo(path, entry.name))
     else other.push(entry.name)

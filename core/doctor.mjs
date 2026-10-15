@@ -3,10 +3,8 @@
 // Every finding says what to change. Nothing is changed here — the product
 // is not bent into shape by detent, it is told what does not match.
 
-import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { operationInProgress } from './git.mjs'
-import { PRODUCT_FILE, validateProduct } from './product.mjs'
+import { PRODUCT_FILE, queueOf, readConfig, validateProduct } from './product.mjs'
 import { FOLDERS, missingQueue } from './task.mjs'
 
 export const OK = 'ok'
@@ -24,32 +22,36 @@ export function diagnose(dir, scan) {
   const platformOk = scan.platform === 'darwin' || scan.platform === 'linux'
   say(product, platformOk && major >= 22 ? OK : FAIL, 9, `${scan.platform}, Node ${scan.node}`, platformOk ? (major >= 22 ? null : 'install Node 22 or newer') : 'detent runs on macOS or Linux')
 
+  // The file everything else is read from, read before it is judged: where the
+  // queue is is one of the things it says (ADR 0012), and the queue is looked
+  // for whether the rest of the file is usable or not.
+  const { raw, error, found } = readConfig(dir)
+  const queue = queueOf(raw)
+
   // The queue (§11): a product with nowhere to put a task is not ready,
   // whatever the rest of the report says. Checked from the folder alone, and
-  // never created here — doctor writes nothing.
-  const missing = missingQueue(dir)
+  // never created here — doctor writes nothing. A `queue` that is not a usable
+  // path has no folders to look for; that is a problem about the file, and the
+  // check below names it.
+  const missing = queue === null ? [] : missingQueue(dir, queue)
   if (missing.length) {
     say(
       product,
       FAIL,
       null,
-      `${missing.map((f) => `tasks/${f}`).join(', ')} ${missing.length === 1 ? 'does' : 'do'} not exist — run has no queue to read and plan nowhere to write`,
+      `${missing.map((f) => `${queue}/${f}`).join(', ')} ${missing.length === 1 ? 'does' : 'do'} not exist — run has no queue to read and plan nowhere to write`,
       `detent init --product ${dir}`,
     )
-  } else {
-    say(product, OK, null, `the queue is there: tasks/{${FOLDERS.join(',')}}`)
+  } else if (queue !== null) {
+    say(product, OK, null, `the queue is there: ${queue}/{${FOLDERS.join(',')}}`)
   }
 
-  // The file everything else is read from.
-  const file = join(dir, PRODUCT_FILE)
-  if (!existsSync(file)) {
-    say(product, FAIL, null, `no ${PRODUCT_FILE}`, `detent init --product ${dir}`)
+  if (!found) {
+    if (error) say(product, FAIL, null, `${PRODUCT_FILE} cannot be read: ${error.message}`)
+    else say(product, FAIL, null, `no ${PRODUCT_FILE}`, `detent init --product ${dir}`)
     return { product, repos, loaded: false }
   }
-  let raw
-  try {
-    raw = JSON.parse(readFileSync(file, 'utf8'))
-  } catch (error) {
+  if (error) {
     say(product, FAIL, null, `${PRODUCT_FILE} is not valid JSON: ${error.message}`)
     return { product, repos, loaded: false }
   }

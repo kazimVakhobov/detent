@@ -145,6 +145,12 @@ number does not. The counter is the highest number across all four folders:
 there is no separate counter file, and therefore nothing that can disagree with
 reality.
 
+The four folders sit wherever `queue` in `product.json` says, relative to the
+product folder, and at `tasks/` for a product that says nothing (§11,
+[ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md)).
+Everything detent reads, writes and prints uses that path, so a product whose
+queue is elsewhere is never told about a folder it has not got.
+
 ### Shape
 
 ```markdown
@@ -550,7 +556,7 @@ concluded, and which tasks went into which batch.
 <product>/
   .detent/product.json       composition, branches, gauge, models
   .detent/state.json         per repository: active task, attempt, started at
-  tasks/{todo,hold,done,failed}/NNNN-<slug>.md
+  tasks/{todo,hold,done,failed}/NNNN-<slug>.md      the queue, where `queue` puts it
   runs/journal.jsonl         append-only, one line per run
   map.json  map.mmd          the relationship map; committed, diffed by a person
   acme-api/ acme-web/ …      the product's repositories
@@ -563,6 +569,14 @@ submodule it is a submodule pointer to move everywhere. Documentation receives
 the *decision* a batch of tasks came from — one document, one commit. Churn and
 record are different things and belong in different places.
 
+Where in the product folder is the product's to say: `queue` names a path
+relative to it, `tasks` by default
+([ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md)).
+A session that writes tasks on one machine for a run on another puts the queue
+in a repository of its own and points `queue` at it; nothing else about the
+queue changes, and the folder it sits in is never taken for a repository of the
+product.
+
 ### `product.json`
 
 ```json
@@ -574,6 +588,7 @@ record are different things and belong in different places.
     "staging":     "agent/staging",
     "task":        "agent/task-{id}-{slug}"
   },
+  "queue": "tasks",
   "concurrency": 3,
   "attempts": 3,
   "timeout": 30,
@@ -601,8 +616,14 @@ record are different things and belong in different places.
 }
 ```
 
-Four things about this shape are deliberate:
+Five things about this shape are deliberate:
 
+- **`queue` is a path inside the product folder, and `tasks` when it is left
+  out.** It is validated like `repos[].path`: a value that escapes the product
+  folder is refused by name, and so is one inside a repository, whose tree a
+  task file moving between folders would dirty. Everything that reads, writes,
+  moves or reports a task uses it, printing included, so the path in a message
+  is the path on disk.
 - **No field can name a human branch.** Every value in `branches` is validated
   against `^agent/` on load and by `doctor`. With two configurable branches the
   guarantee stops being "there is only one field to get wrong" and becomes a
