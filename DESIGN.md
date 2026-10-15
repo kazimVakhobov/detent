@@ -200,6 +200,9 @@ tasks/todo/0042-wallet-endpoint.md
   git checkout -b agent/task-0042-wallet-endpoint agent/dev
         (or the existing branch, when a paused task is resumed)
 
+  the shared context to its remote's tip — every submodule outside neverCommit
+        ──→ one that cannot be reached: the task is paused, no agent is asked
+
   ┌── the agent works in the main copy
   │   gauge (exit profile)
   │     red   → the agent is handed the stage and the failure text; attempt++
@@ -265,6 +268,25 @@ turn and compared after it; a change pauses the task and names the file. They
 are the person's, so detent does not restore them — and the run goes on using
 the product it loaded before the agent started, so an edited gauge never judges
 the attempt that edited it.
+
+### The shared context
+
+A product may mount documentation, a kit or the queue as submodules of its
+repositories, so that a dispatched agent reads them without leaving the working
+copy it was given. Those submodules are **brought to their remote's tip before
+the agent's first turn**, and the commit each one landed on goes in the journal
+line: the agent reads the context as of the moment its task started, and the
+run's record says what that was
+([ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md)).
+A submodule that cannot be reached pauses the task before an agent is asked for
+anything — work done against a context nobody chose would be recorded as work
+done against one.
+
+The pointer that results is committed with the task, and only once it is
+verified (§13). Which submodules this is about is one question with one answer:
+those **not** listed in `neverCommit`. A submodule in `neverCommit` is not
+fetched, not moved and not committed, and the agent is told not to touch it —
+exactly as before, which is what every product that says nothing gets.
 
 ### The time limit
 
@@ -666,7 +688,8 @@ Five things about this shape are deliberate:
   "cost": { "usd": 0.41, "tokens": { "input": 182044, "output": 6210 } },
   "branch": "agent/task-0042-wallet-endpoint",
   "commit": "a1b2c3d",
-  "merged": true
+  "merged": true,
+  "submodules": { "docs": "9f1c0ab…" }
 }
 ```
 
@@ -677,6 +700,13 @@ exists to prevent.
 
 The model that actually ran is recorded alongside the one requested, because a
 silent substitution would quietly corrupt every comparison built on this file.
+
+`submodules` is there only for a product that has a shared context, and says
+which commit each tracked submodule was at when the task started — the one
+place a record of *which revision of the documents the work was done against*
+can be kept by something other than memory. The pointer in the task's commit
+says the same thing in git; this says it in the journal, for a run that paused
+before it committed anything.
 
 Every run leaves a line, a run the gate skipped included, so the journal is the
 whole history; `summary` does not count skipped runs, because no agent was
@@ -841,10 +871,24 @@ arrives later disguised as a mystery.
 - **Never write a ref outside `refs/heads/agent/`.** One predicate, checked on
   every write path, rather than a prefix convention remembered in several
   places.
-- **Never push.** detent merges into a local `agent/dev` and stops. Someone's CI
-  deploys from the branch you did not expect.
-- **Never commit a submodule pointer** (`neverCommit`). Moving a pointer without
-  pushing the submodule leaves everyone else with a reference to nowhere.
+- **Push the queue, and nothing else.** detent merges into a local `agent/dev`
+  and stops: someone's CI deploys from the branch you did not expect. The queue
+  is the exception, and only when it lives in a repository — a task moving to
+  `done/` or `hold/` is detent's own bookkeeping, not anybody's work, and a
+  queue that is never pushed is a queue the next machine reads stale
+  ([ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md)).
+  Never a product repository, never `agent/dev`, never a tag. A push that fails
+  ends the run, rather than piling up work nobody else can see.
+- **Commit a submodule pointer only where it is verified** (`neverCommit`).
+  Moving a pointer without pushing the submodule leaves everyone else with a
+  reference to nowhere — so the pointer is checked rather than forbidden.
+  Before a task's commit, every submodule outside `neverCommit` has its
+  checked-out commit looked for in its own remote branches
+  (`git branch -r --contains HEAD`, empty exactly when the commit was never
+  pushed). Empty pauses the task and names the submodule; it never drops the
+  pointer quietly, because a commit saying the agent read revision X when it
+  read Y is the unchecked claim this whole project is against. A submodule in
+  `neverCommit` is not fetched, not moved and not committed.
 - **Never resolve a merge conflict.** `merge --abort`, escalate, let a person
   look at it.
 - **Never work in a dirty repository.** Skip it, say so, continue elsewhere.

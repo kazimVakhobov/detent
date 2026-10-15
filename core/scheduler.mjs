@@ -9,6 +9,11 @@
 //
 // And one consequence: a barrier that does not pass ends the run there. The
 // tasks behind it were written for a contract that was not replaced.
+//
+// One failure ends the run the same way without being a barrier: a queue whose
+// repository could not be pushed (ADR 0012). The pool drains, nothing new
+// starts, and what failed is returned — working on would pile up tasks the
+// next machine cannot see.
 
 export async function schedule(tasks, { concurrency, runOne, onStart = () => {}, onFinish = () => {} }) {
   const queue = [...tasks].sort((a, b) => Number(a.id) - Number(b.id))
@@ -16,14 +21,22 @@ export async function schedule(tasks, { concurrency, runOne, onStart = () => {},
   const running = new Set()
   const results = []
   let stoppedAt = null
+  let ending = null
 
   const start = (task) => {
     busy.add(task.repo)
     onStart(task)
     const promise = Promise.resolve()
       .then(() => runOne(task))
-      // One task failing to run is that task's outcome, not the end of the pool.
-      .catch((error) => ({ outcome: 'error', reason: `the run failed: ${error.message}` }))
+      // One task failing to run is that task's outcome, not the end of the
+      // pool — unless what failed was the queue's own record of it.
+      .catch((error) => {
+        if (!error.endsRun) return { outcome: 'error', reason: `the run failed: ${error.message}` }
+        ending ??= error
+        // What the task itself did stands: the bookkeeping failed after it, and
+        // `error.record` is the line already in the journal.
+        return error.record ?? { outcome: 'error', reason: `the run failed: ${error.message}` }
+      })
       .then((result) => {
         results.push({ task, result })
         onFinish(task, result)
@@ -38,6 +51,7 @@ export async function schedule(tasks, { concurrency, runOne, onStart = () => {},
   }
 
   while (queue.length > 0) {
+    if (ending) break
     const barrier = queue.findIndex((t) => t.touchesContract)
     if (barrier === 0) {
       // Drain, then run it alone.
@@ -64,5 +78,5 @@ export async function schedule(tasks, { concurrency, runOne, onStart = () => {},
     await Promise.race(running)
   }
   await Promise.all(running)
-  return { results, stoppedAt }
+  return { results, stoppedAt, ended: ending ? { error: ending, left: queue.splice(0) } : null }
 }
