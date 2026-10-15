@@ -51,6 +51,26 @@ Notable changes, newest first. The format follows
   The first of the three parts of
   [ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md).
 
+### Changed
+
+- **`doctor` reads a submodule outside `neverCommit` the way ADR 0012 does.**
+  It used to call one a thing to put back in the list — the warning told a
+  person to undo the configuration they had chosen. It is now reported as
+  tracked, with what that means: detent brings it to its remote's tip and
+  commits its pointer with the task, once that commit is verified. What can go
+  wrong with it is checked rather than warned about, and it is the same
+  question the run asks before the commit — the checked-out commit against the
+  submodule's own remote branches. In none of them is a failure that names the
+  submodule and prints the push, because a run would pause on it. A submodule
+  **in** `neverCommit` is reported exactly as before, which is to say not at
+  all, and a repository that mounts nothing produces no new output.
+- **The prompt says what a tracked submodule is.** An agent that found a
+  submodule it was allowed to read and not to write was told nothing either
+  way: the sentence about `neverCommit` paths is about the other list. It now
+  gets the other half — read it, do not write there, detent records which
+  revision you read. The `neverCommit` sentence is unchanged, and an agent in
+  a repository with no tracked submodule gets neither.
+
 ### Fixed
 
 - A missing `.detent/product.json` explains itself. The one-line answer was

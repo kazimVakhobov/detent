@@ -2,7 +2,7 @@
 // before the work, and it is the prompt (DESIGN.md §4); around it go only the
 // rules of the territory and, on a retry, what the gauge said.
 
-export function implementPrompt({ task, repo, branch, attempt, limit, resumed, feedback, previous = null }) {
+export function implementPrompt({ task, repo, branch, attempt, limit, resumed, feedback, previous = null, tracked = [] }) {
   const parts = []
 
   parts.push(
@@ -21,6 +21,14 @@ export function implementPrompt({ task, repo, branch, attempt, limit, resumed, f
   ]
   if (repo.neverCommit.length > 0) {
     rules.push(`Do not change ${repo.neverCommit.map((p) => `"${p}"`).join(', ')}: changes there are never committed and will be lost.`)
+  }
+  // The shared context (ADR 0012). An agent that finds a submodule it may read
+  // and may not write has been told nothing by the sentence above, because
+  // that sentence is about the other list. This is the other half.
+  if (tracked.length > 0) {
+    rules.push(
+      `Read ${tracked.map((p) => `"${p}"`).join(', ')} and do not write there: ${tracked.length === 1 ? 'it is' : 'they are'} the shared context, brought up to date before you started, and detent records which revision you read.`,
+    )
   }
   rules.push(
     'End your last message with one line describing the change as a conventional commit subject, for example:\n    Commit: feat(wallet): driver wallet balance endpoint',

@@ -62,6 +62,11 @@ test('the context is at its remote tip before the first turn, and the pointer la
 
   assert.equal(result.outcome, 'passed', result.reason)
   assert.equal(read, 'a decision the task was done against\n', 'the agent read the context as of the moment the task started')
+  assert.match(
+    a.prompts[0],
+    /Read "docs" and do not write there: it is the shared context, brought up to date before you started, and detent records which revision you read\./,
+    'an agent that finds a submodule it may read and may not write is told which it is',
+  )
   assert.deepEqual(result.submodules, { docs: pushed }, 'the journal line says which commit it read')
   assert.equal(s.docs.pointer('agent/dev'), pushed, 'the pointer reached agent/dev with the task')
   assert.equal(s.docs.pointer('agent/dev^2'), pushed, 'and was part of the task commit, not only of the merge')
@@ -83,6 +88,7 @@ test('a submodule in neverCommit is not fetched, not moved, and the sentence abo
   assert.equal(s.docs.pointer('agent/dev'), before.pointer, 'so there was no pointer to commit')
   assert.equal(result.submodules, undefined, 'nothing is tracked, so the line says nothing')
   assert.match(a.prompts[0], /Do not change "docs": changes there are never committed and will be lost\./)
+  assert.doesNotMatch(a.prompts[0], /shared context/, 'and is not also called tracked, which it is not')
   assertInvariant(s.repoDir, s.before, s.product)
 })
 

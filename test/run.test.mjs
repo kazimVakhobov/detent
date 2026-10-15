@@ -96,6 +96,7 @@ test('the prompt carries the task, the rules, and the gauge it is held to', asyn
   assert.doesNotMatch(prompt, /^id: 0042$/m, 'the frontmatter is bookkeeping, not prompt')
   assert.match(prompt, /Commit: feat\(wallet\)/)
   assert.doesNotMatch(prompt, /Attempt \d of/)
+  assert.doesNotMatch(prompt, /shared context/, 'a repository that mounts nothing hears nothing about submodules')
 })
 
 test('red, then green: the retry is handed the failed stage and its output', async () => {

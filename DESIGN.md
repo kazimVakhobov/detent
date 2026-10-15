@@ -286,7 +286,9 @@ The pointer that results is committed with the task, and only once it is
 verified (§13). Which submodules this is about is one question with one answer:
 those **not** listed in `neverCommit`. A submodule in `neverCommit` is not
 fetched, not moved and not committed, and the agent is told not to touch it —
-exactly as before, which is what every product that says nothing gets.
+exactly as before, which is what every product that says nothing gets. About a
+tracked one the agent is told the other half: read it, do not write there, and
+detent records which revision it read.
 
 ### The time limit
 
@@ -807,12 +809,11 @@ as green.
 not checkable (·) — condition 8, one person per workspace, is a convention no
 scan can see, and is said to be one rather than skipped. A failure is anything
 that would stop a run or make it skip a repository; worth a look is anything
-that lets a run go ahead with less than it could have: no gauge, no reviewer, a
-submodule outside `neverCommit`, an `agent/dev` that tracks a remote. It
-exits 1 on a failure and writes nothing; where there is a command that fixes a
-finding, it prints the command.
+that lets a run go ahead with less than it could have: no gauge, no reviewer,
+an `agent/dev` that tracks a remote. It exits 1 on a failure and writes
+nothing; where there is a command that fixes a finding, it prints the command.
 
-### Four things `doctor` checks beyond the nine conditions
+### Five things `doctor` checks beyond the nine conditions
 
 - **the queue exists** — `tasks/{todo,hold,done,failed}` (§11); a product with
   nowhere to put a task is not ready, whatever else the report says. `init`
@@ -823,6 +824,14 @@ finding, it prints the command.
   configuration can aim detent at a human branch
 - **`gauge.promote` declared with no `branches.staging`** — a declared check
   that nothing ever runs is the same invented green as a missing gauge (§6)
+- **every tracked submodule is one everybody else can see** — a submodule
+  outside `neverCommit` is a deliberate configuration and is reported as
+  tracked, with the note that its pointer is committed with the task once
+  verified; what is checked about it is what the run checks before that commit
+  (§13) — its checked-out commit against its own remote branches. In none of
+  them is a failure naming the submodule, because a run would pause on it. A
+  submodule **in** `neverCommit` is detent's to leave alone and has nothing to
+  report
 
 ### Prune
 

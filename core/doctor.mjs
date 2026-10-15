@@ -3,7 +3,8 @@
 // Every finding says what to change. Nothing is changed here — the product
 // is not bent into shape by detent, it is told what does not match.
 
-import { operationInProgress } from './git.mjs'
+import { join } from 'node:path'
+import { operationInProgress, remoteBranchesContaining, submoduleCheckedOut, submoduleCommit } from './git.mjs'
 import { PRODUCT_FILE, queueOf, readConfig, validateProduct } from './product.mjs'
 import { FOLDERS, missingQueue } from './task.mjs'
 
@@ -142,10 +143,16 @@ export function diagnose(dir, scan) {
     } else if (remote) say(checks, LOOK, 7, `${integration} tracks ${remote} — detent never pushes it, so make sure nothing deploys from it`)
     else say(checks, OK, 7, `${integration} tracks no remote`)
 
-    // Submodule pointers are never committed (§13)
-    const unguarded = found.submodules.map((s) => s.path).filter((p) => !repo.neverCommit.includes(p))
-    if (unguarded.length) {
-      say(checks, LOOK, null, `submodule ${unguarded.join(', ')} is not in neverCommit — a moved pointer would be committed`, `add ${unguarded.map((p) => `"${p}"`).join(', ')} to neverCommit`)
+    // The shared context (§13, ADR 0012). One list read two ways: a submodule
+    // in neverCommit is the one detent never touches, and has nothing to
+    // report that it did not have before; one outside it is tracked, which is
+    // a configuration rather than an oversight. What can go wrong with a
+    // tracked one is what the run checks before the commit, so doctor asks the
+    // same question — a submodule nobody else can see would pause a task.
+    for (const path of found.submodules.map((s) => s.path).filter((p) => !repo.neverCommit.includes(p))) {
+      const verified = !submoduleCheckedOut(repo.dir, path) || remoteBranchesContaining(repo.dir, path).length > 0
+      if (verified) say(checks, OK, null, `submodule ${path} is tracked — detent brings it to its remote's tip, and its pointer is committed with the task once that commit is verified to be on a remote branch`)
+      else say(checks, FAIL, null, `submodule ${path} is at ${submoduleCommit(repo.dir, path).slice(0, 7)}, which is in none of its remote branches — it has unpushed commits, and a run would pause on it rather than commit a pointer to nowhere`, `git -C ${join(repo.dir, path)} push`)
     }
   }
 
