@@ -138,6 +138,16 @@ namespace, one predicate, one glob to audit it with. Both gates between the
 territories are human operations, in both directions. It refuses to start on a
 dirty tree, and never moves a ref outside its own namespace.
 
+**What it pushes is the queue, and only the queue.** Nothing in a repository of
+your product is ever pushed — not `agent/dev`, not a tag. The exception is for
+a queue that lives in a repository of its own, which is how a session writes
+tasks on one machine for a run on another: there a task reaching `done/` or
+`hold/` is a commit and a push, because that queue is detent's own bookkeeping
+and the next machine has to read it as it is now
+([ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md)).
+A product that says nothing about `queue` has no repository there and detent
+pushes nothing at all.
+
 `agent/staging` is optional and exists for one reason: the per-task gauge checks
 a task, and what actually breaks is the combination. The batch gauge runs there,
 and how often a batch came out red after every task in it was green is a number

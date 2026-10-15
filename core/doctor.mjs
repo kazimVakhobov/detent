@@ -139,7 +139,7 @@ export function diagnose(dir, scan) {
     const remote = found.upstreams[integration]
     if (!found.branches.includes(integration)) {
       // Nothing to say about a branch that is not there yet.
-    } else if (remote) say(checks, LOOK, 7, `${integration} tracks ${remote} — detent never pushes, so make sure nothing deploys from it`)
+    } else if (remote) say(checks, LOOK, 7, `${integration} tracks ${remote} — detent never pushes it, so make sure nothing deploys from it`)
     else say(checks, OK, 7, `${integration} tracks no remote`)
 
     // Submodule pointers are never committed (§13)

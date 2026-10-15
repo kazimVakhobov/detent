@@ -8,6 +8,35 @@ Notable changes, newest first. The format follows
 
 ### Added
 
+- **The shared context is brought up to date, and the pointer is recorded.**
+  Before an agent's first turn, every submodule of its repository that is not
+  in `neverCommit` is fetched and moved to its remote's tip, and the journal
+  line says which commit each one landed on: the agent reads the documents as
+  of the moment its task started, and the run's record says what that was. The
+  pointer that results is committed with the task and reaches `agent/dev` with
+  it — the prohibition in `DESIGN.md` §13 became a check, since a pointer
+  without a pushed submodule is a reference to nowhere. Before the commit, each
+  tracked submodule's commit is looked for in its own remote branches; one that
+  is in none of them pauses the task, names the submodule and says it has
+  commits nobody else can see, and that run commits no pointer anywhere, not
+  even in what it parks. A submodule that stays in `neverCommit` is not
+  fetched, not moved and not committed, down to the sentence the prompt gives
+  the agent about it; a product that mounts nothing is unaffected. The second
+  part of
+  [ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md).
+- **detent pushes the queue, and nothing else.** When the queue lives in a git
+  repository, a task reaching `done/` or `hold/` is a commit there naming the
+  task — only the two files the move touches, leaving whatever else the person
+  has staged alone — pushed to the branch's own upstream and nowhere else. Not
+  a product repository, not `agent/dev`, not a tag; `assertAgentRef` goes on
+  guarding every ref in every repository of the product. A queue that is not in
+  a repository moves the file and commits nothing, exactly as before, and a
+  queue repository with no remote is committed and not pushed — there is no
+  next machine to be stale for. A push that fails, or a commit that repository
+  refuses, ends the run with what failed and names the tasks it did not start,
+  rather than working on with a queue the next machine cannot see; the run that
+  hit it still leaves its journal line first. The third part of ADR 0012, and
+  the first time detent writes outside `refs/heads/agent/`.
 - `queue` in `product.json`: where the four folders of the queue live, as a
   path relative to the product folder, `tasks` when it is left out. Validated
   like `repos[].path` — a value that escapes the product folder is refused by

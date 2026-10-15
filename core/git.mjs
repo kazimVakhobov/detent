@@ -2,7 +2,10 @@
 //
 // Every function here that moves a ref or HEAD takes the branch it writes and
 // passes it through assertAgentRef first — the one predicate of DESIGN.md §13,
-// checked on every write path rather than remembered at each call site.
+// checked on every write path rather than remembered at each call site. Two
+// things are outside that predicate and say so where they are defined: the
+// submodules detent keeps current, which are commits rather than refs, and the
+// queue's own repository, which is the one thing detent pushes (ADR 0012).
 
 import { execFileSync } from 'node:child_process'
 import { existsSync, rmSync } from 'node:fs'
@@ -14,6 +17,13 @@ export class GitError extends Error {
     super(`git ${args.join(' ')} failed in ${cwd}: ${stderr.trim()}`)
     this.name = 'GitError'
     this.stderr = stderr
+  }
+
+  // What git said, without the screens of hint that can follow it — for the
+  // places where a person reads the reason rather than the command.
+  get said() {
+    const lines = this.stderr.split('\n').map((line) => line.trim()).filter(Boolean)
+    return lines.filter((line) => /^(fatal:|error:|warning:|! \[)/.test(line)).join('; ') || lines[0] || this.message
   }
 }
 
@@ -211,6 +221,102 @@ export function snapshotOnto(cwd, branch, message, { exclude = [], allowEmpty = 
   } finally {
     rmSync(index, { force: true })
   }
+}
+
+// --- the shared context: submodules ---------------------------------------------
+//
+// A submodule is a commit, not a ref, so assertAgentRef has nothing to say
+// about it. detent moves one in two directions only (ADR 0012): forward to its
+// remote's tip before a task starts, which is the state the agent reads, and
+// back to the commit the superproject records when a task did not commit the
+// pointer it moved. Nothing here is called for a submodule in neverCommit.
+
+// Every submodule path .gitmodules declares, whether or not it is initialised:
+// what the repository says it has, read without asking git to look inside.
+export function submodulePaths(cwd) {
+  const out = tryGit(cwd, ['config', '--file', '.gitmodules', '--get-regexp', '^submodule\\..*\\.path$'])
+  if (!out) return []
+  return out.split('\n').filter(Boolean).map((line) => line.slice(line.indexOf(' ') + 1))
+}
+
+// Fetch a submodule and move it to its remote's tip. Leaves it detached there,
+// which is what the superproject's pointer will record.
+export function refreshSubmodule(cwd, path) {
+  git(cwd, ['submodule', 'update', '--init', '--remote', '--', path])
+}
+
+// Back to the commit the superproject's tree records. No network: that commit
+// is one this repository already has, since it was in the tree a moment ago.
+export function resetSubmodule(cwd, path) {
+  git(cwd, ['submodule', 'update', '--init', '--force', '--', path])
+}
+
+export function submoduleCommit(cwd, path) {
+  return git(join(cwd, path), ['rev-parse', 'HEAD'])
+}
+
+// Which of `paths` the superproject reports as moved — the ` M <path>` a
+// refreshed submodule produces until its pointer is committed.
+export function movedSubmodules(cwd, paths) {
+  if (paths.length === 0) return []
+  const out = git(cwd, ['status', '--porcelain=v1', '--ignore-submodules=none', '--', ...paths])
+  return out.split('\n').filter(Boolean).map((line) => line.slice(3)).filter((path) => paths.includes(path))
+}
+
+// The submodule's own remote branches that contain its checked-out commit.
+// Empty is exactly the commit that was never pushed, which is the one thing
+// §13 refuses to put in a pointer. Somebody may have pushed it since the
+// refresh, so an empty answer is fetched again before it is believed — and a
+// fetch that fails leaves the answer as it was rather than inventing one.
+export function remoteBranchesContaining(cwd, path) {
+  const dir = join(cwd, path)
+  const contains = () => git(dir, ['branch', '--remotes', '--contains', 'HEAD']).split('\n').map((line) => line.trim()).filter(Boolean)
+  const found = contains()
+  if (found.length > 0) return found
+  tryGit(dir, ['fetch', '--quiet'])
+  return contains()
+}
+
+// --- the queue's own repository --------------------------------------------------
+//
+// The queue is detent's bookkeeping rather than anybody's work, and a run that
+// cannot publish it leaves the next machine a stale todo (ADR 0012). So these
+// two write outside refs/heads/agent/ — in the one repository that holds no
+// product code, touching nothing but the task files a move names. Every ref in
+// every repository of the product still goes through assertAgentRef.
+
+// Commit exactly `paths`, as they are on disk, without hooks and without
+// disturbing what else the person has staged. Returns the commit, or null when
+// those paths already say what HEAD says.
+export function commitPaths(cwd, paths, message) {
+  const env = identity(cwd)
+  // A task file the session never committed is untracked, and after the move
+  // its old path is neither on disk nor in the index: naming it would be a
+  // pathspec that matches nothing, which git calls fatal.
+  const known = new Set(git(cwd, ['ls-files', '--', ...paths]).split('\n').filter(Boolean))
+  const real = paths.filter((path) => known.has(path) || existsSync(join(cwd, path)))
+  if (real.length === 0) return null
+  git(cwd, ['add', '--all', '--', ...real], { env })
+  if (tryGit(cwd, ['rev-parse', '--verify', 'HEAD']) && git(cwd, ['diff', '--cached', '--name-only', '--', ...real]) === '') return null
+  git(cwd, ['commit', '--quiet', '--no-verify', '--only', '-F', '-', '--', ...real], { env, input: message })
+  return git(cwd, ['rev-parse', 'HEAD'])
+}
+
+// Where the checked-out branch says it is published, or null when it says
+// nowhere — a queue in a repository with no remote has no next machine to be
+// stale for.
+export function upstreamOf(cwd) {
+  const branch = currentBranch(cwd)
+  if (!branch) return null
+  const remote = tryGit(cwd, ['config', `branch.${branch}.remote`])
+  const ref = tryGit(cwd, ['config', `branch.${branch}.merge`])
+  return remote && ref ? { remote, ref } : null
+}
+
+// One refspec, the one the branch itself names: never bare `git push`, whose
+// meaning depends on a push.default this repository did not choose.
+export function push(cwd, { remote, ref }) {
+  git(cwd, ['push', '--quiet', remote, `HEAD:${ref}`])
 }
 
 // A wip commit must not fail for want of an identity on a fresh machine.
