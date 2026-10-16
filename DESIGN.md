@@ -956,3 +956,10 @@ Named so they read as decisions rather than gaps.
 - **Anything that is not git.**
 - **Task import from an issue tracker.** The task file is the prompt; a Jira
   description is not one yet.
+- **Skills, hooks and settings passed to the agent.** detent spawns a CLI
+  with a prompt and a working directory. Every agent it drives can be given
+  more than that, and each in its own shape, so passing any of it means
+  either privileging one CLI or writing the most load-bearing code in the
+  product three times. A kit repository is a tracked submodule and is worth
+  what the agent reads out of it
+  ([0013](docs/adr/0013-the-agent-gets-a-prompt-and-a-directory.md)).

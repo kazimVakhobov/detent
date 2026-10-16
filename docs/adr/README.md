@@ -17,6 +17,7 @@ that changed**.
 | [0010](0010-three-agent-clis.md) | Three agent CLIs behind one call, and a role names its agent | accepted |
 | [0011](0011-a-gauge-that-cannot-read-the-change.md) | A gauge that cannot read the change it gates says nothing | accepted |
 | [0012](0012-the-queue-and-the-shared-context-may-be-repositories.md) | The queue and the shared context may be repositories | accepted |
+| [0013](0013-the-agent-gets-a-prompt-and-a-directory.md) | The agent gets a prompt and a working directory, and nothing else | accepted |
 
 ## The rules
 
