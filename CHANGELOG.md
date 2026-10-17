@@ -8,6 +8,26 @@ Notable changes, newest first. The format follows
 
 ### Added
 
+- **`init` asks where the queue and the documents are, and never waits for an
+  answer nobody is there to give.** Two questions, after the scan and before
+  anything is written, for the two things a scan cannot work out: which
+  repository holds the queue — one meant to hold tasks looks like any other
+  until there are tasks in it — and which holds the documents a task's links
+  point into. Each lists the repositories the scan found and offers its default
+  by name, so an answer is a number, a repository name or a path rather than a
+  typed guess; the queue's default is `tasks` beside the repositories and the
+  documents' is **none**, which is an answer and is written as `"docs": null`.
+  `--queue <path>` and `--docs <name>` answer the same two questions from the
+  command line, `--docs none` says there are none, and a flag is an answer
+  rather than a suggestion: given one, nothing is asked either way. **With no
+  terminal on stdin nothing is asked at all** — both defaults are taken, what
+  was taken and why is printed, and the run is otherwise the one it has always
+  been, which is what keeps `init` usable in a script. Every answer is
+  announced, the defaults included, and every answer is written, so re-running
+  `init` asks nothing the file already answers. `docs` is the second role
+  detent names after `queue`, and nothing reads it yet. Parts 1 and 2 of
+  [ADR 0014](docs/adr/0014-init-asks-where-the-queue-and-the-documents-are.md).
+
 - **The shared context is brought up to date, and the pointer is recorded.**
   Before an agent's first turn, every submodule of its repository that is not
   in `neverCommit` is fetched and moved to its remote's tip, and the journal

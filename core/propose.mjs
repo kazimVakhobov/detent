@@ -5,6 +5,7 @@
 
 import { basename } from 'node:path'
 import { proposeCompare, proposeGauge, proposeModels } from './scan.mjs'
+import { QUEUE } from './task.mjs'
 
 const STACKS = {
   'package.json': 'node',
@@ -18,9 +19,13 @@ const STACKS = {
   'composer.json': 'php',
 }
 
-export function proposeProduct(scan) {
+// `queue` and `docs` are the two things the scan cannot see, so they arrive as
+// answers — from a question, a flag, or the default taken because nobody was
+// there to ask (ADR 0014). Both are written, the `null` included: an answer
+// recorded is an answer nobody has to give twice.
+export function proposeProduct(scan, { queue = QUEUE, docs = null } = {}) {
   const names = new Set(scan.repos.map((r) => r.name))
-  const raw = { version: 1, product: { name: basename(scan.dir) } }
+  const raw = { version: 1, product: { name: basename(scan.dir) }, queue, docs }
   const models = proposeModels(scan.agents)
   if (models) raw.models = models
 

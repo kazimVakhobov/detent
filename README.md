@@ -69,10 +69,14 @@ detent init                             # scan, then ask the agent what a scan c
 detent doctor                           # the nine conditions, and what to change
 ```
 
-`init` reads the repositories, creates the queue, and asks the implementing
-agent, read-only, about what it could not determine; `--no-agent` stops after
-the scan. Read the two things it cannot decide for you before an agent is held
-to them:
+`init` reads the repositories, asks you two things no scan can settle — which
+repository holds the queue, and which holds the documents your tasks link to —
+creates the queue, and asks the implementing agent, read-only, about what it
+could not determine; `--no-agent` stops after the scan. The two questions are
+the only ones detent asks: `--queue <path>` and `--docs <name>` answer them
+from the command line, and with no terminal on stdin they are not asked at
+all — the defaults are taken and printed, so `init` in a script never waits.
+Read the two things it cannot decide for you before an agent is held to them:
 
 - **the gauge.** Stages are proposed only from scripts a repository declares, so
   what you get is what the repository advertises, not what you would have
