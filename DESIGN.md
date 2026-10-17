@@ -613,6 +613,7 @@ product.
     "task":        "agent/task-{id}-{slug}"
   },
   "queue": "tasks",
+  "docs": "acme-docs",
   "concurrency": 3,
   "attempts": 3,
   "timeout": 30,
@@ -644,10 +645,14 @@ Five things about this shape are deliberate:
 
 - **`queue` is a path inside the product folder, and `tasks` when it is left
   out.** It is validated like `repos[].path`: a value that escapes the product
-  folder is refused by name, and so is one inside a repository, whose tree a
-  task file moving between folders would dirty. Everything that reads, writes,
-  moves or reports a task uses it, printing included, so the path in a message
-  is the path on disk.
+  folder is refused by name, and so is one inside a repository of the product,
+  whose tree a task file moving between folders would dirty. Everything that
+  reads, writes, moves or reports a task uses it, printing included, so the
+  path in a message is the path on disk. **`docs` names the repository the
+  documents a task links to are in, and is `null` for none** — the `null` is
+  written rather than left out, because "there are none" is an answer and a
+  re-run of `init` has no reason to ask again (§12). These two are the keys
+  `init` asks for: the scan cannot see either, so neither is ever guessed.
 - **No field can name a human branch.** Every value in `branches` is validated
   against `^agent/` on load and by `doctor`. With two configurable branches the
   guarantee stops being "there is only one field to get wrong" and becomes a
@@ -764,9 +769,14 @@ detent prune        delete agent/task-* branches already merged into agent/dev
 3. **Validation against the scan.** A repository the model invents is dropped
    rather than written, because a gap is visible and an invention is not.
 
-`init` also creates `tasks/{todo,hold,done,failed}` if they are not there,
-before any of the three passes: the queue is deterministic, so a folder that
-exists is left alone and `--no-agent` creates it too.
+Before those three, two questions — `init` is the one command that asks
+anything itself, and the subsection below is what it asks and what happens when
+there is nobody to answer.
+
+`init` also creates the queue's four folders, `{todo,hold,done,failed}`, if they
+are not there: at the path the first question settled, before any of the three
+passes, and deterministically, so a folder that exists is left alone and
+`--no-agent` creates them too.
 
 `init --no-agent` stops after pass 1 and leaves the model's fields empty for a
 person to fill. The tool has to work for someone who has no agent installed,
@@ -798,6 +808,40 @@ the CLIs on `PATH`, a different one for the review when two are installed.
 With a `product.json` already there, the proposal keeps every field a person
 wrote, adds only what is new, goes to `.detent/product.proposed.json`, and the
 difference is printed.
+
+### `init` is the one command that asks
+
+Two questions, after the scan and before anything is written, because they are
+the two things the scan cannot work out: **which repository holds the queue** —
+one meant to hold tasks looks like any other until there are tasks in it, and
+at `init` there are none — and **which holds the documents a task's links point
+into**, which is whichever one a person decided would hold decisions. Each
+lists the repositories the scan found and offers its default by name, so an
+answer can be a choice rather than a typed path: a number, a repository name,
+or for the queue a path. The queue's default is `tasks` beside the
+repositories, the folder `init` creates anyway; the documents' default is
+**none**, which is an answer and not an empty one. A repository that holds the
+queue *is* the queue, and detent leaves it out of the product (§11,
+[ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md)).
+
+`--queue <path>` and `--docs <name>` answer the same two questions from the
+command line, and `--docs none` says there are none. **A flag is an answer, not
+a suggestion:** given one, nothing is asked — terminal or no terminal — and it
+is what the proposal says.
+
+**With no terminal on stdin, nothing is asked at all.** `init` takes both
+defaults, prints what it took and why, and exits as it would have; Ctrl-D is
+read the same way, because what it says is "stop asking me". A command that
+waits in a pipeline for an answer nobody is there to give is a worse failure
+than the assumption the question was added to replace. Every answer is
+announced, the defaults included — a person who presses enter is told what they
+got — and every answer is written, `"docs": null` included, so a re-run asks
+nothing the file already answers
+([ADR 0014](docs/adr/0014-init-asks-where-the-queue-and-the-documents-are.md)).
+
+Everything else detent does is either its own work or somebody else's question:
+`plan` is interactive by handing the terminal to the agent, and nothing but
+`init` reads detent's own stdin.
 
 `gauge` exists so the gauge is useful before any run does: a person sees exactly
 what an agent will be held to — every stage, its time, and for a red one the

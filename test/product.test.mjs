@@ -81,6 +81,15 @@ test('the queue is where the product says, and tasks where it says nothing', () 
   assertProblem(minimal({ queue: 'acme-api' }), /is inside acme-api/)
 })
 
+test('docs names a repository, and null is the answer that there are none', () => {
+  assert.equal(validateProduct(minimal(), '/p').product.docs, null, 'a file that says nothing has none')
+  assert.equal(validateProduct(minimal({ docs: null }), '/p').product.docs, null, 'and so does one that says so')
+  assert.equal(validateProduct(minimal({ docs: 'acme-docs' }), '/p').product.docs, 'acme-docs')
+  assertProblem(minimal({ docs: '' }), /^docs: must be a non-empty string$/)
+  assertProblem(minimal({ docs: 4 }), /^docs: must be a non-empty string$/)
+  assertProblem(minimal({ docs: 'acme docs' }), /^docs: "acme docs" must be letters, digits, "\.", "_" or "-" — it names a repository$/)
+})
+
 test('queueOf reads the queue before the rest of the file can be judged', () => {
   assert.equal(queueOf({ version: 1, queue: 'agent-loop/tasks' }), 'agent-loop/tasks')
   assert.equal(queueOf({ version: 1 }), 'tasks', 'a file that says nothing')

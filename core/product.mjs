@@ -205,7 +205,7 @@ export function validateProduct(raw, dir = '.') {
     return { product: null, problems }
   }
 
-  strict(raw, '(root)', ['version', 'product', 'branches', 'queue', 'concurrency', 'attempts', 'timeout', 'notify', 'models', 'repos', 'edges'], fail)
+  strict(raw, '(root)', ['version', 'product', 'branches', 'queue', 'docs', 'concurrency', 'attempts', 'timeout', 'notify', 'models', 'repos', 'edges'], fail)
 
   if (raw.version !== 1) fail('version', `must be 1, got ${JSON.stringify(raw.version)}`)
 
@@ -247,6 +247,21 @@ export function validateProduct(raw, dir = '.') {
   // `tasks` for a product that says nothing (ADR 0012). Validated like a
   // repository's path: it must stay inside the product folder.
   const queue = raw.queue === undefined ? DEFAULTS.queue : relativePath(raw.queue, 'queue', fail)
+
+  // docs — which repository holds the documents a task's links point into, and
+  // `null` for none. `init` asks for it and writes the answer, including the
+  // null: a question answered with "there are none" is answered, and a re-run
+  // has no reason to ask again. Only the shape is settled here — what the name
+  // has to resolve to is a question about a task's links, and whoever checks
+  // them is where that belongs (ADR 0014).
+  let docs = null
+  if (raw.docs !== undefined && raw.docs !== null) {
+    docs = nonEmptyString(raw.docs, 'docs', fail)
+    if (docs !== null && !NAME.test(docs)) {
+      fail('docs', `"${docs}" must be letters, digits, ".", "_" or "-" — it names a repository`)
+      docs = null
+    }
+  }
 
   // repos
   const repos = []
@@ -339,6 +354,7 @@ export function validateProduct(raw, dir = '.') {
       summary,
       branches,
       queue,
+      docs,
       concurrency,
       attempts,
       timeout,
@@ -516,16 +532,22 @@ function taskTemplate(value, path, fail) {
   return value
 }
 
-function relativePath(value, path, fail) {
-  if (typeof value !== 'string' || value === '') {
-    fail(path, 'must be a relative path')
-    return null
-  }
+// The rule for every path in product.json, as `{ path, problem }`: normalised
+// and relative to the product folder, or why it cannot be. Exported because
+// `init` needs the rule before there is a file to validate — `--queue` is a
+// path answered on the command line, and the question it answers takes one too.
+export function productPath(value) {
+  if (typeof value !== 'string' || value === '') return { path: null, problem: 'must be a relative path' }
   const clean = normalize(value).split(sep).join('/').replace(/\/$/, '')
   if (isAbsolute(value) || clean === '.' || clean === '..' || clean.startsWith('../')) {
-    fail(path, `"${value}" must stay inside the product folder`)
-    return null
+    return { path: null, problem: `"${value}" must stay inside the product folder` }
   }
+  return { path: clean, problem: null }
+}
+
+function relativePath(value, path, fail) {
+  const { path: clean, problem } = productPath(value)
+  if (problem) fail(path, problem)
   return clean
 }
 
