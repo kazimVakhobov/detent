@@ -18,6 +18,7 @@ that changed**.
 | [0011](0011-a-gauge-that-cannot-read-the-change.md) | A gauge that cannot read the change it gates says nothing | accepted |
 | [0012](0012-the-queue-and-the-shared-context-may-be-repositories.md) | The queue and the shared context may be repositories | accepted |
 | [0013](0013-the-agent-gets-a-prompt-and-a-directory.md) | The agent gets a prompt and a working directory, and nothing else | accepted |
+| [0014](0014-init-asks-where-the-queue-and-the-documents-are.md) | `init` asks where the queue and the documents are, and a task's links are checked against them | accepted |
 
 ## The rules
 
