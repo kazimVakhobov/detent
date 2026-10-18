@@ -205,17 +205,29 @@ test('a call past its limit is stopped with everything it started, and says whic
   assert.equal(result.ok, false)
   assert.equal(result.error, 'claude ran past the 2.0-second limit and was stopped')
   const child = Number(readFileSync(pidfile, 'utf8'))
+  // Signal 0 asks whether a pid can be signalled, and a process that has
+  // exited and not been reaped still can. Its parent is the shell detent just
+  // stopped, so nothing here can wait for it, and how long it lingers belongs
+  // to whatever adopts it rather than to detent: an init that reaps at once on
+  // one machine, a container's shell that never does on another. Linux answers
+  // the question in /proc, where state Z is exited; macOS has no /proc and
+  // reaps an orphan promptly enough that signal 0 is the whole answer there.
   const alive = () => {
     try {
       process.kill(child, 0)
-      return true
     } catch {
       return false
+    }
+    try {
+      const stat = readFileSync(`/proc/${child}/stat`, 'utf8')
+      return stat.slice(stat.lastIndexOf(') ') + 2).split(' ')[0] !== 'Z'
+    } catch {
+      return true
     }
   }
   // A signal is delivered, not executed on the spot: give it a moment.
   for (let i = 0; i < 40 && alive(); i += 1) await new Promise((r) => setTimeout(r, 50))
-  assert.equal(alive(), false, 'the command the agent started is gone too')
+  assert.equal(alive(), false, `the command the agent started is gone too (on ${process.platform})`)
 })
 
 test('stopAgents stops a live agent that has no limit', async () => {

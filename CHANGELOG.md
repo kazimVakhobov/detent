@@ -4,6 +4,42 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
+## Unreleased
+
+### Changed
+
+- The gauge runs on Linux **and** macOS. `verify.yml` is one matrix over
+  `ubuntu-latest` and `macos-latest` — not two copies of a job — on the
+  triggers it already had, Node 22 and no install step on either, and each
+  check names the platform it ran on so a red one is readable from the list
+  without opening it. Condition 9 promises both platforms, and until now the
+  only one CI measured was Linux while the only one a developer measured was
+  macOS, with nothing comparing them: that is how a suite red on Linux stayed
+  red through six tasks and two releases while the local gauge said green the
+  whole time. No Windows and no second Node version —
+  [DESIGN.md §15](DESIGN.md#15-deliberately-not-here) refuses the first by
+  name, and the claim under test here is the platform, not the runtime.
+- `release.yml` keeps publishing from `ubuntu-latest` alone, deliberately. It
+  builds one artifact from a commit whose matrix has already run on both
+  platforms on the way to `main`, so a second runner there cannot change what
+  is published — it can only gate a release on a machine with no say in it.
+- A desktop notification nobody answered names the platform and the program it
+  tried: `no desktop notifier answered on linux (tried notify-send)`. Which
+  notifier exists at all is the platform's decision, so the same sentence on
+  both said nothing about which machine is missing which program.
+
+### Fixed
+
+- The test that checks a timed-out agent is stopped along with what it started
+  read an exited-but-unreaped process as still running: signal 0 succeeds on a
+  zombie, and the process's parent is the shell detent had just stopped, so
+  nothing in the test could reap it. How long an orphan lingers belongs to
+  whatever adopts it — an init that reaps at once on a runner, a container's
+  shell that never does — and the test was measuring that rather than detent.
+  It now reads `/proc` on Linux, where an exited process says so, and keeps
+  signal 0 on macOS, where there is no `/proc` and nothing lingers. The
+  assertion is the same one: a stopped command has to be gone.
+
 ## 0.5.0 — 2026-10-18
 
 A methodology from outside this repository, and the first one detent's
