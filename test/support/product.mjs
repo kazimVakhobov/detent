@@ -77,6 +77,15 @@ export function sharedContext(context, path = 'docs') {
   const repo = context.repoDir
   sh(repo, '-c', 'protocol.file.allow=always', 'submodule', 'add', '--quiet', shared.origin, path)
   sh(join(repo, path), 'config', 'protocol.file.allow', 'always')
+  // An identity of its own, like every other repository these fixtures make. A
+  // submodule checkout inherits none, so a test whose agent commits in the
+  // shared context depends on git guessing one from the machine — which it
+  // manages on a developer's and cannot on a runner whose hostname has no
+  // domain. There the commit fails, the agent reports an error, and the task
+  // pauses with the wrong outcome: the test fails for a reason it is not about.
+  sh(join(repo, path), 'config', 'user.name', 'Person')
+  sh(join(repo, path), 'config', 'user.email', 'person@example.com')
+  sh(join(repo, path), 'config', 'commit.gpgsign', 'false')
   sh(repo, 'add', '.')
   sh(repo, 'commit', '--quiet', '-m', `mount ${path}`)
   sh(repo, 'branch', '--force', 'agent/dev', 'dev')
