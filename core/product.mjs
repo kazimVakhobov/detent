@@ -3,15 +3,17 @@
 // Every problem is collected rather than the first one thrown, because the
 // person fixing the file wants the whole list, and each one names its path.
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, isAbsolute, join, normalize, resolve, sep } from 'node:path'
 import { isAgentBranch, refNameProblem } from './refs.mjs'
+import { QUEUE } from './task.mjs'
 
 export const PRODUCT_FILE = join('.detent', 'product.json')
 
 export const DEFAULTS = Object.freeze({
   integration: 'agent/dev',
   task: 'agent/task-{id}-{slug}',
+  queue: QUEUE,
   concurrency: 1,
   attempts: 3,
   timeout: 30,
@@ -23,48 +25,170 @@ const AGENT_NAMES = ['claude', 'codex', 'gemini']
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 const SOURCES = new Set(['scan', 'model'])
 
+// `problems` are one line each, because the person fixing the file wants a
+// list. `hint` is prose, printed after them, and exists for the one problem
+// that cannot be fixed by reading a list: the file is not there at all, and
+// whoever is reading has not met this tool before.
 export class ConfigError extends Error {
-  constructor(file, problems) {
-    super(`${file} is not usable:\n${problems.map((p) => `  ${p}`).join('\n')}`)
+  constructor(file, problems, hint = null) {
+    super(`${file} is not usable:\n${problems.map((p) => `  ${p}`).join('\n')}${hint ? `\n\n${hint}\n` : ''}`)
     this.name = 'ConfigError'
     this.file = file
     this.problems = problems
+    this.hint = hint
   }
 }
 
 // The first thing a newcomer gets wrong is where they are standing: detent
 // works from the folder the repositories sit in, and `cd my-project` lands you
-// one level inside it. A `.git` here says that is what happened.
+// one level inside it.
 //
-// It does not name the parent as the answer. The folder above a clone is
+// What settles it is what is *inside*, not whether this is a repository: a
+// product folder may be versioned itself — the queue and the journal are text
+// worth keeping — and saying "you are in a clone" to someone standing in their
+// own product folder is confidently wrong. A `.git` here with no repository
+// under it is the mistake; a `.git` here with repositories under it is a
+// product folder that has not been initialised yet.
+//
+// Neither branch names the parent as the answer. The folder above a clone is
 // usually a projects directory full of unrelated ones, and detent would take
 // every repository in it for part of the same product — the mistake this
 // message exists to prevent, arrived at by following the message.
+// The file being absent is the one problem a list cannot fix: whoever reads it
+// has usually not met the tool, and the question behind the message is not
+// "which key is wrong" but "what is this file and where am I". So it answers
+// that, with what it can see from where it was pointed.
 function missingProductFile(dir) {
-  if (existsSync(join(dir, '.git'))) {
-    return `does not exist, and ${basename(dir) || dir} is a git repository — detent works from the folder your repositories sit in, not from one of them, and that folder holds one product's repositories and nothing else`
+  const inside = repositoriesIn(dir)
+  const here = basename(dir) || dir
+
+  if (inside.length > 0) {
+    const shown = inside.slice(0, 8).join(', ') + (inside.length > 8 ? `, and ${inside.length - 8} more` : '')
+    const counted = `${inside.length} ${inside.length === 1 ? 'repository is' : 'repositories are'} here: ${shown}`
+    return {
+      problem: 'does not exist',
+      hint: [
+        'detent reads one file to know what a product is: which repositories it',
+        'has, the human branch each is compared against, the gauge that decides',
+        'when an agent may stop, and which agent fills which role. It sits beside',
+        'the repositories, never inside one, with the queue:',
+        '',
+        `  ${here}/`,
+        '    .detent/product.json',
+        '    tasks/{todo,hold,done,failed}/',
+        `    ${inside.slice(0, 2).map((n) => `${n}/`).join('  ')}${inside.length > 2 ? '  …' : ''}`,
+        '',
+        ...wrap(counted),
+        '',
+        '  detent init             scan them, write the file, then ask an agent',
+        '                          read-only what the scan cannot see',
+        '  detent init --no-agent  the scan only',
+      ].join('\n'),
+    }
   }
-  return 'does not exist — `detent init` writes it, in the folder your repositories sit in'
+
+  if (existsSync(join(dir, '.git'))) {
+    return {
+      problem: `does not exist, and ${here} is a repository`,
+      hint: [
+        'detent does not work from inside a repository. It works from the folder',
+        'your repositories sit in, side by side, because a task names which',
+        'repository it belongs to and the gauge is declared per repository.',
+        '',
+        'Not the folder above this one, unless that folder holds this product and',
+        'nothing else: every repository directly inside becomes part of the same',
+        'product, so a projects directory would make one product out of all of',
+        'them.',
+        '',
+        '  mkdir ~/work/<product> && cd ~/work/<product>',
+        '  git clone <each repository of the product>',
+        '  detent init',
+      ].join('\n'),
+    }
+  }
+
+  return {
+    problem: 'does not exist, and no repositories are here',
+    hint: [
+      'detent works from a product folder: the repositories of one product',
+      'sitting side by side, with .detent/product.json and the queue beside them.',
+      '',
+      '  mkdir ~/work/<product> && cd ~/work/<product>',
+      '  git clone <each repository of the product>',
+      '  detent init',
+    ].join('\n'),
+  }
+}
+
+// A list of names is the one part of the hint whose length is not ours to
+// choose, so it is the one part that wraps.
+function wrap(text, width = 76) {
+  const lines = []
+  let line = ''
+  for (const word of text.split(' ')) {
+    if (line && `${line} ${word}`.length > width) {
+      lines.push(line)
+      line = word
+    } else {
+      line = line ? `${line} ${word}` : word
+    }
+  }
+  if (line) lines.push(line)
+  return lines
+}
+
+function repositoriesIn(dir) {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name !== '.git' && existsSync(join(dir, entry.name, '.git')))
+      .map((entry) => entry.name)
+  } catch {
+    return []
+  }
+}
+
+// The parsed product.json and nothing judged yet: `{ raw, error, found }`.
+// `found` is whether the file is there at all, and `error` is why it could not
+// be read or parsed. Two readers need the file before `loadProduct` can hand
+// them a product — `doctor`, which reports the file's problems rather than
+// throwing them, and `init`, which may be about to write it — and both need
+// one key out of it first: `queue` says where the queue is (ADR 0012).
+export function readConfig(productDir) {
+  const file = join(resolve(productDir), PRODUCT_FILE)
+  let text
+  try {
+    text = readFileSync(file, 'utf8')
+  } catch (error) {
+    return { raw: null, error: error.code === 'ENOENT' ? null : error, found: false }
+  }
+  try {
+    return { raw: JSON.parse(text), error: null, found: true }
+  } catch (error) {
+    return { raw: null, error, found: true }
+  }
+}
+
+// `queue` on its own, from a parsed product.json or from nothing: a path
+// relative to the product folder, `tasks` when the file says nothing (ADR
+// 0012). `null` when the value is there and unusable — the product has no
+// queue location, and looking for four folders somewhere else would name the
+// wrong problem; the value itself is reported by whoever validates the file.
+export function queueOf(raw) {
+  if (!isObject(raw) || raw.queue === undefined) return DEFAULTS.queue
+  return relativePath(raw.queue, 'queue', () => {})
 }
 
 export function loadProduct(productDir) {
   const dir = resolve(productDir)
   const file = join(dir, PRODUCT_FILE)
 
-  let text
-  try {
-    text = readFileSync(file, 'utf8')
-  } catch (error) {
-    if (error.code === 'ENOENT') throw new ConfigError(file, [missingProductFile(dir)])
-    throw error
+  const { raw, error, found } = readConfig(dir)
+  if (!found) {
+    if (error) throw error
+    const { problem, hint } = missingProductFile(dir)
+    throw new ConfigError(file, [problem], hint)
   }
-
-  let raw
-  try {
-    raw = JSON.parse(text)
-  } catch (error) {
-    throw new ConfigError(file, [`is not valid JSON: ${error.message}`])
-  }
+  if (error) throw new ConfigError(file, [`is not valid JSON: ${error.message}`])
 
   const { product, problems } = validateProduct(raw, dir)
   if (problems.length > 0) throw new ConfigError(file, problems)
@@ -81,7 +205,7 @@ export function validateProduct(raw, dir = '.') {
     return { product: null, problems }
   }
 
-  strict(raw, '(root)', ['version', 'product', 'branches', 'concurrency', 'attempts', 'timeout', 'notify', 'models', 'repos', 'edges'], fail)
+  strict(raw, '(root)', ['version', 'product', 'branches', 'queue', 'docs', 'concurrency', 'attempts', 'timeout', 'notify', 'models', 'repos', 'edges'], fail)
 
   if (raw.version !== 1) fail('version', `must be 1, got ${JSON.stringify(raw.version)}`)
 
@@ -119,6 +243,25 @@ export function validateProduct(raw, dir = '.') {
     }
   }
 
+  // queue — where the four folders are, relative to the product folder, and
+  // `tasks` for a product that says nothing (ADR 0012). Validated like a
+  // repository's path: it must stay inside the product folder.
+  const queue = raw.queue === undefined ? DEFAULTS.queue : relativePath(raw.queue, 'queue', fail)
+
+  // docs — which repository holds the documents a task's links point into, and
+  // `null` for none. `init` asks for it and writes the answer, including the
+  // null: a question answered with "there are none" is answered, and a re-run
+  // has no reason to ask again. The shape here; that it names one of `repos` is
+  // checked below, once there are names to check it against (ADR 0014).
+  let docs = null
+  if (raw.docs !== undefined && raw.docs !== null) {
+    docs = nonEmptyString(raw.docs, 'docs', fail)
+    if (docs !== null && !NAME.test(docs)) {
+      fail('docs', `"${docs}" must be letters, digits, ".", "_" or "-" — it names a repository`)
+      docs = null
+    }
+  }
+
   // repos
   const repos = []
   if (!Array.isArray(raw.repos) || raw.repos.length === 0) {
@@ -140,6 +283,21 @@ export function validateProduct(raw, dir = '.') {
       repos.push(repo)
     })
   }
+
+  // docs names a repository of the product, and is read like every other
+  // reference to one: an edge pointing at nothing is refused, and a key that
+  // reads as configured while naming nothing is the same mistake.
+  if (docs !== null && repos.length > 0 && !repos.some((repo) => repo.name === docs)) {
+    fail('docs', `"${docs}" is not a repository in repos`)
+  }
+
+  // The queue is detent's bookkeeping and not part of any repository: a task
+  // file moving between folders inside one would dirty its tree, which §11
+  // refuses and condition 5 would skip the repository for. It is also the
+  // folder the scan leaves alone, and leaving a declared repository alone
+  // would lose it.
+  const held = queue === null ? null : repos.find((repo) => repo.path !== null && (queue === repo.path || queue.startsWith(`${repo.path}/`)))
+  if (held) fail('queue', `"${queue}" is inside ${held.name ?? held.path} — the queue sits beside the repositories, never in one`)
 
   const concurrency = positiveInteger(raw.concurrency, 'concurrency', DEFAULTS.concurrency, fail)
   // One active task per repository (§8): more slots than repositories is a
@@ -201,6 +359,8 @@ export function validateProduct(raw, dir = '.') {
       name,
       summary,
       branches,
+      queue,
+      docs,
       concurrency,
       attempts,
       timeout,
@@ -378,16 +538,22 @@ function taskTemplate(value, path, fail) {
   return value
 }
 
-function relativePath(value, path, fail) {
-  if (typeof value !== 'string' || value === '') {
-    fail(path, 'must be a relative path')
-    return null
-  }
+// The rule for every path in product.json, as `{ path, problem }`: normalised
+// and relative to the product folder, or why it cannot be. Exported because
+// `init` needs the rule before there is a file to validate — `--queue` is a
+// path answered on the command line, and the question it answers takes one too.
+export function productPath(value) {
+  if (typeof value !== 'string' || value === '') return { path: null, problem: 'must be a relative path' }
   const clean = normalize(value).split(sep).join('/').replace(/\/$/, '')
   if (isAbsolute(value) || clean === '.' || clean === '..' || clean.startsWith('../')) {
-    fail(path, `"${value}" must stay inside the product folder`)
-    return null
+    return { path: null, problem: `"${value}" must stay inside the product folder` }
   }
+  return { path: clean, problem: null }
+}
+
+function relativePath(value, path, fail) {
+  const { path: clean, problem } = productPath(value)
+  if (problem) fail(path, problem)
   return clean
 }
 

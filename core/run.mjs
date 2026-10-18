@@ -17,10 +17,13 @@ import { join, relative } from 'node:path'
 import { formatGauge, runGauge } from './gauge.mjs'
 import { abortMerge, beginMerge, concludeMerge, currentBranch, deleteBranch, forceCheckout, git, isClean, setRef, snapshotOnto, snapshotRefs, tip } from './git.mjs'
 import { acceptancePrompt, parseVerdict, taskDiff } from './acceptance.mjs'
+import { refreshContext, unpushedContext } from './context.mjs'
+import { checkLinks } from './links.mjs'
 import { judge } from './lock.mjs'
 import { notify as defaultNotify } from './notify.mjs'
 import { commitSubject, implementPrompt } from './prompt.mjs'
-import { moveTask, taskBranch } from './task.mjs'
+import { moveAndRecord, QueueRepositoryError } from './queue.mjs'
+import { taskBranch } from './task.mjs'
 import { withTask } from './workspace.mjs'
 import { invoke as defaultInvoke } from './agents.mjs'
 import { appendJournal, lastRun, watchJournal } from './journal.mjs'
@@ -49,6 +52,10 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
     cost: { usd: null, tokens: null },
     branch: taskBranch(product, task),
     acceptance: { verdict: repo.models.accept ? null : 'absent', doubts: [], cost: null },
+    // Always present, like acceptance.doubts: a task with no links and a task
+    // whose links all resolved are different records, and "nothing to check"
+    // must not read as "checked and clean" (ADR 0014).
+    links: { checked: 0, broken: [] },
     commit: null,
     merged: false,
   }
@@ -57,7 +64,7 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
 
   let ran
   try {
-    ran = await withTask(product, repo, task, async ({ cwd, branch, resumed, setAttempt, parkWith }) => {
+    ran = await withTask(product, repo, task, async ({ cwd, branch, resumed, tracked, setAttempt, parkWith }) => {
       record.resumed = resumed
       const start = tip(cwd, integration)
       const watched = humanRefs(cwd)
@@ -129,7 +136,7 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
           cwd,
           readOnly: true,
           timeoutMs: repo.timeout * 60_000,
-          prompt: acceptancePrompt({ task, repo, branch, base: integration, diff, truncated }),
+          prompt: acceptancePrompt({ task, repo, branch, base: integration, diff, truncated, brokenLinks: record.links.broken }),
         })
         if (answer.model.actual) record.models.accept.actual = answer.model.actual
         addCost(record.acceptance.cost, answer, true)
@@ -180,6 +187,22 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
         return true
       }
 
+      // Before the first turn: the shared context is brought up to date, and
+      // the journal records the commit each tracked submodule was at — so the
+      // run's record says what the agent read (ADR 0012).
+      if (tracked.length > 0) {
+        const { commits, problem } = refreshContext(cwd, tracked)
+        record.submodules = commits
+        if (problem) return pause('escalated', problem)
+      }
+
+      // And then the documents the task links to, looked for from the root of
+      // this repository — after the refresh, so the question is asked of the
+      // revision the agent will actually read (ADR 0014). A broken link is
+      // told to the agent, recorded here and shown to the reviewer; it is never
+      // a reason to pause, fail or retry, so nothing below branches on it.
+      record.links = checkLinks(cwd, task.body)
+
       for (let attempt = 1; attempt <= limit; attempt += 1) {
         setAttempt(attempt)
         record.attempts = attempt
@@ -187,7 +210,7 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
         const answer = await invoke(role, {
           cwd,
           timeoutMs: repo.timeout * 60_000,
-          prompt: implementPrompt({ task, repo, branch, attempt, limit, resumed, feedback, previous: resumed ? previous : null }),
+          prompt: implementPrompt({ task, repo, branch, attempt, limit, resumed, feedback, previous: resumed ? previous : null, tracked, brokenLinks: record.links.broken }),
         })
         account(record, answer)
 
@@ -204,6 +227,12 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
 
         if (verdict.verdict === 'leave' || verdict.verdict === 'unlocked') {
           record.gauge.failedStage = null
+          // The pointer about to be committed has to be reachable from the
+          // submodule's own remote, or the commit would reference nowhere
+          // (§13). Not reachable pauses the task and names it; nothing in this
+          // run commits a pointer, here or in what is parked on the way out.
+          const unpushed = tracked.length > 0 ? unpushedContext(cwd, tracked) : null
+          if (unpushed) return pause('escalated', unpushed)
           const subject = commitSubject(answer.message, task)
           const message = [
             subject,
@@ -216,7 +245,10 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
           // Always a commit of detent's own, even when the agent committed
           // everything itself: the trailers are git's copy of the journal.
           snapshotOnto(cwd, branch, message, { exclude: repo.neverCommit, allowEmpty: true })
-          if (git(cwd, ['rev-parse', `refs/heads/${branch}^{tree}`]) === git(cwd, ['rev-parse', `${start}^{tree}`])) {
+          // A pointer detent moved itself is not the agent's work: a run whose
+          // only change is the shared context moving forward changed nothing.
+          const changed = git(cwd, ['diff', '--name-only', start, `refs/heads/${branch}`]).split('\n').filter(Boolean)
+          if (changed.every((path) => tracked.includes(path))) {
             setRef(cwd, branch, before, 'drop an empty commit')
             return pause('error', 'the gauge is green but the agent changed nothing')
           }
@@ -247,12 +279,28 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
 
 // Where the task file goes, who hears about it, and the one journal line every
 // run leaves — skipped runs included, so the journal is the whole history.
+//
+// When the queue is a repository the move is committed and pushed there (ADR
+// 0012). A push that fails ends the run, but not before this task's own record
+// is complete: the journal line and the person's message are written first and
+// the failure is raised after them.
 function settle(product, task, record, notify) {
+  let ending = null
+  const move = (folder) => {
+    try {
+      moveAndRecord(product, task, folder)
+    } catch (error) {
+      if (!(error instanceof QueueRepositoryError)) throw error
+      ending = error
+      ending.record = record
+    }
+  }
+
   if (record.outcome === 'passed') {
-    moveTask(product.dir, task, 'done')
+    move('done')
   } else if (['escalated', 'rejected', 'error'].includes(record.outcome)) {
-    moveTask(product.dir, task, 'hold')
-    const file = `tasks/hold/${task.id}-${task.slug}.md`
+    move('hold')
+    const file = `${product.queue}/hold/${task.id}-${task.slug}.md`
     // A conflict is the one pause a resume cannot get past by itself: detent
     // never resolves one, and the agent is not let into a merge. So the person
     // is told the step that is theirs.
@@ -263,6 +311,7 @@ function settle(product, task, record, notify) {
     record.notified = notify(product, { task: record.task, repo: record.repo, outcome: record.outcome, branch: record.branch, message })
   }
   appendJournal(product.dir, record)
+  if (ending) throw ending
   return record
 }
 

@@ -45,7 +45,9 @@ export function snapshot(product, { now = new Date() } = {}) {
   const all = summarise(tasks, () => 'all')[0] ?? null
 
   return {
-    product: { name: product.name, summary: product.summary, dir: product.dir },
+    // The queue's location travels with the snapshot: the page says where an
+    // empty queue is, and that is wherever this product's queue is (ADR 0012).
+    product: { name: product.name, summary: product.summary, dir: product.dir, queue: product.queue },
     generated: now.toISOString(),
     running: active.some((a) => a.alive),
     active,

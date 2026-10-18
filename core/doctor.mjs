@@ -3,10 +3,9 @@
 // Every finding says what to change. Nothing is changed here — the product
 // is not bent into shape by detent, it is told what does not match.
 
-import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { operationInProgress } from './git.mjs'
-import { PRODUCT_FILE, validateProduct } from './product.mjs'
+import { operationInProgress, remoteBranchesContaining, submoduleCheckedOut, submoduleCommit } from './git.mjs'
+import { PRODUCT_FILE, queueOf, readConfig, validateProduct } from './product.mjs'
 import { FOLDERS, missingQueue } from './task.mjs'
 
 export const OK = 'ok'
@@ -24,32 +23,36 @@ export function diagnose(dir, scan) {
   const platformOk = scan.platform === 'darwin' || scan.platform === 'linux'
   say(product, platformOk && major >= 22 ? OK : FAIL, 9, `${scan.platform}, Node ${scan.node}`, platformOk ? (major >= 22 ? null : 'install Node 22 or newer') : 'detent runs on macOS or Linux')
 
+  // The file everything else is read from, read before it is judged: where the
+  // queue is is one of the things it says (ADR 0012), and the queue is looked
+  // for whether the rest of the file is usable or not.
+  const { raw, error, found } = readConfig(dir)
+  const queue = queueOf(raw)
+
   // The queue (§11): a product with nowhere to put a task is not ready,
   // whatever the rest of the report says. Checked from the folder alone, and
-  // never created here — doctor writes nothing.
-  const missing = missingQueue(dir)
+  // never created here — doctor writes nothing. A `queue` that is not a usable
+  // path has no folders to look for; that is a problem about the file, and the
+  // check below names it.
+  const missing = queue === null ? [] : missingQueue(dir, queue)
   if (missing.length) {
     say(
       product,
       FAIL,
       null,
-      `${missing.map((f) => `tasks/${f}`).join(', ')} ${missing.length === 1 ? 'does' : 'do'} not exist — run has no queue to read and plan nowhere to write`,
+      `${missing.map((f) => `${queue}/${f}`).join(', ')} ${missing.length === 1 ? 'does' : 'do'} not exist — run has no queue to read and plan nowhere to write`,
       `detent init --product ${dir}`,
     )
-  } else {
-    say(product, OK, null, `the queue is there: tasks/{${FOLDERS.join(',')}}`)
+  } else if (queue !== null) {
+    say(product, OK, null, `the queue is there: ${queue}/{${FOLDERS.join(',')}}`)
   }
 
-  // The file everything else is read from.
-  const file = join(dir, PRODUCT_FILE)
-  if (!existsSync(file)) {
-    say(product, FAIL, null, `no ${PRODUCT_FILE}`, `detent init --product ${dir}`)
+  if (!found) {
+    if (error) say(product, FAIL, null, `${PRODUCT_FILE} cannot be read: ${error.message}`)
+    else say(product, FAIL, null, `no ${PRODUCT_FILE}`, `detent init --product ${dir}`)
     return { product, repos, loaded: false }
   }
-  let raw
-  try {
-    raw = JSON.parse(readFileSync(file, 'utf8'))
-  } catch (error) {
+  if (error) {
     say(product, FAIL, null, `${PRODUCT_FILE} is not valid JSON: ${error.message}`)
     return { product, repos, loaded: false }
   }
@@ -137,13 +140,19 @@ export function diagnose(dir, scan) {
     const remote = found.upstreams[integration]
     if (!found.branches.includes(integration)) {
       // Nothing to say about a branch that is not there yet.
-    } else if (remote) say(checks, LOOK, 7, `${integration} tracks ${remote} — detent never pushes, so make sure nothing deploys from it`)
+    } else if (remote) say(checks, LOOK, 7, `${integration} tracks ${remote} — detent never pushes it, so make sure nothing deploys from it`)
     else say(checks, OK, 7, `${integration} tracks no remote`)
 
-    // Submodule pointers are never committed (§13)
-    const unguarded = found.submodules.map((s) => s.path).filter((p) => !repo.neverCommit.includes(p))
-    if (unguarded.length) {
-      say(checks, LOOK, null, `submodule ${unguarded.join(', ')} is not in neverCommit — a moved pointer would be committed`, `add ${unguarded.map((p) => `"${p}"`).join(', ')} to neverCommit`)
+    // The shared context (§13, ADR 0012). One list read two ways: a submodule
+    // in neverCommit is the one detent never touches, and has nothing to
+    // report that it did not have before; one outside it is tracked, which is
+    // a configuration rather than an oversight. What can go wrong with a
+    // tracked one is what the run checks before the commit, so doctor asks the
+    // same question — a submodule nobody else can see would pause a task.
+    for (const path of found.submodules.map((s) => s.path).filter((p) => !repo.neverCommit.includes(p))) {
+      const verified = !submoduleCheckedOut(repo.dir, path) || remoteBranchesContaining(repo.dir, path).length > 0
+      if (verified) say(checks, OK, null, `submodule ${path} is tracked — detent brings it to its remote's tip, and its pointer is committed with the task once that commit is verified to be on a remote branch`)
+      else say(checks, FAIL, null, `submodule ${path} is at ${submoduleCommit(repo.dir, path).slice(0, 7)}, which is in none of its remote branches — it has unpushed commits, and a run would pause on it rather than commit a pointer to nowhere`, `git -C ${join(repo.dir, path)} push`)
     }
   }
 
