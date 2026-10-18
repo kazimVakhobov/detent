@@ -203,7 +203,7 @@ are recorded with the alternatives they displaced; and progress is a table the
 gauge refuses to let lie.
 
 - [CONTRIBUTING.md](CONTRIBUTING.md) — branches, commit format, how a release is cut
-- [docs/adr/](docs/adr/) — fourteen decisions, each with what it rejected and what that cost
+- [docs/adr/](docs/adr/) — sixteen decisions, each with what it rejected and what that cost
 - [PROGRESS.md](PROGRESS.md) — where the build actually is, against the build order
 - [CHANGELOG.md](CHANGELOG.md)
 
