@@ -4,7 +4,28 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
-## Unreleased
+## 0.5.0 — 2026-10-18
+
+A methodology from outside this repository, and the first one detent's
+assumptions had to be examined against rather than applied to. The product may
+carry repositories that are the agents' shared context — documents, a kit, the
+queue — mounted as submodules so an agent reads them without leaving its
+working copy; a session writes there and pushes, and a dispatched agent only
+reads.
+
+Three rules bent to fit it, each recorded with what it rested on
+([0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md),
+[0014](docs/adr/0014-init-asks-where-the-queue-and-the-documents-are.md)). The
+queue may be a repository. A submodule pointer may be committed once it is
+verified to exist on a remote, where before it never could. And detent pushes —
+the queue, and nothing else — where before it pushed nothing at all. The fourth
+rule did not bend: an agent still gets a prompt and a working directory, and no
+skills, hooks or settings
+([0013](docs/adr/0013-the-agent-gets-a-prompt-and-a-directory.md)).
+
+The release also carries what a first install found, which is what the four
+entries under **Fixed** are: the first minutes of meeting this tool, where
+every message was correct and several were no use.
 
 ### Added
 

@@ -6,15 +6,18 @@ A detent is the catch that holds a mechanism in a defined position until it is
 deliberately released. Here it is released by a green gauge — the project's own
 checks — and by nothing else.
 
-> **Status: 0.4.1 — all thirteen build steps are done.** `detent run` takes
+> **Status: 0.5.0 — all thirteen build steps are done.** `detent run` takes
 > tasks from a queue to `agent/dev` with Claude Code, Codex or Gemini CLI behind
 > the gauge, and `detent summary` reports what it cost; a second model reads
-> every green diff and may send it back, never wave it through; `init` writes
-> `product.json` from a scan, `doctor` says what to change, and `dashboard`
-> serves a page that watches it all; tasks in different repositories run side by
-> side, `promote` checks a whole batch on `agent/staging`, `plan` talks a task
-> through with an agent and checks the files it writes, and `prune` clears the
-> task branches whose work has landed. Every command in `detent --help` does
+> every green diff and may send it back, never wave it through; `init` asks
+> where the queue and the documents are and writes `product.json` from a scan,
+> `doctor` says what to change, and `dashboard` serves a page that watches it
+> all; tasks in different repositories run side by side, `promote` checks a
+> whole batch on `agent/staging`, `plan` talks a task through with an agent and
+> checks the files it writes, and `prune` clears the task branches whose work
+> has landed. The queue may be a repository of its own, and the documents an
+> agent reads are brought to their remote's tip before a task starts and
+> recorded at the revision it read. Every command in `detent --help` does
 > something. What 1.0.0 still wants is a real batch of tasks run against a real
 > product. [PROGRESS.md](PROGRESS.md) says where the build is.
 
