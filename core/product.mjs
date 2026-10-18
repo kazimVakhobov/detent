@@ -20,8 +20,10 @@ export const DEFAULTS = Object.freeze({
 })
 
 
-const ROLES = ['implement', 'accept']
-const AGENT_NAMES = ['claude', 'codex', 'gemini']
+// Exported because the dashboard offers the same choices the schema allows,
+// and a page listing agents of its own would be a second schema (ADR 0015).
+export const ROLES = Object.freeze(['implement', 'accept'])
+export const AGENT_NAMES = Object.freeze(['claude', 'codex', 'gemini'])
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 const SOURCES = new Set(['scan', 'model'])
 

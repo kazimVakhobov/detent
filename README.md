@@ -12,8 +12,9 @@ checks — and by nothing else.
 > every green diff and may send it back, never wave it through; `init` asks
 > where the queue and the documents are and writes `product.json` from a scan,
 > `doctor` says what to change, and `dashboard` serves a page that watches it
-> all; tasks in different repositories run side by side, `promote` checks a
-> whole batch on `agent/staging`, `plan` talks a task through with an agent and
+> all and writes the configuration back between runs; tasks in different
+> repositories run side by side, `promote` checks a whole batch on
+> `agent/staging`, `plan` talks a task through with an agent and
 > checks the files it writes, and `prune` clears the task branches whose work
 > has landed. The queue may be a repository of its own, and the documents an
 > agent reads are brought to their remote's tip before a task starts and
@@ -121,7 +122,8 @@ detent run
 The agent works on `agent/task-0001-wallet-endpoint`, the gauge runs on its way
 out, and a green task lands on `agent/dev` as one merge commit carrying what it
 cost. `detent summary` reports the numbers, `detent dashboard` serves a page
-that watches them, and nothing has touched a branch of yours.
+that watches them — and, between runs, changes which model does what and how
+long it gets — and nothing has touched a branch of yours.
 
 ## The line agents do not cross
 
