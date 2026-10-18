@@ -12,9 +12,17 @@
 // `agent/dev`, not a tag — and commits nothing here but the task files the
 // move names.
 
+import { existsSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { commitPaths, GitError, isRepository, push, upstreamOf } from './git.mjs'
-import { moveTask } from './task.mjs'
+import { moveTask, QUEUE } from './task.mjs'
+
+// What a configured queue can and cannot publish. Two ways of having asked for
+// a shared queue and got a local one, and `moveAndRecord` below is where each
+// of them is silently true: a queue that is not in a repository has nothing to
+// commit to, and one whose branch tracks no remote has nowhere to push.
+export const PLAIN = 'plain'
+export const NO_REMOTE = 'no-remote'
 
 // The queue's repository would not take the move — it could not be committed,
 // or it could not be pushed. Either way the run stops here rather than working
@@ -53,6 +61,51 @@ export function moveAndRecord(product, task, folder) {
   const where = `${upstream.remote} ${upstream.ref.replace(/^refs\/heads\//, '')}`
   refuse(() => push(dir, upstream), (said) => `the queue could not be pushed to ${where}: ${said}`)
   return { ...moved, commit, pushed: where }
+}
+
+// --- what a configured queue will do with a move, before one is made ----------
+//
+// `moveAndRecord` decides by looking: no repository, no commit; no upstream, no
+// push. Both are right, and both are quiet, so a product configured for a queue
+// two machines share can run for weeks on a queue that never leaves this one.
+// This is the same two questions asked ahead of time, in one sentence each, for
+// the two commands that report rather than act: `init` as it creates the
+// folders and `doctor` as a finding of its own.
+//
+// Null is silence, and silence is two things. A queue at the default location
+// is ADR 0005's file move: nothing was configured, so nothing is expected of
+// it, and the common case gains no line of output. A configured queue in a
+// repository that pushes somewhere is the configuration working.
+export function publishing(productDir, queue) {
+  if (!queue || queue === QUEUE) return null
+  const dir = nearest(productDir, queue)
+  if (!isRepository(dir)) {
+    return {
+      kind: PLAIN,
+      text: `${queue} is not in a git repository — the queue stays on this machine: a task's move is a file move, with nothing to commit it to and nothing to push, so no other machine ever reads what this one did`,
+    }
+  }
+  if (!upstreamOf(dir)) {
+    return {
+      kind: NO_REMOTE,
+      text: `${queue} is in a repository whose branch tracks no remote — a task's move is committed there and pushed nowhere: nothing is wrong, and nothing leaves this machine either`,
+    }
+  }
+  return null
+}
+
+// Where the question is asked: the queue's own folder, the way the move asks it
+// — and when that folder is not there yet, the nearest one above it that is, so
+// `doctor` answers about where a move would go rather than about a path nobody
+// has created.
+function nearest(productDir, queue) {
+  const parts = queue.split('/')
+  while (parts.length > 0) {
+    const dir = join(productDir, ...parts)
+    if (existsSync(dir)) return dir
+    parts.pop()
+  }
+  return productDir
 }
 
 // git saying no here is the end of the run, said in detent's words rather than

@@ -9,7 +9,9 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { failures } from '../core/doctor.mjs'
 import { snapshotRefs } from '../core/git.mjs'
+import { scanProduct } from '../core/scan.mjs'
 import { createQueue, readQueue } from '../core/task.mjs'
 import { readJournal } from '../core/journal.mjs'
 import { runTask } from '../core/run.mjs'
@@ -308,6 +310,74 @@ test('detent run refuses to start when a repository has no implementing agent', 
   assert.equal(error.status, 2)
   assert.match(error.stderr, /no implementing agent for acme-api — set models\.implement/)
   assert.deepEqual(snapshotRefs(s.repoDir), s.before)
+})
+
+// A declared agent that is not installed used to be found out when it was
+// invoked — after the task branch existed and the workspace had been taken.
+// doctor has asked that question since step 7, and this is a run asking it
+// before it starts anything (§12).
+test('detent run refuses on what doctor already fails, before any branch is created', () => {
+  const s = setup()
+  let refused
+  try {
+    execFileSync(process.execPath, [join(import.meta.dirname, '..', 'cli.mjs'), 'run', '--product', s.dir], {
+      encoding: 'utf8',
+      stdio: 'pipe',
+      // product.json declares claude, and nothing on this PATH is claude.
+      env: { ...process.env, PATH: '/usr/local/bin:/usr/bin:/bin' },
+    })
+  } catch (e) {
+    refused = e
+  }
+  assert.equal(refused.status, 2)
+  assert.match(refused.stderr, /^detent run: nothing was started — detent doctor fails a check on what this task needs:$/m)
+  assert.match(refused.stderr, /^ {2}claude is not on PATH \(implement\) — whether it is signed in shows only when it runs$/m, "doctor's own sentence, not a second one")
+  assert.match(refused.stderr, /^detent doctor for the rest\.$/m)
+  assert.doesNotMatch(refused.stderr, /one person per workspace|clean tree|full clone/, 'the report is a command away, and not reprinted here')
+  assert.deepEqual(snapshotRefs(s.repoDir), s.before, 'no branch was created')
+  assert.ok(existsSync(join(s.dir, 'tasks', 'todo', '0042-wallet-endpoint.md')), 'and the task is still queued')
+})
+
+test('a doctor failure in a repository no queued task mentions leaves the run alone', () => {
+  const s = setup()
+  // A second repository, declared and not in shape — no agent/dev, which
+  // doctor calls a failure — and nothing is queued for it.
+  const web = join(s.dir, 'acme-web')
+  mkdirSync(web)
+  sh(web, 'init', '--quiet', '--initial-branch=dev')
+  sh(web, 'config', 'user.name', 'P')
+  sh(web, 'config', 'user.email', 'p@x')
+  writeFileSync(join(web, 'README.md'), 'web\n')
+  sh(web, 'add', '.')
+  sh(web, 'commit', '--quiet', '-m', 'init')
+  const file = join(s.dir, '.detent', 'product.json')
+  const raw = JSON.parse(readFileSync(file, 'utf8'))
+  raw.repos.push({ name: 'acme-web', compare: 'dev' })
+  writeFileSync(file, JSON.stringify(raw))
+
+  const scan = scanProduct(s.dir, { queue: s.product.queue })
+  assert.ok(
+    failures(s.dir, scan, ['acme-web']).some((c) => c.repo === 'acme-web' && /agent\/dev does not exist/.test(c.text)),
+    'doctor does fail on it, when it is asked about',
+  )
+  assert.deepEqual(failures(s.dir, scan, ['acme-api']).filter((c) => c.repo === 'acme-web'), [], 'and is not asked about it for a task in another repository')
+
+  const bin = mkdtempSync(join(tmpdir(), 'detent-bin-'))
+  writeFileSync(
+    join(bin, 'claude'),
+    `#!/bin/sh
+cat > /dev/null
+echo ok > value.txt
+printf '%s' '${JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'Commit: feat(wallet): balance endpoint', total_cost_usd: 0.3, usage: { input_tokens: 5, output_tokens: 7 }, session_id: 'x' })}'
+`,
+  )
+  chmodSync(join(bin, 'claude'), 0o755)
+  const out = execFileSync(process.execPath, [join(import.meta.dirname, '..', 'cli.mjs'), 'run', '--product', s.dir], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+  })
+  assert.match(out, /^0042 {2}passed — merged into agent\/dev/m, 'a run would not have touched acme-web, so it was never asked about it')
+  assert.equal(sh(web, 'branch', '--list', 'agent/*'), '', 'and nothing was created there')
 })
 
 // --- build step 5: landing on agent/dev --------------------------------------

@@ -6,6 +6,7 @@
 import { join } from 'node:path'
 import { operationInProgress, remoteBranchesContaining, submoduleCheckedOut, submoduleCommit } from './git.mjs'
 import { PRODUCT_FILE, queueOf, readConfig, validateProduct } from './product.mjs'
+import { PLAIN, publishing } from './queue.mjs'
 import { FOLDERS, missingQueue } from './task.mjs'
 
 export const OK = 'ok'
@@ -13,10 +14,20 @@ export const FAIL = 'fail'
 export const LOOK = 'look'
 export const INFO = 'info'
 
-export function diagnose(dir, scan) {
+// A finding about the queue rather than about the product's repositories. It is
+// doctor's to report and `failures` leaves it there: a run reads the queue
+// itself and says what it finds, and a queue that cannot be published is not a
+// reason to refuse one.
+const QUEUE_FINDING = 'queue'
+
+// `repos`, when it is given, is the repositories to report on — every other
+// one in `product.json` is left out of the report rather than judged. Nothing
+// about a check changes; what changes is who is asked, which is what `failures`
+// below needs and what a whole report never wants.
+export function diagnose(dir, scan, { repos: only = null } = {}) {
   const product = []
   const repos = {}
-  const say = (list, status, condition, text, fix) => list.push({ status, condition, text, ...(fix ? { fix } : {}) })
+  const say = (list, status, condition, text, fix, more = {}) => list.push({ status, condition, text, ...(fix ? { fix } : {}), ...more })
 
   // 9 — the machine
   const major = Number(scan.node.split('.')[0])
@@ -42,10 +53,23 @@ export function diagnose(dir, scan) {
       null,
       `${missing.map((f) => `${queue}/${f}`).join(', ')} ${missing.length === 1 ? 'does' : 'do'} not exist — run has no queue to read and plan nowhere to write`,
       `detent init --product ${dir}`,
+      { about: QUEUE_FINDING },
     )
   } else if (queue !== null) {
-    say(product, OK, null, `the queue is there: ${queue}/{${FOLDERS.join(',')}}`)
+    say(product, OK, null, `the queue is there: ${queue}/{${FOLDERS.join(',')}}`, null, { about: QUEUE_FINDING })
   }
+
+  // Whether the queue can be published, which is the whole of what configuring
+  // one was for (ADR 0012): the four folders existing is not the same as a
+  // queue the next machine reads. A product that asked for a shared queue and
+  // has a local one is not in the shape its own product.json describes, so the
+  // first of the two is a failure — nothing a run does fixes it, and the run
+  // that believed it published says nothing. The second is not wrong at all: a
+  // queue nobody can fetch has no next machine to be stale for, and the person
+  // is told which of the two they have. A queue at the default location says
+  // nothing, as it never did.
+  const publish = publishing(dir, queue)
+  if (publish) say(product, publish.kind === PLAIN ? FAIL : LOOK, null, publish.text, null, { about: QUEUE_FINDING })
 
   if (!found) {
     if (error) say(product, FAIL, null, `${PRODUCT_FILE} cannot be read: ${error.message}`)
@@ -63,9 +87,15 @@ export function diagnose(dir, scan) {
   }
   say(product, OK, null, `${PRODUCT_FILE} is valid — every branch in it is under agent/`)
 
+  // Who is asked. Everything below reads this rather than the file's whole
+  // list, so a narrowed report is the same checks over fewer repositories —
+  // including the ones that read as being about the product, since what they
+  // are really about is what these repositories declare.
+  const asked = only ? config.repos.filter((repo) => only.includes(repo.name)) : config.repos
+
   // 6 — an agent CLI installed (and authenticated, which only a call can show)
   const roles = new Map()
-  for (const repo of config.repos) {
+  for (const repo of asked) {
     for (const [role, value] of Object.entries(repo.models)) roles.set(`${role}:${value.agent}`, { role, agent: value.agent })
   }
   if (![...roles.values()].some((r) => r.role === 'implement')) {
@@ -75,7 +105,7 @@ export function diagnose(dir, scan) {
     const installed = scan.agents.includes(agent)
     say(product, installed ? OK : FAIL, 6, `${agent} ${installed ? 'is installed' : 'is not on PATH'} (${role}) — whether it is signed in shows only when it runs`, installed ? null : `install ${agent}, or choose another agent for ${role}`)
   }
-  for (const repo of config.repos) {
+  for (const repo of asked) {
     if (repo.models.implement && !repo.models.accept) {
       say(product, LOOK, null, `${repo.name} has no acceptance pass — a green gauge will land without a second model reading the diff`, 'set models.accept to a different model')
     }
@@ -90,7 +120,7 @@ export function diagnose(dir, scan) {
     say(product, LOOK, 2, `${name} is a repository in this folder and not in ${PRODUCT_FILE}`, `detent init --product ${dir} proposes it`)
   }
 
-  for (const repo of config.repos) {
+  for (const repo of asked) {
     const checks = (repos[repo.name] = [])
     const found = scan.repos.find((r) => r.path === repo.path)
     if (!found) {
@@ -161,4 +191,25 @@ export function diagnose(dir, scan) {
 
 export function failed(report) {
   return [report.product, ...Object.values(report.repos)].flat().filter((c) => c.status === FAIL).length
+}
+
+// What doctor calls a failure in `names`, each with the repository it is about
+// (null for one about the product), and nothing else.
+//
+// This is what `run` asks before it creates a branch (§12). Not a second
+// opinion before every run: a failure is by definition what would stop a run or
+// make it skip a repository, so every one of these is something the run was
+// going to hit anyway — an agent that is not installed, a tree somebody left
+// dirty — and hitting it after the task branch exists and the workspace has
+// been taken is the same answer, later and dearer. What doctor calls worth a
+// look is left out, because a run going ahead with less than it could have is a
+// run going ahead; so is the queue's own report, which doctor gives and a run
+// does not need. And a repository no queued task mentions is never asked, since
+// a run would not have touched it.
+export function failures(dir, scan, names) {
+  const report = diagnose(dir, scan, { repos: names })
+  return [
+    ...report.product.filter((check) => check.about !== QUEUE_FINDING).map((check) => ({ ...check, repo: null })),
+    ...Object.entries(report.repos).flatMap(([repo, checks]) => checks.map((check) => ({ ...check, repo }))),
+  ].filter((check) => check.status === FAIL)
 }

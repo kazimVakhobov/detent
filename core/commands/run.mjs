@@ -2,6 +2,8 @@
 // `concurrency` at once under the scheduler's two rules (§8).
 
 import process from 'node:process'
+import { failures } from '../doctor.mjs'
+import { scanProduct } from '../scan.mjs'
 import { readQueue } from '../task.mjs'
 import { runTask } from '../run.mjs'
 import { schedule } from '../scheduler.mjs'
@@ -24,11 +26,26 @@ export async function run(product, ids, _values, { runTask: runOne = runTask } =
 
   // Refused before the first agent starts, like everything else a queue can
   // get wrong: three tasks in, a missing agent is a wasted run.
-  const unarmed = [...new Set(tasks.map((task) => task.repo))].filter(
-    (name) => !product.repos.find((repo) => repo.name === name).models.implement,
-  )
+  const named = [...new Set(tasks.map((task) => task.repo))]
+  const unarmed = named.filter((name) => !product.repos.find((repo) => repo.name === name).models.implement)
   if (unarmed.length > 0) {
     throw new UsageError(`no implementing agent for ${unarmed.join(', ')} — set models.implement in product.json`)
+  }
+
+  // And refused on what `doctor` would already fail, in the repositories these
+  // tasks name: a declared agent nobody installed was found out when it was
+  // invoked, which is after the branch exists and the workspace has been taken.
+  // One check is one line — the report itself is a command away, and printing
+  // it here would be answering a question nobody asked.
+  const blocking = failures(product.dir, scanProduct(product.dir, { queue: product.queue }), named)
+  if (blocking.length > 0) {
+    throw new UsageError(
+      [
+        `nothing was started — detent doctor fails ${blocking.length === 1 ? 'a check' : `${blocking.length} checks`} on what ${tasks.length === 1 ? 'this task needs' : 'these tasks need'}:`,
+        ...blocking.map((check) => `  ${check.repo ? `${check.repo}: ` : ''}${check.text}`),
+        'detent doctor for the rest.',
+      ].join('\n'),
+    )
   }
 
   const { results, stoppedAt, ended } = await schedule(tasks, {

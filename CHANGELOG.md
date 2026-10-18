@@ -6,7 +6,41 @@ Notable changes, newest first. The format follows
 
 ## Unreleased
 
+### Added
+
+- A configured queue that cannot be published is said out loud, by the command
+  that created it and by `doctor`. `"queue": "agent-loop/tasks"` with no
+  `agent-loop` beside the other repositories used to get a plain directory, a
+  line saying the queue was created, and `ready`: everything worked except the
+  thing the configuration was for, since
+  [ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md)
+  has a task's move committed and pushed so the next machine reads a current
+  queue, and there was nothing to commit it to. `init` now says the queue
+  stays on this machine and why, and `doctor` reports it as a failure of its
+  own — a product whose queue cannot be published is not in the shape its own
+  `product.json` describes. Neither of them clones anything, creates a
+  repository or adds a remote: they report, and a person decides.
+- A queue in a repository whose branch tracks **no remote** is reported too,
+  as a different sentence and as worth a look rather than a failure: nothing is
+  wrong, nothing will be pushed, and which of the two a person has is what
+  decides whether there is anything to do about it. The push was already
+  skipped there, and rightly — a queue nobody can fetch has no next machine to
+  be stale for — but it was skipped silently.
+- A queue at the default location says nothing, as it always did. This is a
+  check about a `queue` somebody configured.
+
 ### Changed
+
+- `detent run` refuses, before any branch is created, on what `doctor` already
+  calls a failure in the repositories the queued tasks name. A declared agent
+  that is not installed is therefore caught before the workspace is taken,
+  with the sentence `doctor` has given since step 7, instead of when the agent
+  was invoked — which is after the task branch exists and the workspace has
+  been taken. Only failures, and only those repositories: what `doctor` calls
+  worth a look lets a run go ahead, and a repository no queued task mentions
+  is one a run would not have touched. The refusal names the checks that
+  failed and then `detent doctor` for the rest; it does not reprint the report
+  or run the advisory checks.
 
 - The gauge runs on Linux **and** macOS. `verify.yml` is one matrix over
   `ubuntu-latest` and `macos-latest` — not two copies of a job — on the

@@ -153,7 +153,12 @@ tasks on one machine for a run on another: there a task reaching `done/` or
 and the next machine has to read it as it is now
 ([ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md)).
 A product that says nothing about `queue` has no repository there and detent
-pushes nothing at all.
+pushes nothing at all. A `queue` that names a path with no repository at it, or
+one in a repository that pushes nowhere, is said by `init` as it creates the
+folders and reported by `doctor` — the first as a failure, since that queue
+never leaves the machine it was written on, and the second as worth a look,
+since a queue nobody can fetch has no next machine to be stale for. Neither
+command clones anything: they report, and you decide.
 
 `agent/staging` is optional and exists for one reason: the per-task gauge checks
 a task, and what actually breaks is the combination. The batch gauge runs there,
