@@ -54,6 +54,7 @@ test('a consistent tree passes, and says what it covered', () => {
   const { code, out } = check(fixture())
   assert.equal(code, 0, out)
   assert.match(out, /^docs: \d+ markdown files/)
+  assert.match(out, /\d+ stated counts/)
 })
 
 test('this repository passes its own docs stage', () => {
@@ -130,4 +131,73 @@ test('decision files with no index at all fail', () => {
   const { code, out } = check(dir)
   assert.equal(code, 1)
   assert.match(out, /docs\/adr\/README\.md:1: .*no index/)
+})
+
+// A count stated beside the thing it counts. The fixture holds one decision.
+test('a stale count beside the link to docs/adr/ fails, naming both numbers', () => {
+  const dir = fixture({ 'README.md': 'See [the decisions](docs/adr/) — three decisions, each with its cost.\n' })
+  const { code, out } = check(dir)
+  assert.equal(code, 1)
+  assert.match(out, /README\.md:1: states 3 decisions beside the link to docs\/adr\/, which holds 1/)
+})
+
+test('a count beside the link to docs/adr/ that is right passes', () => {
+  const dir = fixture({ 'README.md': 'See [the decisions](docs/adr/) — one decision so far.\n' })
+  assert.equal(check(dir).code, 0)
+})
+
+test('a link to a decision rather than to the directory states nothing about how many', () => {
+  const dir = fixture({ 'README.md': 'See [ADR 0001](docs/adr/0001-first.md), the one decision that matters.\n' })
+  assert.equal(check(dir).code, 0)
+})
+
+test('a heading that counts its list fails, naming both numbers and the heading', () => {
+  const dir = fixture({
+    'DESIGN.md': '### Five things `doctor` checks\n\n- one\n- two\n- three\n- four\n',
+  })
+  const { code, out } = check(dir)
+  assert.equal(code, 1)
+  assert.match(out, /DESIGN\.md:1: the heading "Five things `doctor` checks" says 5; the list below it has 4 items/)
+})
+
+test('a heading whose count matches its list passes, and a nested item is not one of them', () => {
+  const dir = fixture({
+    'DESIGN.md': '### Two gates\n\n- the first, which has\n  - a part\n  - another part\n- the second\n\nAnd then prose.\n',
+  })
+  assert.equal(check(dir).code, 0)
+})
+
+test('a count written in digits is read the same way', () => {
+  const dir = fixture({ 'DESIGN.md': '## 3 steps\n\n1. first\n2. second\n' })
+  const { code, out } = check(dir)
+  assert.equal(code, 1)
+  assert.match(out, /DESIGN\.md:1: the heading "3 steps" says 3; the list below it has 2 items/)
+})
+
+test('a count the check cannot read is not a claim, and is skipped', () => {
+  const dir = fixture({
+    'DESIGN.md': '### Several things `doctor` checks\n\n- one\n- two\n',
+    'README.md': 'See [the decisions](docs/adr/) — a few decisions, and dozens of records.\n',
+  })
+  assert.equal(check(dir).code, 0)
+})
+
+test('a number in ordinary prose is untouched', () => {
+  const dir = fixture({
+    'DESIGN.md': 'The nine conditions, three profiles and three attempts, since 0.5.0.\n\n- one\n',
+    'PROGRESS.md': '# Progress\n\n## 1. First\n\n### Four invariants\n\n| | What |\n|---|---|\n| I1 | one |\n',
+  })
+  assert.equal(check(dir).code, 0)
+})
+
+test('a fenced block is not a list a heading can be counted against', () => {
+  const dir = fixture({ 'DESIGN.md': '### Four things\n\n```markdown\n- one\n- two\n```\n' })
+  assert.equal(check(dir).code, 0)
+})
+
+test('a count in the changelog is a record of a release, not a claim about now', () => {
+  const dir = fixture({
+    'CHANGELOG.md': '# Changelog\n\n## 2.1.0 — 2026-10-13\n\n- Eight decision records in [`docs/adr/`](docs/adr/).\n',
+  })
+  assert.equal(check(dir).code, 0)
 })

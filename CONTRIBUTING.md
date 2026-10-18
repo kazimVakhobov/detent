@@ -112,7 +112,8 @@ own stage so that a failure names itself:
 1. `check-no-deps.mjs` — the zero-dependency claim
 2. `check-progress.mjs` — `PROGRESS.md` says nothing it cannot prove
 3. `check-docs.mjs` — links resolve, a version called current is the current
-   one, and the ADR index matches `docs/adr/`
+   one, the ADR index matches `docs/adr/`, and a number written beside the
+   thing it counts is that count
 4. `node --test` — the tests
 
 The `docs` stage exists because two of the first four tasks run here changed
