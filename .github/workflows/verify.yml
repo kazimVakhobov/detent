@@ -7,12 +7,25 @@ on:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    # README condition 9 promises macOS or Linux, so the gauge answers for
+    # both. One matrix and not two jobs: a copied job drifts, and the drift
+    # shows up as a platform that quietly stopped being checked — which is
+    # what happened here, where a suite red on Linux stayed red through six
+    # tasks and two releases because the only gauge anyone read was macOS.
+    name: verify (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Neither result is worth less for the other having failed: the question
+      # a red check has to answer is *which* platform, and a cancelled job
+      # answers nothing.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      # No install step: the project claims zero dependencies, and
+      # No install step on either: the project claims zero dependencies, and
       # check-no-deps.mjs is what keeps that claim honest.
       - run: npm run verify

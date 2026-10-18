@@ -32,11 +32,15 @@ export function notify(product, { task, repo, outcome, branch, message }) {
     return { sent: false, via: 'command', error: why }
   }
 
-  for (const [command, args] of desktop(message)) {
+  const tried = desktop(message)
+  for (const [command, args] of tried) {
     const result = spawnSync(command, args, { env, stdio: 'ignore', timeout: 10_000 })
     if (result.status === 0) return { sent: true, via: command }
   }
-  return { sent: false, via: null, error: 'no notify command in product.json, and no desktop notifier answered' }
+  // Which notifier was even tried is decided by the platform, so the platform
+  // is in the message. The same sentence on macOS and on Linux would leave the
+  // reader to guess which machine is missing which program.
+  return { sent: false, via: null, error: `no notify command in product.json, and no desktop notifier answered on ${process.platform} (tried ${tried.map(([command]) => command).join(', ')})` }
 }
 
 function desktop(message) {
