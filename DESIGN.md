@@ -231,6 +231,16 @@ the repository must exist in `product.json`, acceptance criteria must be
 non-empty, the id must be unique. Catching this before the first agent starts is
 the difference between a typo and three wasted attempts.
 
+`detent run` asks one more thing before it creates a branch: whether `doctor`
+already **fails** on the repositories the queued tasks name (§12). It is not a
+second opinion — a failure is by definition what would stop a run or make it
+skip a repository, so every one of them is something the run was going to hit
+anyway, and a declared agent nobody installed used to be found out when it was
+invoked, after the task branch existed and the workspace had been taken. What
+`doctor` calls worth a look is left out, a repository no queued task mentions
+is never asked about, and the refusal names the checks that failed and then
+`detent doctor` for the rest, rather than reprinting a report nobody asked for.
+
 ---
 
 ## 5. Lifecycle
@@ -832,7 +842,12 @@ there is nobody to answer.
 `init` also creates the queue's four folders, `{todo,hold,done,failed}`, if they
 are not there: at the path the first question settled, before any of the three
 passes, and deterministically, so a folder that exists is left alone and
-`--no-agent` creates them too.
+`--no-agent` creates them too. When that path is somewhere other than the
+default, the line that says the queue was created says what it is: a plain
+directory nothing can be committed to, or a repository that pushes nowhere, or
+nothing at all when the queue is one the next machine can read. `init` reports
+it and goes no further — it clones nothing, creates no repository and adds no
+remote, because that division is what makes both it and `doctor` safe to run.
 
 `init --no-agent` stops after pass 1 and leaves the model's fields empty for a
 person to fill. The tool has to work for someone who has no agent installed,
@@ -908,16 +923,29 @@ as green.
 `doctor` reports each finding as passed (✓), failed (✗), worth a look (!) or
 not checkable (·) — condition 8, one person per workspace, is a convention no
 scan can see, and is said to be one rather than skipped. A failure is anything
-that would stop a run or make it skip a repository; worth a look is anything
+that would stop a run or make it skip a repository, or that leaves the product
+in a shape its own `product.json` does not describe; worth a look is anything
 that lets a run go ahead with less than it could have: no gauge, no reviewer,
 an `agent/dev` that tracks a remote. It exits 1 on a failure and writes
 nothing; where there is a command that fixes a finding, it prints the command.
 
-### Five things `doctor` checks beyond the nine conditions
+### Six things `doctor` checks beyond the nine conditions
 
 - **the queue exists** — `tasks/{todo,hold,done,failed}` (§11); a product with
   nowhere to put a task is not ready, whatever else the report says. `init`
   creates it, and that is the command the finding prints
+- **a configured queue can be published** — a `queue` somewhere other than the
+  default was configured so that two machines could share it
+  ([ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md)),
+  and the four folders existing is not that. One that is **not in a git
+  repository** is a failure: a task's move is a file move with nothing to
+  commit it to, so the queue never leaves this machine and the run that
+  believed it published says nothing. One in a repository whose branch
+  **tracks no remote** is worth a look and nothing more — a queue nobody can
+  fetch has no next machine to be stale for — and it is a different sentence,
+  because which of the two a person has decides what they do about it. A queue
+  at the default location is asked nothing: that is ADR 0005's file move, and
+  the common case gains no line
 - **no branch named exactly `agent`** — it makes the whole namespace
   uncreatable, and the error arrives mid-run looking like something else (§2)
 - **every value in `branches` matches `^agent/`** — the guarantee that no

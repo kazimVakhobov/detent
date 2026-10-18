@@ -17,6 +17,7 @@ import { ConfigError, PRODUCT_FILE, productPath, queueOf, readConfig, validatePr
 import { diffLines, hunks, mergeProposal, proposeProduct } from '../propose.mjs'
 import { invoke as defaultInvoke } from '../agents.mjs'
 import { modelPass } from '../model-pass.mjs'
+import { publishing } from '../queue.mjs'
 import { scanProduct } from '../scan.mjs'
 import { createQueue, QUEUE } from '../task.mjs'
 import { UsageError } from './usage.mjs'
@@ -130,6 +131,16 @@ export async function run(dir, _positionals = [], values = {}, { invoke = defaul
   if (created.length) {
     process.stdout.write(`created ${created.map((f) => `${queuePath}/${f}`).join(', ')} — the queue run reads and plan writes into\n`)
   }
+
+  // What creating those folders did not create (ADR 0012). A queue somewhere
+  // other than the default was configured so that two machines could share it,
+  // and four folders in a plain directory are not that: the sentence that says
+  // the queue was created has to say what it is, or the first thing that tells
+  // anybody is a run that published nothing. Said whether or not the folders
+  // were created a moment ago, because it is true either way — and said, not
+  // acted on: init clones nothing, creates no repository and adds no remote.
+  const publish = publishing(root, queuePath)
+  if (publish) process.stdout.write(`${publish.text}\n`)
 
   // Pass 1, the scan; then passes 2 and 3 unless asked not to, or unless there
   // is no agent to ask — the tool has to work for someone without one.

@@ -210,6 +210,9 @@ test('detent init creates the queue, with --no-agent too, and leaves what is que
 
   const again = execFileSync(process.execPath, [cli, 'init', '--product', dir, '--no-agent'], { encoding: 'utf8', env })
   assert.doesNotMatch(again, /^created tasks\//m, 'a folder that is already there is left alone, and not announced')
+  for (const said of [out, again]) {
+    assert.doesNotMatch(said, /git repository|tracks no remote/, 'the queue at the default location is asked nothing and says nothing')
+  }
 
   const fresh = shop()
   execFileSync(process.execPath, [cli, 'init', '--product', fresh, '--no-agent'], { encoding: 'utf8', env })
@@ -260,4 +263,48 @@ test('a configured queue: init creates it there, and the folder it lives in is n
   assert.equal(proposed.queue, 'agent-loop/tasks', 'and the key a person wrote survives the proposal')
   assert.deepEqual(scanProduct(dir, { queue: 'agent-loop/tasks' }).repos.map((r) => r.name), ['shop-api', 'shop-docs', 'shop-svc', 'shop-web'])
   assert.ok(scanProduct(dir).repos.some((r) => r.name === 'agent-loop'), 'a product that says nothing has no reason to skip it')
+})
+
+// A queue somewhere other than the default was configured so that two machines
+// could share it (ADR 0012). Four folders are not that, and the command that
+// creates them is where the person is told which of the two they have.
+test('a queue created where nothing can commit it says so, and says a different thing when only the remote is missing', () => {
+  const configured = (dir, queue) => {
+    mkdirSync(join(dir, '.detent'))
+    writeFileSync(
+      join(dir, '.detent', 'product.json'),
+      JSON.stringify({ version: 1, product: { name: 'shop' }, queue, models: { implement: { agent: 'claude' } }, repos: [{ name: 'shop-api', compare: 'dev' }] }),
+    )
+  }
+  const init = (dir) => withAgents(['claude'], (path) => execFileSync(process.execPath, [cli, 'init', '--product', dir, '--no-agent'], { encoding: 'utf8', env: { ...process.env, PATH: path } }))
+
+  // The queue's repository, configured and never cloned: init creates a plain
+  // directory there, as it always has, and now says what it is not.
+  const plain = shop()
+  configured(plain, 'agent-loop/tasks')
+  const out = init(plain)
+  assert.match(out, /^created agent-loop\/tasks\/todo, .+ — the queue run reads and plan writes into$/m)
+  assert.match(
+    out,
+    /^agent-loop\/tasks is not in a git repository — the queue stays on this machine: a task's move is a file move, with nothing to commit it to and nothing to push, so no other machine ever reads what this one did$/m,
+  )
+  assert.equal(existsSync(join(plain, 'agent-loop', '.git')), false, 'and init cloned nothing, created no repository and added no remote')
+
+  // Said again when there are no folders left to create: it is true either way,
+  // and a re-run is how a person asks.
+  const again = init(plain)
+  assert.doesNotMatch(again, /^created agent-loop/m)
+  assert.match(again, /^agent-loop\/tasks is not in a git repository/m)
+
+  // The queue in a repository of its own that pushes nowhere: a different
+  // sentence, because nothing is wrong with it.
+  const local = shop()
+  repo(local, 'agent-loop', { files: { 'README.md': '# the queue' } })
+  configured(local, 'agent-loop/tasks')
+  const second = init(local)
+  assert.match(
+    second,
+    /^agent-loop\/tasks is in a repository whose branch tracks no remote — a task's move is committed there and pushed nowhere: nothing is wrong, and nothing leaves this machine either$/m,
+  )
+  assert.doesNotMatch(second, /is not in a git repository/, 'which of the two it is, and not both')
 })
