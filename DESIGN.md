@@ -991,15 +991,51 @@ the product: whether a run is active and on what, where each repository's
 `agent/dev` stands against its `compare` branch (identical, behind — agents
 cannot see your work — or tasks ahead, waiting for your review), the queue,
 every paused task with why it was paused and the reviewer's doubts, and the
-numbers `summary` computes, from the same code. It answers GET and nothing
-else, the page loads nothing from outside and sets every value as text, and a
-status is always an icon and a word, never a colour alone.
+numbers `summary` computes, from the same code. The page loads nothing from
+outside and sets every value as text, and a status is always an icon and a
+word, never a colour alone.
 
-### The dashboard is read-only while a run is active
+### The dashboard reads a product and writes its configuration between runs
 
-The queue cannot be edited during a run: detent has already read it and moves
-tasks by its own results. Two writers shuffling the same files is a bug that
-arrives later disguised as a mystery.
+It reads everything and writes one thing: the product's configuration, and
+only when no run is active
+([ADR 0015](docs/adr/0015-the-dashboard-may-write-the-configuration-between-runs.md)).
+`GET` and `HEAD` serve the page, the snapshot and the configuration;
+`POST /configuration.json` is the one write, and every other method gets `405`.
+
+What may change is the models for each role — product-wide and per repository —
+`attempts`, `timeout`, `concurrency` and `notify`. Not `repos`, not `queue`,
+not `docs`, not `branches`: those name things on disk, and a page cannot create
+what it names, so they are shown with the reason they are not editable there.
+
+Three things hold every write.
+
+- **A run is active, and the write is refused** — by the same `state.json`
+  `recover` reads, naming which repository is on which task. The inputs are
+  disabled as a courtesy and the server refuses regardless: the files that
+  judge an agent are fingerprinted before each of its turns (§5), and that
+  guard does not ask who changed one, so a write during a run would pause the
+  task blaming the agent for a person's edit.
+- **The whole file validates, through `validateProduct`** — the same code
+  `loadProduct` uses, every problem at once, each naming its path, and nothing
+  written if any of them fails. A page cannot write a `product.json` that
+  `detent run` would refuse to load.
+- **The request came from the page** — `origin` naming this server and
+  `content-type: application/json`, neither of which a form on another site
+  can produce. Binding `127.0.0.1` stops meaning anything once a server
+  accepts a write, because any site open in the same browser can post to
+  localhost. It is not authentication and is not meant to be: one person per
+  workspace is condition 8.
+
+The file keeps the shape `init` writes it in, the keys the page does not touch
+keep their values and their order, and what the page shows after a write is
+read back off disk. There is no queue of changes applied later: a change
+accepted and not yet applied is a third state between what the file says and
+what the page shows, and the page exists to say what is true.
+
+The queue still cannot be edited during a run: detent has already read it and
+moves tasks by its own results. Two writers shuffling the same files is a bug
+that arrives later disguised as a mystery.
 
 ---
 

@@ -8,6 +8,45 @@ Notable changes, newest first. The format follows
 
 ### Added
 
+- **The dashboard writes the product's configuration, between runs.** The page
+  that knows which model implements, which reviews, how many attempts a task
+  gets and how long an agent may run could not change any of it: all twelve
+  keys are `product.json`, and changing one meant leaving the page, finding the
+  file and knowing a schema that two of those keys joined this month. The
+  models for each role — product-wide and per repository — `attempts`,
+  `timeout`, `concurrency` and `notify` are now inputs on the page, and
+  `POST /configuration.json` is the one thing it writes
+  ([ADR 0015](docs/adr/0015-the-dashboard-may-write-the-configuration-between-runs.md)).
+  `repos`, `queue`, `docs` and `branches` are shown beside them with the
+  reason each is not editable there: they name things on disk, and a page
+  cannot create what it names.
+- A write is refused **while a run is active**, by the server and not only by
+  the disabled inputs — a disabled input is a courtesy and the refusal is the
+  rule. The refusal says a run is active and which repository is on which task
+  and attempt, read from the same `state.json` `recover` reads. The reason is a
+  mechanism rather than a preference: the files that judge an agent are
+  fingerprinted before each of its turns, that guard does not ask who changed
+  one, and a page writing mid-run would pause the task blaming the agent for a
+  person's edit. A stale entry left by a killed run keeps the inputs shut until
+  `detent recover` is run, which is the right answer and an unobvious one.
+  There is no queue of changes applied later: a change accepted and not yet
+  applied is a third state between what the file says and what the page shows.
+- Every write goes through `validateProduct` whole — the same code
+  `detent run` loads the file with, every problem at once, each naming its
+  path, and nothing written if any of them fails — so the page cannot produce
+  a `product.json` a run would refuse to load. The file keeps the shape `init`
+  writes it in, the keys the page does not touch keep their values and their
+  order, a field left empty leaves its key out rather than writing the default
+  into it, and what the page shows afterwards is read back off disk.
+- A write must come from the page: `origin` naming this server and
+  `content-type: application/json`, neither of which a form on another site
+  can produce. Binding `127.0.0.1` stopped meaning anything the moment the
+  server accepted a write — any site open in the same browser can post to
+  localhost, and it never needs to read the reply. There is no login, session
+  or token, and there is not meant to be: one person per workspace is
+  condition 8, and what the check keeps out is a page they did not open rather
+  than a person who is not them.
+
 - The `docs` stage counts what the prose counts. Two shapes are read, and both
   have been wrong in this repository more than once: a line that links to
   [`docs/adr/`](docs/adr/) and says how many decisions are in it — it has said
@@ -45,6 +84,11 @@ Notable changes, newest first. The format follows
 
 ### Changed
 
+- `DESIGN.md` §12 and the README stop saying the dashboard is read-only. What
+  replaces it is narrower and less memorable: it reads a product and writes its
+  configuration between runs. `GET` and `HEAD` are unchanged — the page, the
+  snapshot, and now the configuration — and anything that is neither those nor
+  the one write still gets `405`.
 - `detent run` refuses, before any branch is created, on what `doctor` already
   calls a failure in the repositories the queued tasks name. A declared agent
   that is not installed is therefore caught before the workspace is taken,
