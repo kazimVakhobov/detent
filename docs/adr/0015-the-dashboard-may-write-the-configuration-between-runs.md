@@ -1,7 +1,7 @@
 # 0015. The dashboard may write the configuration, and only between runs
 
 - **Date:** 2026-10-18
-- **Status:** accepted
+- **Status:** accepted; what a stale claim does is corrected by 0017
 
 ## Context
 

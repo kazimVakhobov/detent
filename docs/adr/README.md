@@ -19,8 +19,9 @@ that changed**.
 | [0012](0012-the-queue-and-the-shared-context-may-be-repositories.md) | The queue and the shared context may be repositories | accepted |
 | [0013](0013-the-agent-gets-a-prompt-and-a-directory.md) | The agent gets a prompt and a working directory, and nothing else | accepted |
 | [0014](0014-init-asks-where-the-queue-and-the-documents-are.md) | `init` asks where the queue and the documents are, and a task's links are checked against them | accepted |
-| [0015](0015-the-dashboard-may-write-the-configuration-between-runs.md) | The dashboard may write the configuration, and only between runs | accepted |
+| [0015](0015-the-dashboard-may-write-the-configuration-between-runs.md) | The dashboard may write the configuration, and only between runs | accepted; corrected by 0017 |
 | [0016](0016-a-task-may-choose-its-own-models.md) | A task may choose its own models | accepted, not implemented |
+| [0017](0017-a-claim-locks-the-configuration-only-while-its-run-is-alive.md) | A claim locks the configuration only while its run is alive | accepted |
 
 ## The rules
 
