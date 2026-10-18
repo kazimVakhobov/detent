@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { validateProduct } from '../core/product.mjs'
@@ -151,4 +151,32 @@ test('a task moves between folders and keeps its name, and never overwrites', ()
   assert.throws(() => moveTask(dir, held, 'done'), /tasks\/done\/0001-a\.md already exists/)
   assert.ok(existsSync(held.file), 'a refused move leaves the task where it was')
   assert.throws(() => moveTask(dir, held, 'archive'), /not one of/)
+})
+
+test('the queue is read, moved and named wherever the product keeps it', () => {
+  const { product: elsewhere } = validateProduct({
+    version: 1,
+    product: { name: 'acme' },
+    queue: 'agent-loop/tasks',
+    repos: [{ name: 'acme-api', compare: 'dev' }],
+  })
+  const dir = mkdtempSync(join(tmpdir(), 'detent-queue-'))
+  const todo = join(dir, 'agent-loop', 'tasks', 'todo')
+  mkdirSync(todo, { recursive: true })
+  writeFileSync(join(todo, '0001-a.md'), task({ id: '0001' }))
+  writeFileSync(join(todo, 'wallet.md'), 'not a task file name')
+
+  try {
+    readQueue(dir, elsewhere)
+    assert.fail('a file that is not named like a task is a problem')
+  } catch (error) {
+    assert.deepEqual(error.problems, ['agent-loop/tasks/todo/wallet.md: not a task file name — expected NNNN-<slug>.md, slug in lowercase-with-dashes'])
+  }
+
+  rmSync(join(todo, 'wallet.md'))
+  const [first] = readQueue(dir, elsewhere)
+  const done = moveTask(dir, first, 'done', elsewhere.queue)
+  assert.equal(done.file, join(dir, 'agent-loop', 'tasks', 'done', '0001-a.md'))
+  assert.ok(existsSync(done.file))
+  assert.equal(existsSync(join(dir, 'tasks')), false, 'nothing where a product that says nothing would have it')
 })

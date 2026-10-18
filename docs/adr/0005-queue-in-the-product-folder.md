@@ -1,7 +1,7 @@
 # 0005. The queue lives in the product folder, not in the documentation repository
 
 - **Date:** 2026-10-03
-- **Status:** accepted
+- **Status:** accepted; the location and the versioning are narrowed by 0012
 
 ## Context
 

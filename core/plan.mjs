@@ -35,7 +35,7 @@ export function planPrompt(product, { next, brief }) {
 The repositories, each in its own folder here:
 ${repos}
 ${edges}
-A task is one file in tasks/todo/, named NNNN-<slug>.md — four digits, then a short lowercase slug with dashes. The next free numbers are ${next.join(', ')}, and so on. Exactly this shape:
+A task is one file in ${product.queue}/todo/, named NNNN-<slug>.md — four digits, then a short lowercase slug with dashes. The next free numbers are ${next.join(', ')}, and so on. Exactly this shape:
 
 ---
 id: NNNN
@@ -60,7 +60,7 @@ Rules:
 - One task, one repository. Work that spans repositories is several tasks.
 - touches_contract: true only when the task changes something other repositories depend on — an API, a schema, a shared type. Such a task runs alone, and nothing queued after it starts until it has landed.
 - Every acceptance criterion must be checkable by reading the diff or running the code. "Works well" is not one.
-- Write only files in tasks/todo/. Do not change the repositories, .detent/, runs/, or any other task.
+- Write only files in ${product.queue}/todo/. Do not change the repositories, .detent/, runs/, or any other task.
 - Only the body below the frontmatter reaches the implementing agent, so the Goal must stand on its own.
 ${brief ? `\nWhat I want to start from:\n\n${brief}\n` : ''}`
 }
@@ -69,19 +69,20 @@ ${brief ? `\nWhat I want to start from:\n\n${brief}\n` : ''}`
 // conversation — so that afterwards the difference can be named exactly.
 export function before(product) {
   return {
-    tasks: taskFiles(product.dir),
+    tasks: taskFiles(product),
     productFile: hash(join(product.dir, PRODUCT_FILE)),
     repos: Object.fromEntries(product.repos.map((r) => [r.name, repoState(r.dir)])),
   }
 }
 
 export function after(product, was) {
-  const now = taskFiles(product.dir)
+  const now = taskFiles(product)
   const added = []
   const changed = []
   const outside = []
+  const todo = `${product.queue}/todo/`
   for (const [file, digest] of Object.entries(now)) {
-    const inTodo = file.startsWith('tasks/todo/')
+    const inTodo = file.startsWith(todo)
     if (!(file in was.tasks)) (inTodo ? added : outside).push(file)
     else if (was.tasks[file] !== digest) (inTodo ? changed : outside).push(file)
   }
@@ -89,7 +90,7 @@ export function after(product, was) {
 
   const breaches = []
   if (hash(join(product.dir, PRODUCT_FILE)) !== was.productFile) breaches.push(`${PRODUCT_FILE} changed`)
-  for (const file of outside) breaches.push(`${file} changed — plan writes only new or revised tasks in tasks/todo/`)
+  for (const file of outside) breaches.push(`${file} changed — plan writes only new or revised tasks in ${todo}`)
   for (const repo of product.repos) {
     const state = repoState(repo.dir)
     const old = was.repos[repo.name]
@@ -113,7 +114,7 @@ export function nextIds(product, count = 3) {
     tasks = readQueue(product.dir, product)
   } catch {
     // A broken queue still has numbers in its file names.
-    tasks = Object.keys(taskFiles(product.dir))
+    tasks = Object.keys(taskFiles(product))
       .map((f) => /\/(\d+)-/.exec(f)?.[1])
       .filter(Boolean)
       .map((id) => ({ id }))
@@ -122,16 +123,18 @@ export function nextIds(product, count = 3) {
   return Array.from({ length: count }, (_, i) => String(first + i).padStart(4, '0'))
 }
 
-function taskFiles(dir) {
+// Every task file, keyed by its path from the product folder — so a key reads
+// the way it is printed, wherever the queue is.
+function taskFiles({ dir, queue }) {
   const files = {}
   for (const folder of FOLDERS) {
     let entries = []
     try {
-      entries = readdirSync(join(dir, 'tasks', folder), { withFileTypes: true })
+      entries = readdirSync(join(dir, queue, folder), { withFileTypes: true })
     } catch {}
     for (const entry of entries) {
       if (!entry.isFile()) continue
-      const path = join(dir, 'tasks', folder, entry.name)
+      const path = join(dir, queue, folder, entry.name)
       files[relative(dir, path)] = hash(path)
     }
   }

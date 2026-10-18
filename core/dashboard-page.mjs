@@ -179,7 +179,7 @@ function render(s) {
     el('span', {}, 'implement ' + agent(r.implement), el('br'), el('span', { class: 'muted' }, 'review ' + (r.accept ? agent(r.accept) : 'none'))),
   ]), 'no repositories')
 
-  table(document.getElementById('todo'), [['Task'], ['Repository']], s.queue.todo.map((t) => [t.id + ' ' + t.slug, t.repo || '—']), 'tasks/todo/ is empty')
+  table(document.getElementById('todo'), [['Task'], ['Repository']], s.queue.todo.map((t) => [t.id + ' ' + t.slug, t.repo || '—']), s.product.queue + '/todo/ is empty')
   table(document.getElementById('hold'), [['Task'], ['Why']], s.queue.hold.map((t) => [
     el('div', {}, el('strong', {}, t.id + ' ' + t.slug), el('div', { class: 'muted' }, t.branch ? el('code', {}, t.branch) : '')),
     el('div', {}, t.outcome ? status(t.outcome) : el('span', { class: 'muted' }, 'parked by hand'), t.reason && !t.doubts.length ? el('div', { class: 'muted' }, t.reason) : null,

@@ -21,6 +21,7 @@ import {
   operationInProgress,
   snapshotOnto,
 } from './git.mjs'
+import { restoreContext, trackedSubmodules } from './context.mjs'
 import { claim, isAlive, readState, release, setAttempt } from './state.mjs'
 import { taskBranch } from './task.mjs'
 
@@ -47,7 +48,7 @@ export function gate(product, repo) {
 // Put a repository back: abort what git is in the middle of, park whatever is
 // in the working tree as a wip commit on the task branch, and stand on the
 // integration branch with a clean tree. Never a stash, never agent/dev.
-export function returnHome(dir, { integration, branch, task, reason, message, exclude = [] }) {
+export function returnHome(dir, { integration, branch, task, reason, message, exclude = [], tracked = [] }) {
   const operation = operationInProgress(dir)
   if (operation) abortOperation(dir, operation)
 
@@ -60,6 +61,11 @@ export function returnHome(dir, { integration, branch, task, reason, message, ex
   }
 
   if (currentBranch(dir) !== integration || !isClean(dir)) forceCheckout(dir, integration)
+  // A pointer only ever lands in a task's own commit, verified (ADR 0012). A
+  // run that ended before that leaves a submodule detent moved ahead of the
+  // tree standing here: not anybody's work, and a dirty tree the next run
+  // would skip the repository for. Put it back.
+  restoreContext(dir, tracked)
   return { aborted: operation, parked }
 }
 
@@ -110,13 +116,18 @@ export async function withTask(product, repo, task, work) {
   const refusal = gate(product, repo)
   if (refusal) return { outcome: 'skipped', reason: refusal }
   const resumed = branchExists(repo.dir, branch)
+  // The shared context this task may move and commit a pointer for. Read
+  // before the work starts, because the return needs it however the work ends.
+  const tracked = trackedSubmodules(repo)
 
   claim(product.dir, repo.name, { task: task.id, branch })
   let returned = null
   let message = null
   const undo = (reason) => {
     if (returned) return returned
-    returned = returnHome(repo.dir, { integration, branch, task: task.id, reason, message, exclude: repo.neverCommit })
+    // A wip commit never carries a pointer: only the task's own commit does,
+    // and only once the submodule is verified pushed.
+    returned = returnHome(repo.dir, { integration, branch, task: task.id, reason, message, exclude: [...repo.neverCommit, ...tracked], tracked })
     release(product.dir, repo.name)
     return returned
   }
@@ -130,6 +141,7 @@ export async function withTask(product, repo, task, work) {
       cwd: repo.dir,
       branch,
       resumed,
+      tracked,
       setAttempt: (n) => setAttempt(product.dir, repo.name, n),
       // What the wip commit should say if the work is parked: the work knows
       // the attempt and the outcome, the return only knows that it happened.
@@ -187,11 +199,14 @@ export function recover(product) {
       continue
     }
     try {
+      const tracked = trackedSubmodules(repo)
       const result = returnHome(repo.dir, {
         integration: product.branches.integration,
         branch: entry.branch,
         task: entry.task,
         reason: 'recovered after an interrupted run',
+        exclude: [...repo.neverCommit, ...tracked],
+        tracked,
       })
       release(product.dir, name)
       report.push({ repo: name, task: entry.task, action: 'returned', ...result })

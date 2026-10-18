@@ -14,11 +14,11 @@ export async function run(product, ids, _values, { runTask: runOne = runTask } =
   if (ids.length > 0) {
     const wanted = new Set(ids.map(Number))
     const missing = ids.filter((id) => !tasks.some((task) => Number(task.id) === Number(id)))
-    if (missing.length > 0) throw new UsageError(`not in tasks/todo/: ${missing.join(', ')}`)
+    if (missing.length > 0) throw new UsageError(`not in ${product.queue}/todo/: ${missing.join(', ')}`)
     tasks = tasks.filter((task) => wanted.has(Number(task.id)))
   }
   if (tasks.length === 0) {
-    process.stdout.write('nothing to run: tasks/todo/ is empty\n')
+    process.stdout.write(`nothing to run: ${product.queue}/todo/ is empty\n`)
     return 0
   }
 
@@ -31,7 +31,7 @@ export async function run(product, ids, _values, { runTask: runOne = runTask } =
     throw new UsageError(`no implementing agent for ${unarmed.join(', ')} — set models.implement in product.json`)
   }
 
-  const { results, stoppedAt } = await schedule(tasks, {
+  const { results, stoppedAt, ended } = await schedule(tasks, {
     concurrency: product.concurrency,
     runOne: (task) => runOne(product, product.repos.find((r) => r.name === task.repo), task),
     onStart: (task) => process.stdout.write(`${task.id}  ${task.repo}  ${task.slug}${task.touchesContract ? '  (barrier — runs alone)' : ''}  …\n`),
@@ -40,6 +40,14 @@ export async function run(product, ids, _values, { runTask: runOne = runTask } =
       if (result.notified && !result.notified.sent) process.stdout.write(`      could not notify: ${result.notified.error}\n`)
     },
   })
+  // The queue is how the next machine knows what has been done. A run that
+  // cannot publish it says what failed and stops there (ADR 0012), rather than
+  // working on and leaving that machine a queue it cannot see.
+  if (ended) {
+    const left = ended.left.map((t) => t.id).join(', ')
+    process.stderr.write(`stopped: ${ended.error.message}${left ? ` — ${left} not started` : ''}\n`)
+    return 1
+  }
   if (stoppedAt) {
     const left = stoppedAt.left.map((t) => t.id).join(', ')
     process.stdout.write(

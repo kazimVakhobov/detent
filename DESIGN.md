@@ -145,6 +145,12 @@ number does not. The counter is the highest number across all four folders:
 there is no separate counter file, and therefore nothing that can disagree with
 reality.
 
+The four folders sit wherever `queue` in `product.json` says, relative to the
+product folder, and at `tasks/` for a product that says nothing (§11,
+[ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md)).
+Everything detent reads, writes and prints uses that path, so a product whose
+queue is elsewhere is never told about a folder it has not got.
+
 ### Shape
 
 ```markdown
@@ -174,6 +180,50 @@ from it.
 
 `touches_contract: true` makes the task a barrier (§8).
 
+### A link in a task body
+
+```markdown
+Follow [the decision about idempotency](shared-docs/adr/0003-idempotency.md).
+```
+
+A task body links to a document, which is the whole reason a methodology puts
+documents in a repository and mounts it. A link is a **markdown link, of the
+shape above, whose path is relative to the root of the repository the task
+names**: `shared-docs/adr/0003.md` in a task for `acme-api` is
+`acme-api/shared-docs/adr/0003.md`, which is the only form that means anything
+when the documents arrive as a submodule. Prose that mentions a file is not a
+link, a URL is somebody else's to serve, and a link inside a fenced block is an
+example of one — the same line `scripts/check-docs.mjs` draws for this
+repository's own documentation.
+
+Every link is looked for **at the start of the task, after the shared context
+has been brought to its remote's tip** (§5), so the question is asked of the
+revision the agent will actually read. Not at queue validation, where a
+document pushed and not yet fetched would be reported missing — a false alarm
+about exactly the freshest documents, which are the ones a task is most likely
+to name.
+
+A link that resolves is **not mentioned anywhere**: silence is the normal case,
+and a check that reports its own success spends a line of the most load-bearing
+text in the product on nothing. A broken one is told to the agent as part of
+what it is given, naming the path, so the only party who can tell whether the
+document was needed is the one asked; it is in the journal line as
+`"links": { "checked": 3, "broken": [...] }` (§11), always present, so a task
+with no links and a task whose links all resolved are different records; and it
+is given to the acceptance pass, because a reviewer deciding whether the work is
+sound should know what the implementer could not read.
+
+**It is not a pause.** detent cannot tell a load-bearing link from a decorative
+one, and a task may name five documents and need one; stopping on the other four
+trains a person to stop reading the reason. The price is recorded rather than
+hidden: a task whose document was missing can end green and under-informed
+([ADR 0014](docs/adr/0014-init-asks-where-the-queue-and-the-documents-are.md)).
+
+The check never reads `docs` (§11). A path either resolves in the repository the
+task names or it does not, and that question does not depend on a key; what
+`docs` says is which repository those documents live in, which is what makes a
+missing one somebody's to mount.
+
 ### Validation before any of it runs
 
 `detent plan` and `detent run` both reject a queue that cannot be executed:
@@ -193,6 +243,9 @@ tasks/todo/0042-wallet-endpoint.md
 
   git checkout -b agent/task-0042-wallet-endpoint agent/dev
         (or the existing branch, when a paused task is resumed)
+
+  the shared context to its remote's tip — every submodule outside neverCommit
+        ──→ one that cannot be reached: the task is paused, no agent is asked
 
   ┌── the agent works in the main copy
   │   gauge (exit profile)
@@ -244,7 +297,9 @@ The agent is given the task body and nothing of the frontmatter, the rules of
 the territory — stay on this branch, do not commit, merge, stash or push — the
 gauge stages it is held to, and on a retry the failed stage's output. It is
 asked to end with a `Commit:` line; a well-formed one becomes the subject of
-the commit, and detent writes the trailers whatever it says.
+the commit, and detent writes the trailers whatever it says. It is also told
+which documents the task links to are not in the repository, and nothing about
+the ones that are (§4).
 
 An agent has a shell, so the boundary is **checked after every turn, not
 assumed**. If `agent/dev` moved, detent puts it back and keeps what the agent
@@ -259,6 +314,27 @@ turn and compared after it; a change pauses the task and names the file. They
 are the person's, so detent does not restore them — and the run goes on using
 the product it loaded before the agent started, so an edited gauge never judges
 the attempt that edited it.
+
+### The shared context
+
+A product may mount documentation, a kit or the queue as submodules of its
+repositories, so that a dispatched agent reads them without leaving the working
+copy it was given. Those submodules are **brought to their remote's tip before
+the agent's first turn**, and the commit each one landed on goes in the journal
+line: the agent reads the context as of the moment its task started, and the
+run's record says what that was
+([ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md)).
+A submodule that cannot be reached pauses the task before an agent is asked for
+anything — work done against a context nobody chose would be recorded as work
+done against one.
+
+The pointer that results is committed with the task, and only once it is
+verified (§13). Which submodules this is about is one question with one answer:
+those **not** listed in `neverCommit`. A submodule in `neverCommit` is not
+fetched, not moved and not committed, and the agent is told not to touch it —
+exactly as before, which is what every product that says nothing gets. About a
+tracked one the agent is told the other half: read it, do not write there, and
+detent records which revision it read.
 
 ### The time limit
 
@@ -550,7 +626,7 @@ concluded, and which tasks went into which batch.
 <product>/
   .detent/product.json       composition, branches, gauge, models
   .detent/state.json         per repository: active task, attempt, started at
-  tasks/{todo,hold,done,failed}/NNNN-<slug>.md
+  tasks/{todo,hold,done,failed}/NNNN-<slug>.md      the queue, where `queue` puts it
   runs/journal.jsonl         append-only, one line per run
   map.json  map.mmd          the relationship map; committed, diffed by a person
   acme-api/ acme-web/ …      the product's repositories
@@ -563,6 +639,14 @@ submodule it is a submodule pointer to move everywhere. Documentation receives
 the *decision* a batch of tasks came from — one document, one commit. Churn and
 record are different things and belong in different places.
 
+Where in the product folder is the product's to say: `queue` names a path
+relative to it, `tasks` by default
+([ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md)).
+A session that writes tasks on one machine for a run on another puts the queue
+in a repository of its own and points `queue` at it; nothing else about the
+queue changes, and the folder it sits in is never taken for a repository of the
+product.
+
 ### `product.json`
 
 ```json
@@ -574,6 +658,8 @@ record are different things and belong in different places.
     "staging":     "agent/staging",
     "task":        "agent/task-{id}-{slug}"
   },
+  "queue": "tasks",
+  "docs": "acme-docs",
   "concurrency": 3,
   "attempts": 3,
   "timeout": 30,
@@ -601,8 +687,20 @@ record are different things and belong in different places.
 }
 ```
 
-Four things about this shape are deliberate:
+Five things about this shape are deliberate:
 
+- **`queue` is a path inside the product folder, and `tasks` when it is left
+  out.** It is validated like `repos[].path`: a value that escapes the product
+  folder is refused by name, and so is one inside a repository of the product,
+  whose tree a task file moving between folders would dirty. Everything that
+  reads, writes, moves or reports a task uses it, printing included, so the
+  path in a message is the path on disk. **`docs` names one of the product's
+  repositories — the one the documents a task links to are in — and is `null`
+  for none.** A name that matches no repository is refused in the same sentence
+  an edge pointing at nothing is, and the `null` is written rather than left
+  out, because "there are none" is an answer and a re-run of `init` has no
+  reason to ask again (§12). These two are the keys
+  `init` asks for: the scan cannot see either, so neither is ever guessed.
 - **No field can name a human branch.** Every value in `branches` is validated
   against `^agent/` on load and by `doctor`. With two configurable branches the
   guarantee stops being "there is only one field to get wrong" and becomes a
@@ -642,10 +740,12 @@ Four things about this shape are deliberate:
     "accept": { "agent": "codex", "requested": null, "actual": null }
   },
   "acceptance": { "verdict": "accepted", "doubts": [], "cost": { "usd": 0.06, "tokens": { "input": 21004, "output": 312 } } },
+  "links": { "checked": 3, "broken": ["shared-docs/adr/0003.md"] },
   "cost": { "usd": 0.41, "tokens": { "input": 182044, "output": 6210 } },
   "branch": "agent/task-0042-wallet-endpoint",
   "commit": "a1b2c3d",
-  "merged": true
+  "merged": true,
+  "submodules": { "docs": "9f1c0ab…" }
 }
 ```
 
@@ -656,6 +756,20 @@ exists to prevent.
 
 The model that actually ran is recorded alongside the one requested, because a
 silent substitution would quietly corrupt every comparison built on this file.
+
+`links` says what the task's links turned out to be: how many documents were
+looked for at the start of the run, and which of them were not there (§4). It is
+always present, like `acceptance.doubts`, because `"checked": 0` is a task that
+named no documents and must not read like a task whose documents were all found.
+A broken link is a record and never a verdict — the run that reported one can
+still be `"outcome": "passed"`.
+
+`submodules` is there only for a product that has a shared context, and says
+which commit each tracked submodule was at when the task started — the one
+place a record of *which revision of the documents the work was done against*
+can be kept by something other than memory. The pointer in the task's commit
+says the same thing in git; this says it in the journal, for a run that paused
+before it committed anything.
 
 Every run leaves a line, a run the gate skipped included, so the journal is the
 whole history; `summary` does not count skipped runs, because no agent was
@@ -711,9 +825,14 @@ detent prune        delete agent/task-* branches already merged into agent/dev
 3. **Validation against the scan.** A repository the model invents is dropped
    rather than written, because a gap is visible and an invention is not.
 
-`init` also creates `tasks/{todo,hold,done,failed}` if they are not there,
-before any of the three passes: the queue is deterministic, so a folder that
-exists is left alone and `--no-agent` creates it too.
+Before those three, two questions — `init` is the one command that asks
+anything itself, and the subsection below is what it asks and what happens when
+there is nobody to answer.
+
+`init` also creates the queue's four folders, `{todo,hold,done,failed}`, if they
+are not there: at the path the first question settled, before any of the three
+passes, and deterministically, so a folder that exists is left alone and
+`--no-agent` creates them too.
 
 `init --no-agent` stops after pass 1 and leaves the model's fields empty for a
 person to fill. The tool has to work for someone who has no agent installed,
@@ -746,6 +865,40 @@ With a `product.json` already there, the proposal keeps every field a person
 wrote, adds only what is new, goes to `.detent/product.proposed.json`, and the
 difference is printed.
 
+### `init` is the one command that asks
+
+Two questions, after the scan and before anything is written, because they are
+the two things the scan cannot work out: **which repository holds the queue** —
+one meant to hold tasks looks like any other until there are tasks in it, and
+at `init` there are none — and **which holds the documents a task's links point
+into**, which is whichever one a person decided would hold decisions. Each
+lists the repositories the scan found and offers its default by name, so an
+answer can be a choice rather than a typed path: a number, a repository name,
+or for the queue a path. The queue's default is `tasks` beside the
+repositories, the folder `init` creates anyway; the documents' default is
+**none**, which is an answer and not an empty one. A repository that holds the
+queue *is* the queue, and detent leaves it out of the product (§11,
+[ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md)).
+
+`--queue <path>` and `--docs <name>` answer the same two questions from the
+command line, and `--docs none` says there are none. **A flag is an answer, not
+a suggestion:** given one, nothing is asked — terminal or no terminal — and it
+is what the proposal says.
+
+**With no terminal on stdin, nothing is asked at all.** `init` takes both
+defaults, prints what it took and why, and exits as it would have; Ctrl-D is
+read the same way, because what it says is "stop asking me". A command that
+waits in a pipeline for an answer nobody is there to give is a worse failure
+than the assumption the question was added to replace. Every answer is
+announced, the defaults included — a person who presses enter is told what they
+got — and every answer is written, `"docs": null` included, so a re-run asks
+nothing the file already answers
+([ADR 0014](docs/adr/0014-init-asks-where-the-queue-and-the-documents-are.md)).
+
+Everything else detent does is either its own work or somebody else's question:
+`plan` is interactive by handing the terminal to the agent, and nothing but
+`init` reads detent's own stdin.
+
 `gauge` exists so the gauge is useful before any run does: a person sees exactly
 what an agent will be held to — every stage, its time, and for a red one the
 output the agent would be handed — before an agent is ever held to it. A
@@ -756,12 +909,11 @@ as green.
 not checkable (·) — condition 8, one person per workspace, is a convention no
 scan can see, and is said to be one rather than skipped. A failure is anything
 that would stop a run or make it skip a repository; worth a look is anything
-that lets a run go ahead with less than it could have: no gauge, no reviewer, a
-submodule outside `neverCommit`, an `agent/dev` that tracks a remote. It
-exits 1 on a failure and writes nothing; where there is a command that fixes a
-finding, it prints the command.
+that lets a run go ahead with less than it could have: no gauge, no reviewer,
+an `agent/dev` that tracks a remote. It exits 1 on a failure and writes
+nothing; where there is a command that fixes a finding, it prints the command.
 
-### Four things `doctor` checks beyond the nine conditions
+### Five things `doctor` checks beyond the nine conditions
 
 - **the queue exists** — `tasks/{todo,hold,done,failed}` (§11); a product with
   nowhere to put a task is not ready, whatever else the report says. `init`
@@ -772,6 +924,14 @@ finding, it prints the command.
   configuration can aim detent at a human branch
 - **`gauge.promote` declared with no `branches.staging`** — a declared check
   that nothing ever runs is the same invented green as a missing gauge (§6)
+- **every tracked submodule is one everybody else can see** — a submodule
+  outside `neverCommit` is a deliberate configuration and is reported as
+  tracked, with the note that its pointer is committed with the task once
+  verified; what is checked about it is what the run checks before that commit
+  (§13) — its checked-out commit against its own remote branches. In none of
+  them is a failure naming the submodule, because a run would pause on it. A
+  submodule **in** `neverCommit` is detent's to leave alone and has nothing to
+  report
 
 ### Prune
 
@@ -820,10 +980,24 @@ arrives later disguised as a mystery.
 - **Never write a ref outside `refs/heads/agent/`.** One predicate, checked on
   every write path, rather than a prefix convention remembered in several
   places.
-- **Never push.** detent merges into a local `agent/dev` and stops. Someone's CI
-  deploys from the branch you did not expect.
-- **Never commit a submodule pointer** (`neverCommit`). Moving a pointer without
-  pushing the submodule leaves everyone else with a reference to nowhere.
+- **Push the queue, and nothing else.** detent merges into a local `agent/dev`
+  and stops: someone's CI deploys from the branch you did not expect. The queue
+  is the exception, and only when it lives in a repository — a task moving to
+  `done/` or `hold/` is detent's own bookkeeping, not anybody's work, and a
+  queue that is never pushed is a queue the next machine reads stale
+  ([ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md)).
+  Never a product repository, never `agent/dev`, never a tag. A push that fails
+  ends the run, rather than piling up work nobody else can see.
+- **Commit a submodule pointer only where it is verified** (`neverCommit`).
+  Moving a pointer without pushing the submodule leaves everyone else with a
+  reference to nowhere — so the pointer is checked rather than forbidden.
+  Before a task's commit, every submodule outside `neverCommit` has its
+  checked-out commit looked for in its own remote branches
+  (`git branch -r --contains HEAD`, empty exactly when the commit was never
+  pushed). Empty pauses the task and names the submodule; it never drops the
+  pointer quietly, because a commit saying the agent read revision X when it
+  read Y is the unchecked claim this whole project is against. A submodule in
+  `neverCommit` is not fetched, not moved and not committed.
 - **Never resolve a merge conflict.** `merge --abort`, escalate, let a person
   look at it.
 - **Never work in a dirty repository.** Skip it, say so, continue elsewhere.
@@ -882,3 +1056,10 @@ Named so they read as decisions rather than gaps.
 - **Anything that is not git.**
 - **Task import from an issue tracker.** The task file is the prompt; a Jira
   description is not one yet.
+- **Skills, hooks and settings passed to the agent.** detent spawns a CLI
+  with a prompt and a working directory. Every agent it drives can be given
+  more than that, and each in its own shape, so passing any of it means
+  either privileging one CLI or writing the most load-bearing code in the
+  product three times. A kit repository is a tracked submodule and is worth
+  what the agent reads out of it
+  ([0013](docs/adr/0013-the-agent-gets-a-prompt-and-a-directory.md)).

@@ -76,8 +76,7 @@ with `.detent/product.json`:
 The queue is not versioned, by design, so a fresh clone starts with an empty
 one. The counter then continues from git rather than from the folders: the next
 number is one past the highest `Task:` trailer on `agent/dev`
-(`git log agent/dev --format='%(trailers:key=Task,valueonly)'`). The task's text
-survives in the body of its merge commit.
+(`git log agent/dev --format='%(trailers:key=Task,valueonly)'`).
 
 Work done before step 1 landed went straight onto `agent/dev`: there was no
 queue to take a number from, and a numbered branch with an invented number is

@@ -26,7 +26,7 @@ const { version } = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8'))
 
 const COMMANDS = {
   doctor: 'whether this product is in the shape detent expects',
-  init: 'scan the workspace and write product.json',
+  init: 'scan the workspace and write product.json: [--queue PATH] [--docs NAME|none]',
   plan: 'discuss a task with an agent; it writes the task files',
   run: 'work the queue',
   promote: 'merge agent/dev into agent/staging behind the batch gauge',
