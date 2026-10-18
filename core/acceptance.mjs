@@ -10,7 +10,19 @@ import { git } from './git.mjs'
 
 export const DIFF_LIMIT = 100 * 1024
 
-export function acceptancePrompt({ task, repo, branch, base, diff, truncated }) {
+export function acceptancePrompt({ task, repo, branch, base, diff, truncated, brokenLinks = [] }) {
+  // What the implementer could not read (ADR 0014). A reviewer deciding whether
+  // the work is sound is deciding about work done without these, and a missing
+  // document is not a doubt by itself — the task may have needed none of them.
+  const missing =
+    brokenLinks.length === 0
+      ? ''
+      : `\n${
+          brokenLinks.length === 1
+            ? 'One document this task links to was not in the repository when the work started, so the implementer could not read it'
+            : `${brokenLinks.length} documents this task links to were not in the repository when the work started, so the implementer could not read them`
+        }:\n${brokenLinks.map((path) => `- ${path}`).join('\n')}\n`
+
   return `You are reviewing work another agent did on task ${task.id} in the repository "${repo.name}". The branch ${branch} is checked out in this directory; the work is the difference from ${base}.
 
 You cannot approve it. The project's checks have already passed; that is not your question. Your only job is to find reasons the task is NOT done:
@@ -25,7 +37,7 @@ Do not change anything. Read the repository if you need more than the diff.
 ${task.body.trim()}
 
 ---
-
+${missing}
 The change (git diff ${base}...${branch})${truncated ? ' — cut short; run git diff yourself for the rest' : ''}:
 
 \`\`\`diff

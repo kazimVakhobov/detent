@@ -251,9 +251,8 @@ export function validateProduct(raw, dir = '.') {
   // docs — which repository holds the documents a task's links point into, and
   // `null` for none. `init` asks for it and writes the answer, including the
   // null: a question answered with "there are none" is answered, and a re-run
-  // has no reason to ask again. Only the shape is settled here — what the name
-  // has to resolve to is a question about a task's links, and whoever checks
-  // them is where that belongs (ADR 0014).
+  // has no reason to ask again. The shape here; that it names one of `repos` is
+  // checked below, once there are names to check it against (ADR 0014).
   let docs = null
   if (raw.docs !== undefined && raw.docs !== null) {
     docs = nonEmptyString(raw.docs, 'docs', fail)
@@ -283,6 +282,13 @@ export function validateProduct(raw, dir = '.') {
       }
       repos.push(repo)
     })
+  }
+
+  // docs names a repository of the product, and is read like every other
+  // reference to one: an edge pointing at nothing is refused, and a key that
+  // reads as configured while naming nothing is the same mistake.
+  if (docs !== null && repos.length > 0 && !repos.some((repo) => repo.name === docs)) {
+    fail('docs', `"${docs}" is not a repository in repos`)
   }
 
   // The queue is detent's bookkeeping and not part of any repository: a task

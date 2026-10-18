@@ -81,13 +81,20 @@ test('the queue is where the product says, and tasks where it says nothing', () 
   assertProblem(minimal({ queue: 'acme-api' }), /is inside acme-api/)
 })
 
-test('docs names a repository, and null is the answer that there are none', () => {
+test('docs names a repository of the product, and null is the answer that there are none', () => {
+  const withDocs = (docs) => minimal({ docs, repos: [{ name: 'acme-api', compare: 'dev' }, { name: 'acme-docs', compare: 'main' }] })
+
   assert.equal(validateProduct(minimal(), '/p').product.docs, null, 'a file that says nothing has none')
   assert.equal(validateProduct(minimal({ docs: null }), '/p').product.docs, null, 'and so does one that says so')
-  assert.equal(validateProduct(minimal({ docs: 'acme-docs' }), '/p').product.docs, 'acme-docs')
+  assert.equal(validateProduct(withDocs('acme-docs'), '/p').product.docs, 'acme-docs')
   assertProblem(minimal({ docs: '' }), /^docs: must be a non-empty string$/)
   assertProblem(minimal({ docs: 4 }), /^docs: must be a non-empty string$/)
   assertProblem(minimal({ docs: 'acme docs' }), /^docs: "acme docs" must be letters, digits, "\.", "_" or "-" — it names a repository$/)
+
+  // Read like every other reference to a repository: an edge pointing at
+  // nothing is refused by the same sentence (ADR 0014).
+  assertProblem(withDocs('acme-dcos'), /^docs: "acme-dcos" is not a repository in repos$/)
+  assertProblem(minimal({ docs: 'acme-docs' }), /^docs: "acme-docs" is not a repository in repos$/)
 })
 
 test('queueOf reads the queue before the rest of the file can be judged', () => {

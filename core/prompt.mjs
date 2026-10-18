@@ -2,7 +2,7 @@
 // before the work, and it is the prompt (DESIGN.md §4); around it go only the
 // rules of the territory and, on a retry, what the gauge said.
 
-export function implementPrompt({ task, repo, branch, attempt, limit, resumed, feedback, previous = null, tracked = [] }) {
+export function implementPrompt({ task, repo, branch, attempt, limit, resumed, feedback, previous = null, tracked = [], brokenLinks = [] }) {
   const parts = []
 
   parts.push(
@@ -36,6 +36,24 @@ export function implementPrompt({ task, repo, branch, attempt, limit, resumed, f
   parts.push(`Rules:\n${rules.map((r) => `- ${r}`).join('\n')}`)
 
   parts.push(`---\n\n${task.body.trim()}\n\n---`)
+
+  // A document the task links to that is not in the repository (ADR 0014). The
+  // agent is told because it is the only one who can tell whether it needed it.
+  // The links that resolved are not mentioned: a check that reports its own
+  // success spends a line of the most load-bearing text in the product on
+  // nothing, and silence is the normal case.
+  if (brokenLinks.length > 0) {
+    const one = brokenLinks.length === 1
+    parts.push(
+      [
+        one
+          ? 'The task links to a document that is not in this repository:'
+          : `The task links to ${brokenLinks.length} documents that are not in this repository:`,
+        ...brokenLinks.map((path) => `- ${path}`),
+        `${one ? 'It was' : 'They were'} looked for from the root of this repository at the start of this task, once everything mounted here was up to date, so ${one ? 'it is' : 'they are'} not there to read. Decide whether you needed ${one ? 'it' : 'them'}; if you did, say so in your last message rather than guessing what ${one ? 'it said' : 'they said'}.`,
+      ].join('\n'),
+    )
+  }
 
   if (resumed && attempt === 1) {
     parts.push(
