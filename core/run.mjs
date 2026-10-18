@@ -18,6 +18,7 @@ import { formatGauge, runGauge } from './gauge.mjs'
 import { abortMerge, beginMerge, concludeMerge, currentBranch, deleteBranch, forceCheckout, git, isClean, setRef, snapshotOnto, snapshotRefs, tip } from './git.mjs'
 import { acceptancePrompt, parseVerdict, taskDiff } from './acceptance.mjs'
 import { refreshContext, unpushedContext } from './context.mjs'
+import { checkLinks } from './links.mjs'
 import { judge } from './lock.mjs'
 import { notify as defaultNotify } from './notify.mjs'
 import { commitSubject, implementPrompt } from './prompt.mjs'
@@ -51,6 +52,10 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
     cost: { usd: null, tokens: null },
     branch: taskBranch(product, task),
     acceptance: { verdict: repo.models.accept ? null : 'absent', doubts: [], cost: null },
+    // Always present, like acceptance.doubts: a task with no links and a task
+    // whose links all resolved are different records, and "nothing to check"
+    // must not read as "checked and clean" (ADR 0014).
+    links: { checked: 0, broken: [] },
     commit: null,
     merged: false,
   }
@@ -131,7 +136,7 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
           cwd,
           readOnly: true,
           timeoutMs: repo.timeout * 60_000,
-          prompt: acceptancePrompt({ task, repo, branch, base: integration, diff, truncated }),
+          prompt: acceptancePrompt({ task, repo, branch, base: integration, diff, truncated, brokenLinks: record.links.broken }),
         })
         if (answer.model.actual) record.models.accept.actual = answer.model.actual
         addCost(record.acceptance.cost, answer, true)
@@ -191,6 +196,13 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
         if (problem) return pause('escalated', problem)
       }
 
+      // And then the documents the task links to, looked for from the root of
+      // this repository — after the refresh, so the question is asked of the
+      // revision the agent will actually read (ADR 0014). A broken link is
+      // told to the agent, recorded here and shown to the reviewer; it is never
+      // a reason to pause, fail or retry, so nothing below branches on it.
+      record.links = checkLinks(cwd, task.body)
+
       for (let attempt = 1; attempt <= limit; attempt += 1) {
         setAttempt(attempt)
         record.attempts = attempt
@@ -198,7 +210,7 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
         const answer = await invoke(role, {
           cwd,
           timeoutMs: repo.timeout * 60_000,
-          prompt: implementPrompt({ task, repo, branch, attempt, limit, resumed, feedback, previous: resumed ? previous : null, tracked }),
+          prompt: implementPrompt({ task, repo, branch, attempt, limit, resumed, feedback, previous: resumed ? previous : null, tracked, brokenLinks: record.links.broken }),
         })
         account(record, answer)
 

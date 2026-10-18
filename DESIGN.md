@@ -180,6 +180,50 @@ from it.
 
 `touches_contract: true` makes the task a barrier (§8).
 
+### A link in a task body
+
+```markdown
+Follow [the decision about idempotency](shared-docs/adr/0003-idempotency.md).
+```
+
+A task body links to a document, which is the whole reason a methodology puts
+documents in a repository and mounts it. A link is a **markdown link, of the
+shape above, whose path is relative to the root of the repository the task
+names**: `shared-docs/adr/0003.md` in a task for `acme-api` is
+`acme-api/shared-docs/adr/0003.md`, which is the only form that means anything
+when the documents arrive as a submodule. Prose that mentions a file is not a
+link, a URL is somebody else's to serve, and a link inside a fenced block is an
+example of one — the same line `scripts/check-docs.mjs` draws for this
+repository's own documentation.
+
+Every link is looked for **at the start of the task, after the shared context
+has been brought to its remote's tip** (§5), so the question is asked of the
+revision the agent will actually read. Not at queue validation, where a
+document pushed and not yet fetched would be reported missing — a false alarm
+about exactly the freshest documents, which are the ones a task is most likely
+to name.
+
+A link that resolves is **not mentioned anywhere**: silence is the normal case,
+and a check that reports its own success spends a line of the most load-bearing
+text in the product on nothing. A broken one is told to the agent as part of
+what it is given, naming the path, so the only party who can tell whether the
+document was needed is the one asked; it is in the journal line as
+`"links": { "checked": 3, "broken": [...] }` (§11), always present, so a task
+with no links and a task whose links all resolved are different records; and it
+is given to the acceptance pass, because a reviewer deciding whether the work is
+sound should know what the implementer could not read.
+
+**It is not a pause.** detent cannot tell a load-bearing link from a decorative
+one, and a task may name five documents and need one; stopping on the other four
+trains a person to stop reading the reason. The price is recorded rather than
+hidden: a task whose document was missing can end green and under-informed
+([ADR 0014](docs/adr/0014-init-asks-where-the-queue-and-the-documents-are.md)).
+
+The check never reads `docs` (§11). A path either resolves in the repository the
+task names or it does not, and that question does not depend on a key; what
+`docs` says is which repository those documents live in, which is what makes a
+missing one somebody's to mount.
+
 ### Validation before any of it runs
 
 `detent plan` and `detent run` both reject a queue that cannot be executed:
@@ -253,7 +297,9 @@ The agent is given the task body and nothing of the frontmatter, the rules of
 the territory — stay on this branch, do not commit, merge, stash or push — the
 gauge stages it is held to, and on a retry the failed stage's output. It is
 asked to end with a `Commit:` line; a well-formed one becomes the subject of
-the commit, and detent writes the trailers whatever it says.
+the commit, and detent writes the trailers whatever it says. It is also told
+which documents the task links to are not in the repository, and nothing about
+the ones that are (§4).
 
 An agent has a shell, so the boundary is **checked after every turn, not
 assumed**. If `agent/dev` moved, detent puts it back and keeps what the agent
@@ -648,10 +694,12 @@ Five things about this shape are deliberate:
   folder is refused by name, and so is one inside a repository of the product,
   whose tree a task file moving between folders would dirty. Everything that
   reads, writes, moves or reports a task uses it, printing included, so the
-  path in a message is the path on disk. **`docs` names the repository the
-  documents a task links to are in, and is `null` for none** — the `null` is
-  written rather than left out, because "there are none" is an answer and a
-  re-run of `init` has no reason to ask again (§12). These two are the keys
+  path in a message is the path on disk. **`docs` names one of the product's
+  repositories — the one the documents a task links to are in — and is `null`
+  for none.** A name that matches no repository is refused in the same sentence
+  an edge pointing at nothing is, and the `null` is written rather than left
+  out, because "there are none" is an answer and a re-run of `init` has no
+  reason to ask again (§12). These two are the keys
   `init` asks for: the scan cannot see either, so neither is ever guessed.
 - **No field can name a human branch.** Every value in `branches` is validated
   against `^agent/` on load and by `doctor`. With two configurable branches the
@@ -692,6 +740,7 @@ Five things about this shape are deliberate:
     "accept": { "agent": "codex", "requested": null, "actual": null }
   },
   "acceptance": { "verdict": "accepted", "doubts": [], "cost": { "usd": 0.06, "tokens": { "input": 21004, "output": 312 } } },
+  "links": { "checked": 3, "broken": ["shared-docs/adr/0003.md"] },
   "cost": { "usd": 0.41, "tokens": { "input": 182044, "output": 6210 } },
   "branch": "agent/task-0042-wallet-endpoint",
   "commit": "a1b2c3d",
@@ -707,6 +756,13 @@ exists to prevent.
 
 The model that actually ran is recorded alongside the one requested, because a
 silent substitution would quietly corrupt every comparison built on this file.
+
+`links` says what the task's links turned out to be: how many documents were
+looked for at the start of the run, and which of them were not there (§4). It is
+always present, like `acceptance.doubts`, because `"checked": 0` is a task that
+named no documents and must not read like a task whose documents were all found.
+A broken link is a record and never a verdict — the run that reported one can
+still be `"outcome": "passed"`.
 
 `submodules` is there only for a product that has a shared context, and says
 which commit each tracked submodule was at when the task started — the one

@@ -8,6 +8,31 @@ Notable changes, newest first. The format follows
 
 ### Added
 
+- **A task's links are checked against the documents its repository has
+  mounted.** A link in a task body is a markdown link whose path is relative to
+  the root of the repository the task names — `shared-docs/adr/0003.md` in a
+  task for `acme-api` is `acme-api/shared-docs/adr/0003.md`, the only form that
+  means anything when the documents arrive as a submodule. Every one is looked
+  for at the start of the task, **after** the shared context has been brought to
+  its remote's tip, so the question is asked of the revision the agent will
+  actually read; not at queue validation, which would cry wolf about a document
+  pushed and not yet fetched. A link that resolves is not mentioned anywhere —
+  silence is the normal case, and a task with no links reads nothing at all. A
+  broken one is named to the agent as part of what it is given, so the only
+  party who can tell whether that document was needed is the one asked; it is in
+  the journal line as `"links": { "checked": 3, "broken": [...] }`, always
+  present, so a task that named no documents does not read like a task whose
+  documents were all found; and it is given to the acceptance pass, because a
+  reviewer deciding whether the work is sound should know what the implementer
+  could not read. **It never pauses, fails or retries the task** — detent cannot
+  tell a load-bearing link from a decorative one, and the price, recorded rather
+  than hidden, is that a task whose document was missing can end green and
+  under-informed. `docs` now names one of the product's repositories and is
+  refused when it names nothing, like every other reference to one; the check
+  itself does not read it, because a path either resolves in the repository the
+  task names or it does not. Parts 3 and 4 of
+  [ADR 0014](docs/adr/0014-init-asks-where-the-queue-and-the-documents-are.md).
+
 - **`init` asks where the queue and the documents are, and never waits for an
   answer nobody is there to give.** Two questions, after the scan and before
   anything is written, for the two things a scan cannot work out: which
