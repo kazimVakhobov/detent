@@ -4,6 +4,166 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
+## 0.5.0 — 2026-10-18
+
+A methodology from outside this repository, and the first one detent's
+assumptions had to be examined against rather than applied to. The product may
+carry repositories that are the agents' shared context — documents, a kit, the
+queue — mounted as submodules so an agent reads them without leaving its
+working copy; a session writes there and pushes, and a dispatched agent only
+reads.
+
+Three rules bent to fit it, each recorded with what it rested on
+([0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md),
+[0014](docs/adr/0014-init-asks-where-the-queue-and-the-documents-are.md)). The
+queue may be a repository. A submodule pointer may be committed once it is
+verified to exist on a remote, where before it never could. And detent pushes —
+the queue, and nothing else — where before it pushed nothing at all. The fourth
+rule did not bend: an agent still gets a prompt and a working directory, and no
+skills, hooks or settings
+([0013](docs/adr/0013-the-agent-gets-a-prompt-and-a-directory.md)).
+
+The release also carries what a first install found, which is what the four
+entries under **Fixed** are: the first minutes of meeting this tool, where
+every message was correct and several were no use.
+
+### Added
+
+- **A task's links are checked against the documents its repository has
+  mounted.** A link in a task body is a markdown link whose path is relative to
+  the root of the repository the task names — `shared-docs/adr/0003.md` in a
+  task for `acme-api` is `acme-api/shared-docs/adr/0003.md`, the only form that
+  means anything when the documents arrive as a submodule. Every one is looked
+  for at the start of the task, **after** the shared context has been brought to
+  its remote's tip, so the question is asked of the revision the agent will
+  actually read; not at queue validation, which would cry wolf about a document
+  pushed and not yet fetched. A link that resolves is not mentioned anywhere —
+  silence is the normal case, and a task with no links reads nothing at all. A
+  broken one is named to the agent as part of what it is given, so the only
+  party who can tell whether that document was needed is the one asked; it is in
+  the journal line as `"links": { "checked": 3, "broken": [...] }`, always
+  present, so a task that named no documents does not read like a task whose
+  documents were all found; and it is given to the acceptance pass, because a
+  reviewer deciding whether the work is sound should know what the implementer
+  could not read. **It never pauses, fails or retries the task** — detent cannot
+  tell a load-bearing link from a decorative one, and the price, recorded rather
+  than hidden, is that a task whose document was missing can end green and
+  under-informed. `docs` now names one of the product's repositories and is
+  refused when it names nothing, like every other reference to one; the check
+  itself does not read it, because a path either resolves in the repository the
+  task names or it does not. Parts 3 and 4 of
+  [ADR 0014](docs/adr/0014-init-asks-where-the-queue-and-the-documents-are.md).
+
+- **`init` asks where the queue and the documents are, and never waits for an
+  answer nobody is there to give.** Two questions, after the scan and before
+  anything is written, for the two things a scan cannot work out: which
+  repository holds the queue — one meant to hold tasks looks like any other
+  until there are tasks in it — and which holds the documents a task's links
+  point into. Each lists the repositories the scan found and offers its default
+  by name, so an answer is a number, a repository name or a path rather than a
+  typed guess; the queue's default is `tasks` beside the repositories and the
+  documents' is **none**, which is an answer and is written as `"docs": null`.
+  `--queue <path>` and `--docs <name>` answer the same two questions from the
+  command line, `--docs none` says there are none, and a flag is an answer
+  rather than a suggestion: given one, nothing is asked either way. **With no
+  terminal on stdin nothing is asked at all** — both defaults are taken, what
+  was taken and why is printed, and the run is otherwise the one it has always
+  been, which is what keeps `init` usable in a script. Every answer is
+  announced, the defaults included, and every answer is written, so re-running
+  `init` asks nothing the file already answers. `docs` is the second role
+  detent names after `queue`, and nothing reads it yet. Parts 1 and 2 of
+  [ADR 0014](docs/adr/0014-init-asks-where-the-queue-and-the-documents-are.md).
+
+- **The shared context is brought up to date, and the pointer is recorded.**
+  Before an agent's first turn, every submodule of its repository that is not
+  in `neverCommit` is fetched and moved to its remote's tip, and the journal
+  line says which commit each one landed on: the agent reads the documents as
+  of the moment its task started, and the run's record says what that was. The
+  pointer that results is committed with the task and reaches `agent/dev` with
+  it — the prohibition in `DESIGN.md` §13 became a check, since a pointer
+  without a pushed submodule is a reference to nowhere. Before the commit, each
+  tracked submodule's commit is looked for in its own remote branches; one that
+  is in none of them pauses the task, names the submodule and says it has
+  commits nobody else can see, and that run commits no pointer anywhere, not
+  even in what it parks. A submodule that stays in `neverCommit` is not
+  fetched, not moved and not committed, down to the sentence the prompt gives
+  the agent about it; a product that mounts nothing is unaffected. The second
+  part of
+  [ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md).
+- **detent pushes the queue, and nothing else.** When the queue lives in a git
+  repository, a task reaching `done/` or `hold/` is a commit there naming the
+  task — only the two files the move touches, leaving whatever else the person
+  has staged alone — pushed to the branch's own upstream and nowhere else. Not
+  a product repository, not `agent/dev`, not a tag; `assertAgentRef` goes on
+  guarding every ref in every repository of the product. A queue that is not in
+  a repository moves the file and commits nothing, exactly as before, and a
+  queue repository with no remote is committed and not pushed — there is no
+  next machine to be stale for. A push that fails, or a commit that repository
+  refuses, ends the run with what failed and names the tasks it did not start,
+  rather than working on with a queue the next machine cannot see; the run that
+  hit it still leaves its journal line first. The third part of ADR 0012, and
+  the first time detent writes outside `refs/heads/agent/`.
+- `queue` in `product.json`: where the four folders of the queue live, as a
+  path relative to the product folder, `tasks` when it is left out. Validated
+  like `repos[].path` — a value that escapes the product folder is refused by
+  name, and so is one inside a repository, whose tree a task file moving
+  between folders would dirty — and used by everything that reads, writes,
+  moves or reports a task,
+  what the tool prints included, so a product with
+  `"queue": "agent-loop/tasks"` is never told about `tasks/todo/`. `init`
+  creates the folders there, `doctor` looks for them there, and the scan does
+  not take the folder the queue lives in for a repository of the product,
+  whatever it is called. A product that says nothing behaves exactly as before.
+  The first of the three parts of
+  [ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md).
+
+### Changed
+
+- **`doctor` reads a submodule outside `neverCommit` the way ADR 0012 does.**
+  It used to call one a thing to put back in the list — the warning told a
+  person to undo the configuration they had chosen. It is now reported as
+  tracked, with what that means: detent brings it to its remote's tip and
+  commits its pointer with the task, once that commit is verified. What can go
+  wrong with it is checked rather than warned about, and it is the same
+  question the run asks before the commit — the checked-out commit against the
+  submodule's own remote branches. In none of them is a failure that names the
+  submodule and prints the push, because a run would pause on it. A submodule
+  **in** `neverCommit` is reported exactly as before, which is to say not at
+  all, and a repository that mounts nothing produces no new output.
+- **The prompt says what a tracked submodule is.** An agent that found a
+  submodule it was allowed to read and not to write was told nothing either
+  way: the sentence about `neverCommit` paths is about the other list. It now
+  gets the other half — read it, do not write there, detent records which
+  revision you read. The `neverCommit` sentence is unchanged, and an agent in
+  a repository with no tracked submodule gets neither.
+
+### Fixed
+
+- A missing `.detent/product.json` explains itself. The one-line answer was
+  right and useless to its most likely reader, who has not met the tool: the
+  message now says what the file is for, draws the folder it belongs in, names
+  the repositories it can see from where it was pointed, and ends in the
+  command to run. Three situations get three answers — standing in the product
+  folder, standing inside a clone, and standing somewhere with nothing in it —
+  and the clone one is still careful never to name the parent directory as the
+  fix, since that is usually a projects directory and following it would build
+  one product out of everything in it. `ConfigError` carries an optional hint
+  for this: problems stay a list, prose comes after them.
+- `detent init` on a `product.json` somebody broke says `is not valid JSON`
+  and where to go from there, instead of a `SyntaxError` and a stack trace.
+  It read the file with a bare `JSON.parse` while every other command went
+  through the loader that has always reported this properly — and the path to
+  it is the ordinary one: edit the file by hand, misplace a comma, re-run
+  `init` to regenerate.
+- A run of `detent init` that finds nothing to propose still reports. The
+  early exit on "already says everything the scan found" was taken before the
+  notes were printed, so a failed model pass, a repository with no gauge
+  stages and a missing `models.accept` were all swallowed behind a sentence
+  that reads like success.
+- What `init` says is installed comes from the scan rather than from what
+  `product.json` declares. A file naming an agent nobody has was reported as
+  that agent being the only one installed.
+
 ## 0.4.1 — 2026-10-14
 
 One message, from watching somebody meet detent for the first time and run a

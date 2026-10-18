@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { ConfigError, loadProduct, validateProduct } from '../core/product.mjs'
+import { ConfigError, loadProduct, queueOf, validateProduct } from '../core/product.mjs'
 
 function minimal(overrides = {}) {
   return {
@@ -61,6 +61,47 @@ test('defaults fill what a minimal file leaves out', () => {
   assert.equal(product.attempts, 3)
   assert.equal(product.repos[0].path, 'acme-api', 'path defaults to the name')
   assert.deepEqual(product.repos[0].gauge, { exit: [], merge: [], promote: [] }, 'no gauge is carried as empty, not refused')
+})
+
+test('the queue is where the product says, and tasks where it says nothing', () => {
+  assert.equal(validateProduct(minimal(), '/p').product.queue, 'tasks', 'a product that says nothing keeps 0005')
+  assert.equal(validateProduct(minimal({ queue: 'agent-loop/tasks' }), '/p').product.queue, 'agent-loop/tasks')
+  assert.equal(validateProduct(minimal({ queue: './queue/' }), '/p').product.queue, 'queue', 'read as a path, like a repository\'s')
+
+  // Validated exactly like repos[].path: a queue outside the product folder is
+  // a problem naming the value it was given.
+  assertProblem(minimal({ queue: '../shared/tasks' }), /^queue: "\.\.\/shared\/tasks" must stay inside the product folder$/)
+  assertProblem(minimal({ queue: '/var/tasks' }), /^queue: "\/var\/tasks" must stay inside the product folder$/)
+  assertProblem(minimal({ queue: '' }), /^queue: must be a relative path$/)
+  assertProblem(minimal({ queue: 4 }), /^queue: must be a relative path$/)
+
+  // And never inside a repository, whose tree a task file moving folders would
+  // dirty — the folder the scan leaves alone is the one the queue sits in.
+  assertProblem(minimal({ queue: 'acme-api/tasks' }), /^queue: "acme-api\/tasks" is inside acme-api — the queue sits beside the repositories, never in one$/)
+  assertProblem(minimal({ queue: 'acme-api' }), /is inside acme-api/)
+})
+
+test('docs names a repository of the product, and null is the answer that there are none', () => {
+  const withDocs = (docs) => minimal({ docs, repos: [{ name: 'acme-api', compare: 'dev' }, { name: 'acme-docs', compare: 'main' }] })
+
+  assert.equal(validateProduct(minimal(), '/p').product.docs, null, 'a file that says nothing has none')
+  assert.equal(validateProduct(minimal({ docs: null }), '/p').product.docs, null, 'and so does one that says so')
+  assert.equal(validateProduct(withDocs('acme-docs'), '/p').product.docs, 'acme-docs')
+  assertProblem(minimal({ docs: '' }), /^docs: must be a non-empty string$/)
+  assertProblem(minimal({ docs: 4 }), /^docs: must be a non-empty string$/)
+  assertProblem(minimal({ docs: 'acme docs' }), /^docs: "acme docs" must be letters, digits, "\.", "_" or "-" — it names a repository$/)
+
+  // Read like every other reference to a repository: an edge pointing at
+  // nothing is refused by the same sentence (ADR 0014).
+  assertProblem(withDocs('acme-dcos'), /^docs: "acme-dcos" is not a repository in repos$/)
+  assertProblem(minimal({ docs: 'acme-docs' }), /^docs: "acme-docs" is not a repository in repos$/)
+})
+
+test('queueOf reads the queue before the rest of the file can be judged', () => {
+  assert.equal(queueOf({ version: 1, queue: 'agent-loop/tasks' }), 'agent-loop/tasks')
+  assert.equal(queueOf({ version: 1 }), 'tasks', 'a file that says nothing')
+  assert.equal(queueOf(null), 'tasks', 'and no file at all')
+  assert.equal(queueOf({ queue: '../elsewhere' }), null, 'a queue that escapes has no location to look in')
 })
 
 test('a repository overrides a role, never the models as a whole', () => {
@@ -166,28 +207,59 @@ test('a missing product.json inside a repository says so, and does not send anyo
   const inRepo = mkdtempSync(join(tmpdir(), 'detent-inrepo-'))
   mkdirSync(join(inRepo, '.git'))
 
-  const problemIn = (dir) => {
+  const errorIn = (dir) => {
     try {
       loadProduct(dir)
       throw new Error('loadProduct did not throw')
     } catch (error) {
-      return error.problems[0]
+      return error
     }
   }
+  const problemIn = (dir) => errorIn(dir).problems[0]
+  const hintIn = (dir) => errorIn(dir).hint ?? ''
 
-  // Standing somewhere ordinary: the plain answer, and where to stand.
-  const plainProblem = problemIn(plain)
-  assert.match(plainProblem, /does not exist/)
-  assert.match(plainProblem, /the folder your repositories sit in/)
-  assert.ok(!/git repository/.test(plainProblem), plainProblem)
+  // Standing somewhere ordinary: nothing here, and how a product folder is made.
+  assert.match(problemIn(plain), /does not exist, and no repositories are here/)
+  assert.match(hintIn(plain), /the repositories of one product/)
+  assert.match(hintIn(plain), /detent init/)
 
   // Standing in a clone: the mistake is named, because it is the usual one.
-  const repoProblem = problemIn(inRepo)
-  assert.match(repoProblem, /is a git repository/)
-  assert.match(repoProblem, /not from one of them/)
+  assert.match(problemIn(inRepo), /is a repository/)
+  assert.match(hintIn(inRepo), /does not work from inside a repository/)
   // Never the parent as the fix: it is normally a projects directory, and
   // following that advice builds a product out of unrelated repositories.
-  assert.ok(!repoProblem.includes(dirname(inRepo)), repoProblem)
+  assert.ok(!hintIn(inRepo).includes(dirname(inRepo)), hintIn(inRepo))
+  assert.match(hintIn(inRepo), /Not the folder above this one/)
+
+  // A product folder kept under version control — the queue and the journal
+  // are text worth a history — is where you should be standing, not a clone to
+  // escape from. What settles it is the repositories inside, not the `.git`.
+  const versioned = mkdtempSync(join(tmpdir(), 'detent-versioned-'))
+  mkdirSync(join(versioned, '.git'))
+  mkdirSync(join(versioned, 'acme-api', '.git'), { recursive: true })
+  assert.match(hintIn(versioned), /1 repository is here: acme-api/)
+  assert.ok(!/inside a repository/.test(hintIn(versioned)), hintIn(versioned))
+
+  // Standing in the product folder: the hint explains what the file is, names
+  // what it can see, and ends in the command. Whoever reads this has not met
+  // the tool, so a list of keys would answer a question they did not ask.
+  const product = mkdtempSync(join(tmpdir(), 'detent-productdir-'))
+  for (const name of ['acme-api', 'acme-web', 'acme-docs']) mkdirSync(join(product, name, '.git'), { recursive: true })
+  mkdirSync(join(product, 'notes'))
+  const hint = hintIn(product)
+  assert.match(hint, /3 repositories are here: acme-api, acme-docs, acme-web/, 'a folder that is not a repository is not counted')
+  assert.match(hint, /the gauge that decides/, 'it says what the file is for')
+  assert.match(hint, /tasks\/\{todo,hold,done,failed\}\//, 'and what the folder looks like')
+  assert.match(hint, /detent init --no-agent/)
+
+  // A long list wraps rather than running off the terminal.
+  const many = mkdtempSync(join(tmpdir(), 'detent-many-'))
+  for (let i = 0; i < 12; i += 1) mkdirSync(join(many, `acme-service-number-${i}`, '.git'), { recursive: true })
+  const manyHint = hintIn(many)
+  // Wrapping splits it across lines, so the claim is checked on the text and
+  // the width on the lines.
+  assert.match(manyHint.replace(/\n/g, ' '), /and 4 more/, 'eight are named, the rest counted')
+  assert.ok(manyHint.split('\n').every((line) => line.length <= 80), 'no line runs off the terminal')
 })
 
 test('loadProduct reads .detent/product.json and throws a ConfigError naming the file', () => {

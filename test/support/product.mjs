@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { currentBranch, git, isClean, operationInProgress, snapshotRefs } from '../../core/git.mjs'
 import { validateProduct } from '../../core/product.mjs'
 import { readState } from '../../core/state.mjs'
@@ -37,6 +37,72 @@ export function gitProduct(repoOverrides = {}, productOverrides = {}) {
   const { product, problems } = validateProduct(raw, dir)
   assert.deepEqual(problems, [])
   return { dir, repoDir, product, repo: product.repos[0] }
+}
+
+// A repository with a remote of its own, somewhere a product folder's scan
+// never looks: the far side of a submodule or of a queue two machines share.
+// `write` is the session's move — a commit pushed to that remote.
+function remoteRepository(dir, name, file) {
+  const work = join(dir, '.remotes', name)
+  const origin = join(dir, '.remotes', `${name}.git`)
+  mkdirSync(work, { recursive: true })
+  sh(work, 'init', '--quiet', '--initial-branch=main')
+  sh(work, 'config', 'user.name', 'Session')
+  sh(work, 'config', 'user.email', 'session@example.com')
+  sh(work, 'config', 'commit.gpgsign', 'false')
+  writeFileSync(join(work, file), 'one\n')
+  sh(work, 'add', '.')
+  sh(work, 'commit', '--quiet', '-m', 'one')
+  sh(dir, 'clone', '--quiet', '--bare', work, origin)
+  sh(work, 'remote', 'add', 'origin', origin)
+  return {
+    origin,
+    work,
+    write(text) {
+      writeFileSync(join(work, file), text)
+      sh(work, 'commit', '--quiet', '-am', text.trim())
+      sh(work, 'push', '--quiet', 'origin', 'main')
+      return sh(work, 'rev-parse', 'HEAD')
+    },
+    tip: () => sh(work, 'rev-parse', 'HEAD'),
+    refs: () => sh(origin, 'for-each-ref', '--format=%(refname)'),
+  }
+}
+
+// The shared context of ADR 0012: a documentation repository a session pushes
+// to, mounted as a submodule of the product's repository on dev and agent/dev.
+// The submodule is allowed the file transport, because its remote is a path.
+export function sharedContext(context, path = 'docs') {
+  const shared = remoteRepository(context.dir, 'shared-docs', 'adr.md')
+  const repo = context.repoDir
+  sh(repo, '-c', 'protocol.file.allow=always', 'submodule', 'add', '--quiet', shared.origin, path)
+  sh(join(repo, path), 'config', 'protocol.file.allow', 'always')
+  // An identity of its own, like every other repository these fixtures make. A
+  // submodule checkout inherits none, so a test whose agent commits in the
+  // shared context depends on git guessing one from the machine — which it
+  // manages on a developer's and cannot on a runner whose hostname has no
+  // domain. There the commit fails, the agent reports an error, and the task
+  // pauses with the wrong outcome: the test fails for a reason it is not about.
+  sh(join(repo, path), 'config', 'user.name', 'Person')
+  sh(join(repo, path), 'config', 'user.email', 'person@example.com')
+  sh(join(repo, path), 'config', 'commit.gpgsign', 'false')
+  sh(repo, 'add', '.')
+  sh(repo, 'commit', '--quiet', '-m', `mount ${path}`)
+  sh(repo, 'branch', '--force', 'agent/dev', 'dev')
+  return { ...shared, path, pointer: (rev) => sh(repo, 'rev-parse', `${rev}:${path}`), head: () => sh(join(repo, path), 'rev-parse', 'HEAD'), remoteTip: () => sh(join(repo, path), 'rev-parse', 'refs/remotes/origin/main') }
+}
+
+// The queue in a repository of its own, cloned from a remote the way a second
+// machine has it: `queue` then names a path inside that clone.
+export function queueRepository(dir, path) {
+  const root = path.split('/')[0]
+  const shared = remoteRepository(dir, basename(root), 'README.md')
+  sh(dir, 'clone', '--quiet', shared.origin, root)
+  const clone = join(dir, root)
+  sh(clone, 'config', 'user.name', 'Person')
+  sh(clone, 'config', 'user.email', 'person@example.com')
+  sh(clone, 'config', 'commit.gpgsign', 'false')
+  return { ...shared, dir: clone, subjects: () => sh(clone, 'log', '--format=%s'), pushed: () => sh(shared.origin, 'log', '--format=%s') }
 }
 
 // The invariant of DESIGN.md §2, as one assertion over every ref.

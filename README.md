@@ -6,15 +6,18 @@ A detent is the catch that holds a mechanism in a defined position until it is
 deliberately released. Here it is released by a green gauge — the project's own
 checks — and by nothing else.
 
-> **Status: 0.4.1 — all thirteen build steps are done.** `detent run` takes
+> **Status: 0.5.0 — all thirteen build steps are done.** `detent run` takes
 > tasks from a queue to `agent/dev` with Claude Code, Codex or Gemini CLI behind
 > the gauge, and `detent summary` reports what it cost; a second model reads
-> every green diff and may send it back, never wave it through; `init` writes
-> `product.json` from a scan, `doctor` says what to change, and `dashboard`
-> serves a page that watches it all; tasks in different repositories run side by
-> side, `promote` checks a whole batch on `agent/staging`, `plan` talks a task
-> through with an agent and checks the files it writes, and `prune` clears the
-> task branches whose work has landed. Every command in `detent --help` does
+> every green diff and may send it back, never wave it through; `init` asks
+> where the queue and the documents are and writes `product.json` from a scan,
+> `doctor` says what to change, and `dashboard` serves a page that watches it
+> all; tasks in different repositories run side by side, `promote` checks a
+> whole batch on `agent/staging`, `plan` talks a task through with an agent and
+> checks the files it writes, and `prune` clears the task branches whose work
+> has landed. The queue may be a repository of its own, and the documents an
+> agent reads are brought to their remote's tip before a task starts and
+> recorded at the revision it read. Every command in `detent --help` does
 > something. What 1.0.0 still wants is a real batch of tasks run against a real
 > product. [PROGRESS.md](PROGRESS.md) says where the build is.
 
@@ -69,10 +72,14 @@ detent init                             # scan, then ask the agent what a scan c
 detent doctor                           # the nine conditions, and what to change
 ```
 
-`init` reads the repositories, creates the queue, and asks the implementing
-agent, read-only, about what it could not determine; `--no-agent` stops after
-the scan. Read the two things it cannot decide for you before an agent is held
-to them:
+`init` reads the repositories, asks you two things no scan can settle — which
+repository holds the queue, and which holds the documents your tasks link to —
+creates the queue, and asks the implementing agent, read-only, about what it
+could not determine; `--no-agent` stops after the scan. The two questions are
+the only ones detent asks: `--queue <path>` and `--docs <name>` answer them
+from the command line, and with no terminal on stdin they are not asked at
+all — the defaults are taken and printed, so `init` in a script never waits.
+Read the two things it cannot decide for you before an agent is held to them:
 
 - **the gauge.** Stages are proposed only from scripts a repository declares, so
   what you get is what the repository advertises, not what you would have
@@ -138,6 +145,16 @@ namespace, one predicate, one glob to audit it with. Both gates between the
 territories are human operations, in both directions. It refuses to start on a
 dirty tree, and never moves a ref outside its own namespace.
 
+**What it pushes is the queue, and only the queue.** Nothing in a repository of
+your product is ever pushed — not `agent/dev`, not a tag. The exception is for
+a queue that lives in a repository of its own, which is how a session writes
+tasks on one machine for a run on another: there a task reaching `done/` or
+`hold/` is a commit and a push, because that queue is detent's own bookkeeping
+and the next machine has to read it as it is now
+([ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md)).
+A product that says nothing about `queue` has no repository there and detent
+pushes nothing at all.
+
 `agent/staging` is optional and exists for one reason: the per-task gauge checks
 a task, and what actually breaks is the combination. The batch gauge runs there,
 and how often a batch came out red after every task in it was green is a number
@@ -181,7 +198,7 @@ are recorded with the alternatives they displaced; and progress is a table the
 gauge refuses to let lie.
 
 - [CONTRIBUTING.md](CONTRIBUTING.md) — branches, commit format, how a release is cut
-- [docs/adr/](docs/adr/) — eleven decisions, each with what it rejected and what that cost
+- [docs/adr/](docs/adr/) — fourteen decisions, each with what it rejected and what that cost
 - [PROGRESS.md](PROGRESS.md) — where the build actually is, against the build order
 - [CHANGELOG.md](CHANGELOG.md)
 

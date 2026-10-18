@@ -1,4 +1,4 @@
-// The queue: tasks/{todo,hold,done,failed}/NNNN-<slug>.md (DESIGN.md §4).
+// The queue: <queue>/{todo,hold,done,failed}/NNNN-<slug>.md (DESIGN.md §4).
 //
 // A queue that cannot be executed is rejected before the first agent starts —
 // the difference between a typo and three wasted attempts.
@@ -8,16 +8,22 @@ import { basename, join } from 'node:path'
 
 export const FOLDERS = ['todo', 'hold', 'done', 'failed']
 
+// Where the queue sits when product.json says nothing: the product root, which
+// is what ADR 0005 chose and what `queue` narrows rather than replaces (ADR
+// 0012). Nothing here builds a path from the literal — the location arrives as
+// an argument, so what is read, written and printed is the same path.
+export const QUEUE = 'tasks'
+
 const FILE = /^(\d{4,})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$/
 const FRONTMATTER_KEYS = ['id', 'repo', 'touches_contract']
 
 // The four folders, created if they are not there. A folder that exists is
 // left exactly as it is — what is queued in it is someone's work, and this
 // never looks inside. Returns the folders it had to create, so init can say so.
-export function createQueue(productDir) {
+export function createQueue(productDir, queue = QUEUE) {
   const created = []
   for (const folder of FOLDERS) {
-    const dir = join(productDir, 'tasks', folder)
+    const dir = join(productDir, queue, folder)
     if (existsSync(dir)) continue
     mkdirSync(dir, { recursive: true })
     created.push(folder)
@@ -27,8 +33,8 @@ export function createQueue(productDir) {
 
 // Which of the four are missing: a queue `run` cannot read from and `plan`
 // cannot write into. `doctor` reports this and creates nothing.
-export function missingQueue(productDir) {
-  return FOLDERS.filter((folder) => !existsSync(join(productDir, 'tasks', folder)))
+export function missingQueue(productDir, queue = QUEUE) {
+  return FOLDERS.filter((folder) => !existsSync(join(productDir, queue, folder)))
 }
 
 export class QueueError extends Error {
@@ -48,9 +54,12 @@ export function readQueue(productDir, product) {
   const tasks = []
   const unreadable = []
   const repos = new Set(product.repos.map((repo) => repo.name))
+  // Not defaulted: a product always carries its queue's location, and falling
+  // back to `tasks` would read the wrong queue quietly.
+  const queue = product.queue
 
   for (const folder of FOLDERS) {
-    const dir = join(productDir, 'tasks', folder)
+    const dir = join(productDir, queue, folder)
     let entries
     try {
       entries = readdirSync(dir, { withFileTypes: true })
@@ -61,7 +70,7 @@ export function readQueue(productDir, product) {
 
     for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
       if (entry.name.startsWith('.')) continue
-      const where = `tasks/${folder}/${entry.name}`
+      const where = `${queue}/${folder}/${entry.name}`
       if (!entry.isFile()) {
         problems.push(`${where}: only task files belong here`)
         continue
@@ -97,7 +106,7 @@ export function readQueue(productDir, product) {
   for (const task of [...tasks, ...unreadable].sort((a, b) => FOLDERS.indexOf(a.folder) - FOLDERS.indexOf(b.folder) || a.file.localeCompare(b.file))) {
     const n = Number(task.id)
     const first = byNumber.get(n)
-    if (first) problems.push(`tasks/${task.folder}/${task.id}-${task.slug}.md: id ${task.id} is already taken by tasks/${first.folder}/${first.id}-${first.slug}.md`)
+    if (first) problems.push(`${queue}/${task.folder}/${task.id}-${task.slug}.md: id ${task.id} is already taken by ${queue}/${first.folder}/${first.id}-${first.slug}.md`)
     else byNumber.set(n, task)
   }
 
@@ -115,13 +124,13 @@ export function nextId(tasks) {
 // A task changes folder; its number and its name do not. The destination is
 // never overwritten — a file already there is someone's task. A hard link and
 // an unlink, rather than a rename, because rename replaces silently.
-export function moveTask(productDir, task, folder) {
+export function moveTask(productDir, task, folder, queue = QUEUE) {
   if (!FOLDERS.includes(folder)) throw new Error(`"${folder}" is not one of ${FOLDERS.join(', ')}`)
   const name = basename(task.file)
-  const target = join(productDir, 'tasks', folder, name)
+  const target = join(productDir, queue, folder, name)
   if (target === task.file) return task
-  mkdirSync(join(productDir, 'tasks', folder), { recursive: true })
-  if (existsSync(target)) throw new Error(`tasks/${folder}/${name} already exists`)
+  mkdirSync(join(productDir, queue, folder), { recursive: true })
+  if (existsSync(target)) throw new Error(`${queue}/${folder}/${name} already exists`)
   linkSync(task.file, target)
   unlinkSync(task.file)
   return { ...task, folder, file: target }

@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { validateProduct } from '../core/product.mjs'
@@ -163,6 +163,36 @@ test('detent init writes product.json, then proposes rather than overwrites', ()
   assert.ok(proposal.repos.some((r) => r.name === 'shop-admin'))
 })
 
+test('a product.json a person broke is a message, and nothing to propose still reports', () => {
+  const dir = shop()
+  const env = withAgents(['claude'], (path) => ({ ...process.env, PATH: `${path}:${process.execPath.replace(/\/node$/, '')}` }))
+  const init = (extra = []) => {
+    try {
+      return { out: execFileSync(process.execPath, [cli, 'init', '--product', dir, ...extra], { encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'pipe'] }), code: 0 }
+    } catch (error) {
+      return { out: `${error.stdout ?? ''}${error.stderr ?? ''}`, code: error.status }
+    }
+  }
+
+  init(['--no-agent'])
+
+  // A comma in the wrong place is expected input from a file people edit, so
+  // it is named like any other config problem — never a stack trace.
+  writeFileSync(join(dir, '.detent', 'product.json'), '{ "version": 1, broken\n')
+  const broken = init(['--no-agent'])
+  assert.match(broken.out, /is not valid JSON/)
+  assert.match(broken.out, /move it aside/)
+  assert.doesNotMatch(broken.out, /SyntaxError|at Module\./, 'a stack trace is not an error message')
+
+  // Nothing to propose is not nothing to report: the notes still print, so a
+  // run that changed no file still says what is missing.
+  rmSync(join(dir, '.detent', 'product.json'))
+  init(['--no-agent'])
+  const unchanged = init(['--no-agent'])
+  assert.match(unchanged.out, /already says everything the scan found/)
+  assert.match(unchanged.out, /read the gauge stages before an agent is held to them/, 'the notes survive the early exit')
+})
+
 test('detent init creates the queue, with --no-agent too, and leaves what is queued alone', () => {
   const dir = shop()
   const queued = join(dir, 'tasks', 'todo', '0001-wallet-endpoint.md')
@@ -198,4 +228,36 @@ test('detent init in a folder with no repositories says what a product is', () =
   assert.match(error.stderr, /no git repository directly inside/)
   assert.ok(!existsSync(join(dir, '.detent')))
   assert.ok(!existsSync(join(dir, 'tasks')), 'a folder that is not a product gets no queue either')
+})
+
+test('a configured queue: init creates it there, and the folder it lives in is no repository of the product', () => {
+  const dir = shop()
+  // A queue of its own, in a repository a session writes and pushes (ADR 0012).
+  // It sits in the product folder like any other, and is not one.
+  repo(dir, 'agent-loop', { files: { 'README.md': '# the queue' } })
+  mkdirSync(join(dir, '.detent'))
+  writeFileSync(
+    join(dir, '.detent', 'product.json'),
+    JSON.stringify({
+      version: 1,
+      product: { name: 'shop' },
+      queue: 'agent-loop/tasks',
+      models: { implement: { agent: 'claude' } },
+      repos: [{ name: 'shop-api', compare: 'dev' }],
+    }),
+  )
+  const env = withAgents(['claude', 'codex'], (path) => ({ ...process.env, PATH: `${path}:${process.execPath.replace(/\/node$/, '')}` }))
+
+  const out = execFileSync(process.execPath, [cli, 'init', '--product', dir, '--no-agent'], { encoding: 'utf8', env })
+  assert.match(out, /^created agent-loop\/tasks\/todo, agent-loop\/tasks\/hold, agent-loop\/tasks\/done, agent-loop\/tasks\/failed — the queue run reads and plan writes into$/m)
+  assert.deepEqual(readdirSync(join(dir, 'agent-loop', 'tasks')).sort(), ['done', 'failed', 'hold', 'todo'])
+  assert.equal(existsSync(join(dir, 'tasks')), false, 'and nothing where the default would be')
+
+  // The scan proposes the repositories of the product; the queue's folder is
+  // not one of them, whatever it is called.
+  const proposed = JSON.parse(readFileSync(join(dir, '.detent', 'product.proposed.json'), 'utf8'))
+  assert.deepEqual(proposed.repos.map((r) => r.name), ['shop-api', 'shop-docs', 'shop-svc', 'shop-web'])
+  assert.equal(proposed.queue, 'agent-loop/tasks', 'and the key a person wrote survives the proposal')
+  assert.deepEqual(scanProduct(dir, { queue: 'agent-loop/tasks' }).repos.map((r) => r.name), ['shop-api', 'shop-docs', 'shop-svc', 'shop-web'])
+  assert.ok(scanProduct(dir).repos.some((r) => r.name === 'agent-loop'), 'a product that says nothing has no reason to skip it')
 })

@@ -98,3 +98,14 @@ test('the server: 127.0.0.1 only, GET only, the page and its state', async () =>
     server.close()
   }
 })
+
+test('the snapshot carries the queue, so the page never names a folder this product has not got', () => {
+  const s = gitProduct({}, { queue: 'agent-loop/tasks' })
+  mkdirSync(join(s.dir, 'agent-loop', 'tasks', 'todo'), { recursive: true })
+  writeFileSync(join(s.dir, 'agent-loop', 'tasks', 'todo', '0003-next.md'), '---\nid: 0003\nrepo: acme-api\n---\n\n# Acceptance criteria\n\n- [ ] x\n')
+  const snap = snapshot(s.product)
+  assert.equal(snap.product.queue, 'agent-loop/tasks')
+  assert.deepEqual(snap.queue.todo.map((t) => t.id), ['0003'])
+  assert.match(PAGE, /s\.product\.queue \+ '\/todo\/ is empty'/, 'and the page says where the empty one is from it')
+  assert.doesNotMatch(PAGE, /'tasks\//, 'never from a literal')
+})
