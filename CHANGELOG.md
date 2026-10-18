@@ -8,6 +8,20 @@ Notable changes, newest first. The format follows
 
 ### Added
 
+- The `docs` stage counts what the prose counts. Two shapes are read, and both
+  have been wrong in this repository more than once: a line that links to
+  [`docs/adr/`](docs/adr/) and says how many decisions are in it — it has said
+  eight, ten, eleven, twelve and thirteen while the directory held another
+  number — and a heading of the form `### <count> <things>` over the list of
+  those things, which said three when there were four and four when there were
+  five. A mismatch names both numbers, and the heading. Counts written as
+  English words are read, since that is how this repository writes them.
+  Nothing else is: "the nine conditions" and "three attempts" are claims about
+  behaviour that the code settles, and a word that is not a number ("a few
+  decisions") is not a count and is left alone rather than guessed at — a
+  false failure in a gauge stage costs more than a missed one. It found no
+  mismatch when it was written; the two claims standing here are both right,
+  which is the first time that has been measured rather than noticed.
 - A configured queue that cannot be published is said out loud, by the command
   that created it and by `doctor`. `"queue": "agent-loop/tasks"` with no
   `agent-loop` beside the other repositories used to get a plain directory, a

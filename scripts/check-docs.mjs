@@ -4,10 +4,11 @@
 // judgement — a link either resolves or it does not — and whether a sentence
 // is *true* stays outside the gauge on purpose.
 //
-// Three checks, each one here because it already failed:
+// Four checks, each one here because it already failed:
 //   1. every relative link in a tracked markdown file points at a path that exists
 //   2. every version a document states as the current one agrees with package.json
 //   3. docs/adr/README.md's index lists exactly the files in docs/adr/
+//   4. a number written in prose beside the thing it counts is that count
 //
 // Usage: node scripts/check-docs.mjs [root]   (root defaults to this repository)
 
@@ -142,10 +143,125 @@ if (existsSync(adrDir)) {
   }
 }
 
+// 4. A number stated beside the thing it counts is the count of that thing.
+//
+// Two shapes, both of which have been wrong here more than once: a line that
+// links to docs/adr/ and says how many decisions are in it, and a heading of
+// the form "<count> <things>" over the list of those things. Each correction
+// so far was somebody noticing by hand.
+//
+// Nothing else is read. "The nine conditions", "three attempts", "two gates"
+// are claims about behaviour, and the code is what settles whether they hold;
+// counting them would be guessing at meaning, which is the line 0011 drew.
+// Counts written as English words are read, because that is how this
+// repository writes them — and a word that is not a number ("a few decisions",
+// "several things") is not a count, so it is left alone rather than guessed
+// at. A false failure in a gauge stage costs more than a missed one.
+//
+// A CHANGELOG.md entry dates what it says: "Eight decision records" under
+// 0.0.2 was true of 0.0.2, and is a record rather than a claim about now — the
+// same reason its headings are not read as version claims.
+const ONES = [
+  'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
+  'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen',
+  'eighteen', 'nineteen',
+]
+const TENS = ['twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety']
+
+// The number a word states, or null if it does not state one with certainty.
+function countOf(word) {
+  const text = word.toLowerCase()
+  if (/^\d+$/.test(text)) return Number(text)
+  const one = ONES.indexOf(text)
+  if (one >= 0) return one
+  const [tens, rest] = text.split('-')
+  const ten = TENS.indexOf(tens)
+  if (ten < 0) return null
+  if (rest === undefined) return (ten + 2) * 10
+  const unit = ONES.indexOf(rest)
+  return unit >= 1 && unit <= 9 ? (ten + 2) * 10 + unit : null
+}
+
+const NUMBER = String.raw`\d+|[A-Za-z]+(?:-[A-Za-z]+)?`
+const DECISIONS = new RegExp(String.raw`\b(${NUMBER})\s+(?:decision records?|decisions?|records?|ADRs?)\b`, 'gi')
+const COUNTED = new RegExp(String.raw`^(${NUMBER})\s+\S`)
+const HEADING = /^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$/
+const EMPHASIS = /[`*_]/g
+const ITEM = /^(\s*)(?:[-*+]|\d+[.)])\s+/
+
+// How many items the list immediately below `from` has, or null if what is
+// there is not a list — a table, a paragraph, or a fenced block, which this
+// stage does not read for anything else either.
+function listItems(lines, from) {
+  let index = from
+  while (index < lines.length && lines[index].text.trim() === '') index += 1
+  const first = index < lines.length ? ITEM.exec(lines[index].text) : null
+  if (!first) return null
+
+  const indent = first[1].length
+  let items = 0
+  for (; index < lines.length; index += 1) {
+    const { text } = lines[index]
+    if (text.trim() === '') continue
+    if (HEADING.test(text)) break
+    const item = ITEM.exec(text)
+    if (item) {
+      if (item[1].length < indent) break
+      if (item[1].length === indent) items += 1
+      continue
+    }
+    // Indented enough to continue an item; anything else is prose of its own.
+    if (text.search(/\S/) <= indent) break
+  }
+  return items
+}
+
+const decisions = existsSync(adrDir) ? readdirSync(adrDir).filter((name) => ADR.test(name)).length : null
+let counted = 0
+
+for (const file of files) {
+  if (/(?:^|\/)CHANGELOG\.md$/.test(file)) continue
+  const dir = dirname(join(root, file))
+  const lines = proseLines(readFileSync(join(root, file), 'utf8'))
+
+  lines.forEach((line, index) => {
+    const linksToDecisions = decisions !== null && [...line.text.matchAll(LINK)].some(([, raw]) => {
+      const target = raw.trim().split(/\s+/)[0].replace(/^<|>$/g, '').split('#')[0].split('?')[0]
+      if (target === '' || ELSEWHERE.test(target)) return false
+      return resolve(dir, decodeURIComponent(target)) === adrDir
+    })
+
+    if (linksToDecisions) {
+      // One readable count on the line is the claim; two is a sentence this
+      // stage cannot read, and it says nothing about it.
+      const stated = [...line.text.matchAll(DECISIONS)].map(([, word]) => countOf(word)).filter((n) => n !== null)
+      if (stated.length === 1) {
+        counted += 1
+        if (stated[0] !== decisions) {
+          at(file, line.number, `states ${stated[0]} decisions beside the link to docs/adr/, which holds ${decisions}`)
+        }
+      }
+    }
+
+    const heading = HEADING.exec(line.text)
+    if (!heading) return
+    const shape = COUNTED.exec(heading[1].replace(EMPHASIS, ''))
+    if (!shape) return
+    const stated = countOf(shape[1])
+    if (stated === null) return
+    const items = listItems(lines, index + 1)
+    if (items === null) return
+    counted += 1
+    if (items !== stated) {
+      at(file, line.number, `the heading "${heading[1]}" says ${stated}; the list below it has ${items} items`)
+    }
+  })
+}
+
 if (problems.length > 0) {
   process.stderr.write('docs: the documentation claims something the tree does not support:\n')
   for (const problem of problems) process.stderr.write(`  ${problem}\n`)
   process.exit(1)
 }
 
-process.stdout.write(`docs: ${files.length} markdown files, ${links} relative links, ${claims} version claims, ${indexed} decisions indexed\n`)
+process.stdout.write(`docs: ${files.length} markdown files, ${links} relative links, ${claims} version claims, ${indexed} decisions indexed, ${counted} stated counts\n`)
