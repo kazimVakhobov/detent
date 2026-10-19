@@ -5,7 +5,7 @@
 
 import { join } from 'node:path'
 import { operationInProgress, remoteBranchesContaining, submoduleCheckedOut, submoduleCommit } from './git.mjs'
-import { PRODUCT_FILE, queueOf, readConfig, validateProduct } from './product.mjs'
+import { AGENT_NAMES, PRODUCT_FILE, queueOf, readConfig, validateProduct } from './product.mjs'
 import { PLAIN, publishing } from './queue.mjs'
 import { FOLDERS, missingQueue } from './task.mjs'
 
@@ -99,11 +99,11 @@ export function diagnose(dir, scan, { repos: only = null } = {}) {
     for (const [role, value] of Object.entries(repo.models)) roles.set(`${role}:${value.agent}`, { role, agent: value.agent })
   }
   if (![...roles.values()].some((r) => r.role === 'implement')) {
-    say(product, FAIL, 6, 'no implementing agent — models.implement is not set', 'set models.implement to { "agent": "claude" | "codex" | "gemini" }')
+    say(product, FAIL, 6, 'no implementing agent — models.implement is not set', `set models.implement to { "agent": ${AGENT_NAMES.map((a) => `"${a}"`).join(' | ')} }`)
   }
   for (const { role, agent } of roles.values()) {
     const installed = scan.agents.includes(agent)
-    say(product, installed ? OK : FAIL, 6, `${agent} ${installed ? 'is installed' : 'is not on PATH'} (${role}) — whether it is signed in shows only when it runs`, installed ? null : `install ${agent}, or choose another agent for ${role}`)
+    say(product, installed ? OK : FAIL, 6, `${agent} ${installed ? 'is installed' : 'is not on PATH'} (${role}) — whether it is signed in shows only when it runs`, installed ? null : `install ${agent} and sign in`)
   }
   for (const repo of asked) {
     if (repo.models.implement && !repo.models.accept) {

@@ -87,9 +87,11 @@ Read the two things it cannot decide for you before an agent is held to them:
 - **the gauge.** Stages are proposed only from scripts a repository declares, so
   what you get is what the repository advertises, not what you would have
   chosen. `detent gauge` runs them by hand.
-- **`models.accept`.** Left empty, there is no acceptance pass at all. It must
-  name a different model from `implement` — a different CLI if you have one, and
-  at minimum a different model of the same one.
+- **`models.accept`.** Left empty, there is no acceptance pass at all, and
+  `init` leaves it empty: it must name a different model from `implement`, and
+  with one agent offered that means a different model of Claude Code — which
+  models your account can run is not something a scan can see, so the line is
+  yours to write.
 
 `doctor` answers `ready` when the shape is right. Then write a task. The
 frontmatter is bookkeeping and **only the body reaches the agent** — the spec

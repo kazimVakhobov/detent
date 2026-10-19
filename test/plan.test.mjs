@@ -55,11 +55,15 @@ test('the opening: format, repositories with roles, the next free numbers, the r
   assert.match(prompt, /What I want to start from:\n\na wallet balance endpoint/)
 })
 
-test('--agent picks another CLI, opened its own interactive way', async () => {
+// --agent names the agent to plan with, from the same table run uses. It lists
+// one (ADR 0018), and a name that is not in it is refused rather than spawned.
+test('--agent names the CLI, opened its own interactive way; anything else is refused', async () => {
   const s = setup()
-  assert.equal((await plan(s, [], { agent: 'gemini' })).calls[0].command, 'gemini')
-  assert.equal(INTERACTIVE.gemini({ prompt: 'x' })[1].at(-2), '--prompt-interactive')
-  assert.equal(INTERACTIVE.codex({ prompt: 'x' })[1].at(-1), 'x')
+  const { calls } = await plan(s, [], { agent: 'claude' })
+  assert.equal(calls[0].command, 'claude')
+  assert.deepEqual(INTERACTIVE.claude({ prompt: 'x' })[1], ['--permission-mode', 'acceptEdits', 'x'])
+  assert.deepEqual(INTERACTIVE.claude({ model: 'claude-opus-5', prompt: 'x' })[1].slice(2, 4), ['--model', 'claude-opus-5'])
+  await assert.rejects(() => plan(s, [], { agent: 'gemini' }), /"gemini" is not an agent this version offers — it offers claude/)
 })
 
 test('new tasks are listed, and the queue is checked as run will check it', async () => {

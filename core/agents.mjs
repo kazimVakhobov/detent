@@ -6,6 +6,10 @@
 //
 // What a CLI does not report is null, never estimated: an invented model name
 // or cost would quietly corrupt every comparison built on the journal.
+//
+// The table has one row in this version, and stays a table: an agent is added
+// back as a row here and a name in the schema once it has run a real task and
+// its adapter was written against what it printed (ADR 0018).
 
 import { spawn } from 'node:child_process'
 import process from 'node:process'
@@ -32,84 +36,6 @@ export const AGENTS = {
         ),
         session: out.session_id ?? null,
         error: out.is_error ? `${out.subtype ?? 'error'}${out.api_error_status ? ` (${out.api_error_status})` : ''}: ${out.result ?? ''}`.trim() : null,
-      }
-    },
-  },
-
-  // Codex: `codex exec --json` prints one JSON event per line. The prompt is
-  // read from stdin when it is given as "-".
-  codex: {
-    command: 'codex',
-    args: ({ model, readOnly }) => ['exec', '--json', '--sandbox', readOnly ? 'read-only' : 'workspace-write', '--color', 'never', ...(model ? ['--model', model] : []), '-'],
-    parse(stdout) {
-      const events = stdout.split('\n').flatMap((line) => {
-        try {
-          const event = JSON.parse(line)
-          return event && typeof event === 'object' ? [event] : []
-        } catch {
-          return []
-        }
-      })
-      if (events.length === 0) return null
-      let message = ''
-      let input = 0
-      let output = 0
-      let counted = false
-      let session = null
-      let error = null
-      for (const event of events) {
-        if (event.type === 'thread.started') session = event.thread_id ?? null
-        if (event.type === 'item.completed' && event.item?.type === 'agent_message') message = event.item.text ?? ''
-        if (event.type === 'turn.completed' && event.usage) {
-          counted = true
-          input += sum(event.usage.input_tokens, event.usage.cached_input_tokens)
-          output += event.usage.output_tokens ?? 0
-        }
-        if (event.type === 'turn.failed') error = event.error?.message ?? 'turn failed'
-        if (event.type === 'error') error = event.message ?? 'error'
-      }
-      return {
-        ok: error === null,
-        message,
-        // codex exec does not name the model that ran in its events.
-        actual: null,
-        usd: null,
-        tokens: counted ? tokens(input, output) : null,
-        session,
-        error,
-      }
-    },
-  },
-
-  // Gemini CLI: one JSON object. --prompt is required for headless mode and is
-  // appended to stdin, so it carries only a pointer to the real prompt.
-  gemini: {
-    command: 'gemini',
-    args: ({ model, readOnly }) => [
-      '--output-format', 'json',
-      '--approval-mode', readOnly ? 'plan' : 'yolo',
-      '--skip-trust',
-      ...(model ? ['--model', model] : []),
-      '--prompt', 'The task is above. Work on it in this repository.',
-    ],
-    parse(stdout) {
-      const out = lastJson(stdout)
-      if (!out) return null
-      const models = Object.entries(out.stats?.models ?? {}).map(([name, m]) => [name, m?.tokens?.total ?? 0])
-      let input = 0
-      let output = 0
-      for (const [, m] of Object.entries(out.stats?.models ?? {})) {
-        input += m?.tokens?.prompt ?? 0
-        output += m?.tokens?.candidates ?? 0
-      }
-      return {
-        ok: !out.error,
-        message: typeof out.response === 'string' ? out.response : '',
-        actual: busiest(models),
-        usd: null,
-        tokens: models.length > 0 ? tokens(input, output) : null,
-        session: out.session_id ?? null,
-        error: out.error ? (out.error.message ?? JSON.stringify(out.error)) : null,
       }
     },
   },

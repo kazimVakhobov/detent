@@ -23,7 +23,10 @@ export const DEFAULTS = Object.freeze({
 // Exported because the dashboard offers the same choices the schema allows,
 // and a page listing agents of its own would be a second schema (ADR 0015).
 export const ROLES = Object.freeze(['implement', 'accept'])
-export const AGENT_NAMES = Object.freeze(['claude', 'codex', 'gemini'])
+// One name in this version (ADR 0018). The list is the list, here and in the
+// adapter table: another agent arrives as an entry, not as a rewrite.
+export const AGENT_NAMES = Object.freeze(['claude'])
+const ADR_0018 = 'docs/adr/0018-one-agent-in-the-first-version-and-what-readmits-another.md'
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 const SOURCES = new Set(['scan', 'model'])
 
@@ -479,8 +482,19 @@ function validateModels(models, path, fail) {
       continue
     }
     strict(value, at, ['agent', 'model'], fail)
+    if (typeof value.agent !== 'string' || value.agent.trim() === '') {
+      fail(`${at}.agent`, `must be ${AGENT_NAMES.map((a) => `"${a}"`).join(' | ')} — a role names its agent, got ${JSON.stringify(value.agent)}`)
+      continue
+    }
+    // A name this version does not offer is answered with which decision took
+    // it and what brings it back, not with "unknown agent": `codex` and
+    // `gemini` were configurable until 0018, and whoever wrote one is owed the
+    // reason rather than a list to guess from.
     if (!AGENT_NAMES.includes(value.agent)) {
-      fail(`${at}.agent`, `must be one of ${AGENT_NAMES.join(', ')}, got ${JSON.stringify(value.agent)}`)
+      fail(
+        `${at}.agent`,
+        `"${value.agent}" is not offered in this version — detent offers ${AGENT_NAMES.join(', ')}. An agent is added once it has run a real task and its adapter was written against what it printed: ${ADR_0018}`,
+      )
       continue
     }
     const entry = { agent: value.agent }

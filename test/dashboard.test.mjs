@@ -13,7 +13,7 @@ import { claim } from '../core/state.mjs'
 import { gitProduct, sh } from './support/product.mjs'
 
 function setup() {
-  const s = gitProduct({ gauge: { exit: [{ stage: 'test', command: 'true' }] }, models: { implement: { agent: 'claude' }, accept: { agent: 'codex' } } })
+  const s = gitProduct({ gauge: { exit: [{ stage: 'test', command: 'true' }] }, models: { implement: { agent: 'claude' }, accept: { agent: 'claude', model: 'claude-sonnet-5' } } })
   for (const folder of ['todo', 'hold']) mkdirSync(join(s.dir, 'tasks', folder), { recursive: true })
   writeFileSync(join(s.dir, 'tasks', 'todo', '0003-next.md'), '---\nid: 0003\nrepo: acme-api\n---\n\n# Acceptance criteria\n\n- [ ] x\n')
   writeFileSync(join(s.dir, 'tasks', 'hold', '0002-float.md'), '---\nid: 0002\nrepo: acme-api\n---\n\n# Acceptance criteria\n\n- [ ] x\n')
@@ -135,7 +135,7 @@ test('the snapshot carries the queue, so the page never names a folder this prod
 function configured() {
   return gitProduct(
     { gauge: { exit: [{ stage: 'test', command: 'true' }] }, models: { implement: { agent: 'claude' } } },
-    { docs: 'acme-api', attempts: 5, models: { implement: { agent: 'claude', model: 'claude-opus-5' }, accept: { agent: 'codex' } } },
+    { docs: 'acme-api', attempts: 5, models: { implement: { agent: 'claude', model: 'claude-opus-5' }, accept: { agent: 'claude', model: 'claude-sonnet-5' } } },
   )
 }
 
@@ -165,7 +165,7 @@ test('a write is applied, and what comes back is read off the file rather than a
   const s = configured()
   await dashboard(s, async (base) => {
     const { response, result } = await write(base, {
-      models: { implement: { agent: 'gemini', model: 'gemini-3-pro' }, accept: { agent: 'codex' } },
+      models: { implement: { agent: 'claude', model: 'claude-sonnet-5' }, accept: { agent: 'claude' } },
       attempts: 2,
       timeout: 45,
       concurrency: 1,
@@ -176,18 +176,18 @@ test('a write is applied, and what comes back is read off the file rather than a
     assert.equal(result.written, true)
 
     const { configuration } = result
-    assert.deepEqual(configuration.models.implement, { agent: 'gemini', model: 'gemini-3-pro' })
+    assert.deepEqual(configuration.models.implement, { agent: 'claude', model: 'claude-sonnet-5' })
     assert.deepEqual(configuration.attempts, { value: 2, effective: 2 })
     assert.deepEqual(configuration.timeout, { value: 45, effective: 45 })
     assert.deepEqual(configuration.notify, { value: 'say done', effective: 'say done' })
     // A cleared role is the key gone, and the page is told whose it is now.
     assert.equal(configuration.repos[0].models.accept, null)
-    assert.deepEqual(configuration.repos[0].inherited.accept, { agent: 'codex' })
+    assert.deepEqual(configuration.repos[0].inherited.accept, { agent: 'claude' })
     assert.deepEqual(readConfiguration(s.dir), configuration, 'the same as reading the file again')
 
     const text = readFileSync(file(s), 'utf8')
     const raw = JSON.parse(text)
-    assert.deepEqual(raw.models.implement, { agent: 'gemini', model: 'gemini-3-pro' })
+    assert.deepEqual(raw.models.implement, { agent: 'claude', model: 'claude-sonnet-5' })
     assert.equal(raw.repos[0].models.accept, undefined)
     assert.equal(raw.timeout, 45)
     assert.equal(text, `${JSON.stringify(raw, null, 2)}\n`, 'the shape init writes it in')
@@ -195,7 +195,7 @@ test('a write is applied, and what comes back is read off the file rather than a
     // The validator is the same code, so a written file is one a run can load.
     const product = loadProduct(s.dir)
     assert.equal(product.attempts, 2)
-    assert.deepEqual(product.repos[0].models, { implement: { agent: 'claude', model: 'claude-opus-5' }, accept: { agent: 'codex' } })
+    assert.deepEqual(product.repos[0].models, { implement: { agent: 'claude', model: 'claude-opus-5' }, accept: { agent: 'claude' } })
   })
 })
 
