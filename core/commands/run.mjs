@@ -3,6 +3,7 @@
 
 import process from 'node:process'
 import { failures } from '../doctor.mjs'
+import { attemptLogPath } from '../log.mjs'
 import { scanProduct } from '../scan.mjs'
 import { readQueue } from '../task.mjs'
 import { runTask } from '../run.mjs'
@@ -51,7 +52,16 @@ export async function run(product, ids, _values, { runTask: runOne = runTask } =
   const { results, stoppedAt, ended } = await schedule(tasks, {
     concurrency: product.concurrency,
     runOne: (task) => runOne(product, product.repos.find((r) => r.name === task.repo), task),
-    onStart: (task) => process.stdout.write(`${task.id}  ${task.repo}  ${task.slug}${task.touchesContract ? '  (barrier — runs alone)' : ''}  …\n`),
+    onStart: (task) => {
+      process.stdout.write(`${task.id}  ${task.repo}  ${task.slug}${task.touchesContract ? '  (barrier — runs alone)' : ''}  …\n`)
+      // Offered, never shown: several tasks may be running, and their output
+      // interleaved in this terminal would be unreadable. So the path, and
+      // `tail -f` is the person's choice — in another terminal, or on the
+      // dashboard, which is where this is meant to be read (ADR 0021). The
+      // name is derivable, so nothing has to be copied out of here: attempt 2
+      // is the same path with -attempt-2.
+      process.stdout.write(`      tail -f ${attemptLogPath(product.dir, task.id, 1)}${product.attempts > 1 ? `  (one per attempt, up to -attempt-${product.attempts})` : ''}\n`)
+    },
     onFinish: (task, result) => {
       process.stdout.write(`${task.id}  ${line(result)}\n`)
       if (result.notified && !result.notified.sent) process.stdout.write(`      could not notify: ${result.notified.error}\n`)

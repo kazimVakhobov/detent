@@ -1,19 +1,21 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { serve } from '../core/commands/dashboard.mjs'
 import { EDITABLE, NOT_EDITABLE, readConfiguration } from '../core/configure.mjs'
 import { PAGE, POLL, SCRIPT } from '../core/dashboard-page.mjs'
 import { LIMITS } from '../core/dashboard/configuration.mjs'
+import { LOG_CLIP, LOG_LINES, LOG_QUIET } from '../core/dashboard/log.mjs'
 import { SECTIONS, SECTION_IDS, TASK_SECTION, sectionFor, taskFor } from '../core/dashboard/sections.mjs'
 import { warnings } from '../core/dashboard/warnings.mjs'
 import { appendJournal } from '../core/journal.mjs'
 import { snapshotRefs } from '../core/git.mjs'
+import { openAttemptLog } from '../core/log.mjs'
 import { PRODUCT_FILE, loadProduct } from '../core/product.mjs'
 import { snapshot } from '../core/snapshot.mjs'
 import { FOLDERS } from '../core/task.mjs'
-import { claim } from '../core/state.mjs'
+import { claim, setAttempt } from '../core/state.mjs'
 import { openPage } from './support/page.mjs'
 import { gitProduct, sh } from './support/product.mjs'
 
@@ -95,7 +97,7 @@ const BLOCKS = {
   overview: ['figures'],
   repositories: ['repos', 'by-repo'],
   queue: ['todo', 'hold', 'done', 'failed'],
-  task: ['task-detail'],
+  task: ['task-detail', 'task-log-panel', 'task-log-state', 'task-log'],
   agents: ['by-model'],
   runs: ['recent'],
   configuration: ['config', 'fixed'],
@@ -153,10 +155,11 @@ test('the fragment names the section, an unknown one still lands somewhere, and 
   assert.doesNotMatch(SCRIPT, /location\.hash\s*=|location\.replace|(?:replace|push)State/)
   // Changing section is an attribute on markup already served.
   assert.doesNotMatch(SCRIPT, /addEventListener\('hashchange', (?!showSection)/)
-  // Nothing is fetched to change section, with one exception the fragment
-  // itself names: a task, which is not in the snapshot (ADR 0020 part 3).
+  // Nothing is fetched to change section, with two exceptions the fragment
+  // itself names: the task, which is not in the snapshot (ADR 0020 part 3),
+  // and what its agent is saying, which is not in it either (ADR 0021).
   assert.deepEqual([...SCRIPT.matchAll(/fetch\('([\w.?=]+)/g)].map((m) => m[1]).sort(),
-    ['configuration.json', 'configuration.json', 'state.json', 'task.json?task='])
+    ['configuration.json', 'configuration.json', 'log.json?task=', 'state.json', 'task.json?task='])
 })
 
 test('the fragment carries the task number, and a fragment that names none still lands on the section', () => {
@@ -186,7 +189,7 @@ test('the fragment carries the task number, and a fragment that names none still
   for (const table of ['hold', 'failed']) assert.match(SCRIPT, new RegExp(String.raw`s\.queue\.${table}\.map\(\(t\) => \[queued\(t\)`), table)
   assert.match(SCRIPT, /function queued\(t\) \{\n\s*return el\('div', \{\}, el\('strong', \{\}, opens\(t\.id, t\.slug\)\)/)
   assert.match(SCRIPT, /s\.recent\.map\(\(r\) => \[when\(r\.finished\), opens\(r\.task, r\.slug\)/)
-  assert.match(SCRIPT, new RegExp(String.raw`if \(current === TASK_SECTION\) loadTask\(taskFor\(location\.hash\)\)`))
+  assert.match(SCRIPT, new RegExp(String.raw`if \(current === TASK_SECTION\) \{\n\s*loadTask\(taskFor\(location\.hash\)\)\n\s*refreshLog\(\)\n\s*\}`))
 
   // And the body is text: nothing renders markdown, and what a task file says
   // only ever reaches a text node (ADR 0020 part 3, ADR 0006).
@@ -461,6 +464,274 @@ test('the detail is a read: it is not polled, and state.json gains nothing', asy
     const before = readFileSync(join(s.dir, 'tasks', 'todo', '0003-next.md'), 'utf8')
     await open(base, '0003')
     assert.equal(readFileSync(join(s.dir, 'tasks', 'todo', '0003-next.md'), 'utf8'), before, 'opening a task wrote nothing')
+  })
+})
+
+// ——— What the agent is saying, while it says it (ADR 0021).
+
+// An attempt log with `lines` in it, as an agent would leave one. Returned open,
+// because what matters about this surface is what it does while it is growing.
+function printing(s, task, attempt, lines) {
+  const log = openAttemptLog(s.dir, task, attempt)
+  for (const line of lines) log.write(`${JSON.stringify(line)}\n`)
+  return log
+}
+
+const INIT = { type: 'system', subtype: 'init', model: 'claude-opus-5', session_id: 'abc' }
+const SAID = { type: 'assistant', message: { content: [{ type: 'text', text: 'Looking at the wallet module.' }] } }
+const log = (base, task, from = null) => fetch(`${base}/log.json?task=${task}${from === null ? '' : `&from=${from}`}`)
+
+test('the dashboard serves the tail of a running task, and only what the asker has not got', async () => {
+  const s = queued(setup())
+  claim(s.dir, 'acme-api', { task: '0003', branch: 'agent/task-0003-next' })
+  setAttempt(s.dir, 'acme-api', 2)
+  const printed = printing(s, '0003', 2, [INIT])
+
+  await dashboard(s, async (base) => {
+    const first = await (await log(base, '0003')).json()
+    assert.equal(first.attempt, 2, 'the attempt that is running, not the first one')
+    assert.deepEqual(first.running, { repo: 'acme-api', attempt: 2 })
+    assert.equal(first.text, `${JSON.stringify(INIT)}\n`)
+
+    // It grows while the task runs, and asking again from where the last
+    // answer ended brings back only what has arrived since.
+    printed.write(`${JSON.stringify(SAID)}\n`)
+    const next = await (await log(base, '0003', first.to)).json()
+    assert.equal(next.from, first.to, 'it carried on instead of resending')
+    assert.equal(next.text, `${JSON.stringify(SAID)}\n`)
+    assert.equal((await (await log(base, '0003', next.to)).json()).text, '', 'and nothing twice')
+  })
+  printed.close()
+})
+
+test('a task that is not running says what it shows is what its last attempt said', async () => {
+  const s = queued(setup())
+  printing(s, '0001', 3, [INIT]).close()
+
+  await dashboard(s, async (base) => {
+    const finished = await (await log(base, '0001')).json()
+    assert.equal(finished.running, null)
+    assert.equal(finished.attempt, 3)
+    assert.ok(finished.text.includes('"type":"system"'))
+
+    // A task nothing has ever run is not a refusal: there is no log, and that
+    // is an answer.
+    const never = await (await log(base, '0004')).json()
+    assert.deepEqual([never.attempt, never.text, never.running], [null, '', null])
+  })
+
+  // And a claim whose process is gone is not a running task either (ADR 0017):
+  // what the page would show is a transcript, not something happening now.
+  claim(s.dir, 'acme-api', { task: '0001', branch: 'agent/task-0001-first' })
+  const state = JSON.parse(readFileSync(join(s.dir, '.detent', 'state.json'), 'utf8'))
+  state.repos['acme-api'].pid = 2 ** 22 + 12345
+  writeFileSync(join(s.dir, '.detent', 'state.json'), JSON.stringify(state))
+  await dashboard(s, async (base) => {
+    assert.equal((await (await log(base, '0001')).json()).running, null)
+  })
+})
+
+test('the log is asked for by number, and reading it is all it is', async () => {
+  const s = queued(setup())
+  printing(s, '0003', 1, [INIT]).close()
+  await dashboard(s, async (base) => {
+    // The number never becomes a path here either.
+    for (const asked of ['..%2F..%2F..%2Fetc%2Fpasswd', encodeURIComponent('../../runs/journal.jsonl'), 'nope', '']) {
+      const response = await log(base, asked)
+      assert.equal(response.status, 400, asked)
+      assert.equal((await response.json()).refused, 'number', asked)
+    }
+    // An offset that is not an offset is the end of the file, not a complaint.
+    assert.equal((await (await log(base, '0003', 'lots')).json()).text, `${JSON.stringify(INIT)}\n`)
+
+    for (const method of ['POST', 'PUT', 'DELETE']) {
+      const response = await fetch(`${base}/log.json?task=0003`, { method })
+      assert.equal(response.status, 405, method)
+      assert.equal(response.headers.get('allow'), 'GET, HEAD')
+    }
+  })
+})
+
+test('the page shows it under the task, as it arrives, and asks only for what it has not got', async () => {
+  const s = queued(setup())
+  claim(s.dir, 'acme-api', { task: '0003', branch: 'agent/task-0003-next' })
+  setAttempt(s.dir, 'acme-api', 1)
+  const printed = printing(s, '0003', 1, [INIT, SAID])
+
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: `#${TASK_SECTION}/0003` })
+    await page.settle()
+
+    // Under the task's own detail, in the section a task is opened in — and it
+    // is the task section that holds it, not a block of its own somewhere else.
+    assert.ok(sectionOf(TASK_SECTION).indexOf('id="task-log-panel"') > sectionOf(TASK_SECTION).indexOf('id="task-detail"'))
+    assert.equal(page.node('task-log-panel').hidden, false)
+    assert.match(page.text('task-log-state'), /running now in acme-api, attempt 1/)
+    assert.match(page.text('task-log'), /started on claude-opus-5/)
+    assert.match(page.text('task-log'), /Looking at the wallet module\./)
+
+    // What arrives next is appended to what is already there, and the page
+    // asks to carry on rather than re-reading what it has.
+    printed.write(`${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: 'wallet.js' } }] } })}\n`)
+    printed.write(`${JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', content: 'applied' }] } })}\n`)
+    await page.refresh()
+    await page.settle()
+    const shown = page.text('task-log')
+    assert.match(shown, /started on claude-opus-5/, 'what it already had is still there')
+    assert.match(shown, /→ Edit \{"file_path":"wallet\.js"\}/)
+    assert.match(shown, /← applied/)
+
+    // Opening a task reads once of its own, so nobody waits for the next tick;
+    // every read after that carries the offset, so the page never asks again
+    // for a byte it already has.
+    const asked = page.reads.filter((read) => read.includes('log.json'))
+    assert.equal(asked[0], 'GET log.json?task=0003', 'the first read asks for the end of the file')
+    for (const read of asked.slice(1)) assert.match(read, /^GET log\.json\?task=0003&from=[1-9]\d*$/)
+    // The timer is the one the page already had: no second clock for this.
+    assert.deepEqual(page.timers.map((t) => t.every), [POLL.every])
+    assert.equal(page.timers.length, 1)
+  })
+  printed.close()
+})
+
+test('the page says plainly when what it shows is not happening now', async () => {
+  const s = queued(setup())
+  printing(s, '0001', 2, [INIT]).close()
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: `#${TASK_SECTION}/0001` })
+    await page.settle()
+    assert.match(page.text('task-log-state'), /not running — this is what attempt 2 said, not something happening now/)
+
+    // And a task nothing has run says that, rather than showing an empty box
+    // that could be either.
+    page.location.hash = `#${TASK_SECTION}/0004`
+    await page.refresh()
+    await page.settle()
+    assert.match(page.text('task-log-state'), /nothing has run this task, or detent prune has cleared what it said/)
+    assert.equal(page.text('task-log'), '')
+  })
+})
+
+// A log nothing has written to for a while, which is what the file looks like
+// whenever a run is between attempts: the gauge, the link check, the acceptance
+// pass and the merge write no log at all.
+function quietFor(log, ms) {
+  const when = new Date(Date.now() - ms)
+  utimesSync(log.path, when, when)
+  return log
+}
+
+const DONE = { type: 'result', subtype: 'success', is_error: false, total_cost_usd: 0.42, session_id: 'abc' }
+
+test('the log says how long it has been quiet, so a frozen tail can be told from a live one', async () => {
+  const s = queued(setup())
+  claim(s.dir, 'acme-api', { task: '0003', branch: 'agent/task-0003-next' })
+  const printed = quietFor(printing(s, '0003', 1, [INIT, SAID]), 3 * 60_000)
+
+  await dashboard(s, async (base) => {
+    const answer = await (await log(base, '0003')).json()
+    assert.ok(answer.quiet >= 3 * 60_000, `the file's own mtime against the clock: ${answer.quiet}`)
+    // Which is the whole of what the page is given about it: no phase is
+    // recorded anywhere, and the claim says a repository, a task, an attempt
+    // and a pid (ADR 0017).
+    assert.deepEqual(Object.keys(answer.running).sort(), ['attempt', 'repo'])
+  })
+  printed.close()
+})
+
+test('the page distinguishes running and printing from running and not printing', async () => {
+  const s = queued(setup())
+  claim(s.dir, 'acme-api', { task: '0003', branch: 'agent/task-0003-next' })
+  setAttempt(s.dir, 'acme-api', 1)
+
+  // The reviewer's case, and the one this surface would otherwise lie about:
+  // the agent has printed its result object and the task is still claimed,
+  // because what is running now is the gauge, the link check, the acceptance
+  // pass or the merge — and none of those write a log.
+  const printed = printing(s, '0003', 1, [INIT, SAID, DONE])
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: `#${TASK_SECTION}/0003` })
+    await page.settle()
+    const said = page.text('task-log-state')
+    assert.match(said, /running now in acme-api, attempt 1, and the agent has finished printing/)
+    assert.match(said, /the rest of a run writes no log/)
+    assert.match(said, /what is running is the gauge, the acceptance pass or the merge/)
+    // What it printed is still there: the lines are the point, and the sentence
+    // is about them rather than instead of them.
+    assert.match(page.text('task-log'), /Looking at the wallet module\./)
+  })
+  printed.close()
+
+  // Mid-turn and quiet: a tool call prints nothing here until it returns, which
+  // is not the same sentence and is not "a few seconds behind" either.
+  const s2 = queued(setup())
+  claim(s2.dir, 'acme-api', { task: '0003', branch: 'agent/task-0003-next' })
+  setAttempt(s2.dir, 'acme-api', 1)
+  const waiting = quietFor(printing(s2, '0003', 1, [INIT, SAID]), LOG_QUIET + 100_000)
+  await dashboard(s2, async (base) => {
+    const page = openPage(base, { hash: `#${TASK_SECTION}/0003` })
+    await page.settle()
+    const said = page.text('task-log-state')
+    assert.match(said, /nothing has arrived for 2m \d+s/)
+    assert.match(said, /the agent is mid-turn, and a tool call prints nothing here until it returns/)
+  })
+  waiting.close()
+
+  // And a log that is moving says what it has always said: this is now.
+  const s3 = queued(setup())
+  claim(s3.dir, 'acme-api', { task: '0003', branch: 'agent/task-0003-next' })
+  setAttempt(s3.dir, 'acme-api', 1)
+  const live = printing(s3, '0003', 1, [INIT, SAID])
+  await dashboard(s3, async (base) => {
+    const page = openPage(base, { hash: `#${TASK_SECTION}/0003` })
+    await page.settle()
+    assert.match(page.text('task-log-state'), /running now in acme-api, attempt 1 — the end of what it has printed, a few seconds behind/)
+  })
+  live.close()
+})
+
+test('a running task whose log is not the attempt that is running says so', async () => {
+  const s = queued(setup())
+  claim(s.dir, 'acme-api', { task: '0003', branch: 'agent/task-0003-next' })
+  setAttempt(s.dir, 'acme-api', 2)
+
+  // Attempt 2 has been claimed and has printed nothing yet — the gauge sent the
+  // agent back, and what is below belongs to the attempt before it.
+  const printed = printing(s, '0003', 1, [INIT, SAID])
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: `#${TASK_SECTION}/0003` })
+    await page.settle()
+    assert.match(page.text('task-log-state'), /running now in acme-api, attempt 2, and the lines below are attempt 1/)
+    assert.match(page.text('task-log-state'), /writes no log/)
+  })
+  printed.close()
+
+  // And a run with no log at all — one that could not open its file, or one
+  // prune has been through — is not an empty box under the word "running".
+  const bare = queued(setup())
+  claim(bare.dir, 'acme-api', { task: '0003', branch: 'agent/task-0003-next' })
+  await dashboard(bare, async (base) => {
+    const page = openPage(base, { hash: `#${TASK_SECTION}/0003` })
+    await page.settle()
+    assert.match(page.text('task-log-state'), /running now in acme-api, attempt 1 — nothing is being written here: the run could not open a log, or detent prune has cleared it/)
+  })
+})
+
+test('the page shows the end of the output, and does not grow with the run', async () => {
+  const s = queued(setup())
+  const lines = Array.from({ length: LOG_LINES + 200 }, (_, i) => ({ type: 'assistant', message: { content: [{ type: 'text', text: `line ${i}` }] } }))
+  printing(s, '0003', 1, [...lines, { type: 'assistant', message: { content: [{ type: 'text', text: 'x'.repeat(LOG_CLIP * 3) }] } }]).close()
+
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: `#${TASK_SECTION}/0003` })
+    await page.settle()
+    const shown = page.text('task-log').split('\n')
+    assert.equal(shown.length, LOG_LINES, 'the last of it, bounded')
+    assert.ok(!shown.includes('line 0'), 'the oldest have fallen off the top')
+    assert.ok(shown.includes(`line ${lines.length - 1}`), 'and the newest are there')
+    // A line nobody scans is clipped rather than shown whole: a tool result the
+    // agent read in full would otherwise be one line of several thousand.
+    assert.equal(shown.at(-1), `${'x'.repeat(LOG_CLIP)}…`)
   })
 })
 

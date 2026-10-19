@@ -57,8 +57,19 @@ export const SECTIONS = [
     // attempts did. The fragment carries the number — `#task/0042` — so a link
     // to one task is a link somebody can send and reload. It is fetched when a
     // task is opened and never polled; `state.json` gains nothing.
+    //
+    // And under it, what the agent is saying while it says it (ADR 0021) — the
+    // one thing in this section that *is* polled, because it is the one thing
+    // that changes under a reader. It lives here and nowhere else: a transcript
+    // with no task attached is a log viewer, which is not what this is for.
+    // Hidden until a task is open, for the same reason.
     markup: `<h2>Task</h2>
-<div class="panel" id="task-detail"></div>`,
+<div class="panel" id="task-detail"></div>
+<div class="panel log-panel" id="task-log-panel" hidden>
+  <div class="legend">What the agent is saying</div>
+  <div class="status" id="task-log-state"></div>
+  <pre class="body log" id="task-log"></pre>
+</div>`,
   },
   {
     id: 'agents',
@@ -160,9 +171,14 @@ function showSection() {
     if (link.hash === '#' + current) link.setAttribute('aria-current', 'page')
     else link.removeAttribute('aria-current')
   }
-  // The one thing showing a section fetches, and only when it is the one being
-  // shown: a task is not in the snapshot and is not polled (ADR 0020 part 3).
-  if (current === TASK_SECTION) loadTask(taskFor(location.hash))
+  // The only things showing a section fetches, and only when it is the one
+  // being shown: a task is not in the snapshot (ADR 0020 part 3), and what its
+  // agent is saying is read here as well as on the timer, so that opening a
+  // task does not mean waiting for the next tick to see anything (ADR 0021).
+  if (current === TASK_SECTION) {
+    loadTask(taskFor(location.hash))
+    refreshLog()
+  }
 }
 
 window.addEventListener('hashchange', showSection)

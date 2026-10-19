@@ -15,11 +15,18 @@ import { spawn } from 'node:child_process'
 import process from 'node:process'
 
 export const AGENTS = {
-  // Claude Code: one JSON object on stdout.
+  // Claude Code: JSONL on stdout, one object per thing that happened, and the
+  // result object last (ADR 0021).
   claude: {
     command: 'claude',
     // Plan mode is Claude Code's read-only mode: it reads and refuses to write.
-    args: ({ model, readOnly }) => ['-p', '--output-format', 'json', '--permission-mode', readOnly ? 'plan' : 'bypassPermissions', ...(model ? ['--model', model] : [])],
+    //
+    // `stream-json` prints as the work happens instead of once at the end, and
+    // needs `--verbose` to do it under `-p`. Its last line is the same result
+    // object `json` printed on its own, so every number below is read from the
+    // same place it was read from before: reading the last JSON object of a
+    // stream rather than the only one costs nothing and lets somebody watch.
+    args: ({ model, readOnly }) => ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', readOnly ? 'plan' : 'bypassPermissions', ...(model ? ['--model', model] : [])],
     parse(stdout) {
       const out = lastJson(stdout)
       if (!out) return null
@@ -44,7 +51,13 @@ export const AGENTS = {
 // `readOnly` runs the agent in its CLI's read-only mode — for a reviewer, which
 // has no business changing what it reviews. `timeoutMs` bounds the call: past
 // it the agent gets SIGTERM, then SIGKILL after `graceMs` if it is still there.
-export function invoke(role, { cwd, prompt, readOnly = false, timeoutMs = null, graceMs = 10_000, env = process.env }) {
+//
+// `log` is somewhere to put what the agent prints as it prints it — a sink from
+// `log.mjs`, or nothing. It is written to and never read: the result below is
+// parsed from the output in memory, exactly as it was before there was a file
+// (ADR 0021). A sink that fails is a sink that stops working, not a call that
+// fails, which is why nothing here looks at what writing returned.
+export function invoke(role, { cwd, prompt, readOnly = false, timeoutMs = null, graceMs = 10_000, env = process.env, log = null }) {
   const adapter = AGENTS[role.agent]
   if (!adapter) throw new Error(`unknown agent "${role.agent}"`)
   const requested = role.model ?? null
@@ -64,7 +77,18 @@ export function invoke(role, { cwd, prompt, readOnly = false, timeoutMs = null, 
       detached: true,
     })
     if (child.pid) live.add(child.pid)
-    child.stdout.on('data', (chunk) => (stdout += chunk))
+    // Decoded by the stream rather than by `+=`: a stream arrives in chunks cut
+    // wherever the pipe filled, and a multi-byte character split across two of
+    // them is two broken halves when each is turned into text on its own. One
+    // object at the end survived that by luck; many lines would not.
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk
+      // A log is not the work: a sink that throws loses the log, never the run.
+      try {
+        log?.write(chunk)
+      } catch {}
+    })
     child.stderr.on('data', (chunk) => (stderr += chunk))
     child.stdin.on('error', () => {}) // an agent that exits without reading is reported below
     child.stdin.end(prompt)
@@ -118,20 +142,30 @@ export function invoke(role, { cwd, prompt, readOnly = false, timeoutMs = null, 
   })
 }
 
+// The last JSON object the agent printed. With a stream that is the result
+// object on the last line; with one object on its own it is that object; with a
+// line of the CLI's own before either, it is still the last one that reads as
+// an object. A line that is half-printed, or output nobody can read, is null —
+// the caller says so and does not guess.
 function lastJson(text) {
-  const trimmed = text.trim()
-  if (!trimmed) return null
+  const lines = text.split('\n')
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index].trim()
+    if (line === '' || line[0] !== '{') continue
+    const parsed = object(line)
+    if (parsed) return parsed
+  }
+  // Pretty-printed, across lines, and therefore not a stream.
+  return object(text.trim())
+}
+
+function object(text) {
+  if (text === '' || text[0] !== '{') return null
   try {
-    return JSON.parse(trimmed)
+    const parsed = JSON.parse(text)
+    return parsed && typeof parsed === 'object' ? parsed : null
   } catch {
-    // Some CLIs print a line of their own before the result.
-    const start = trimmed.lastIndexOf('\n{')
-    if (start === -1) return null
-    try {
-      return JSON.parse(trimmed.slice(start + 1))
-    } catch {
-      return null
-    }
+    return null
   }
 }
 

@@ -86,6 +86,15 @@ table a { color: var(--accent); }
 .task-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-bottom: 12px; }
 pre.body { white-space: pre-wrap; overflow-wrap: break-word; margin: 0; font: inherit; color: var(--text-2); }
 
+/* What the agent is saying, under the task it is saying it about (ADR 0021).
+   Bounded in height as well as in lines: the end of the output is the part
+   somebody watching wants, and a panel that grows with a run pushes the rest of
+   the page off the bottom of the screen. */
+.log-panel { margin-top: 12px; }
+.log-panel > .legend { color: var(--text-2); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
+pre.log { max-height: 26rem; overflow: auto; margin-top: 10px; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre.log:empty { display: none; }
+
 .panel { background: var(--raised); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
 .group { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
 .group > .legend { color: var(--text-2); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
