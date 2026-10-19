@@ -23,6 +23,7 @@ that changed**.
 | [0016](0016-a-task-may-choose-its-own-models.md) | A task may choose its own models | accepted, not implemented |
 | [0017](0017-a-claim-locks-the-configuration-only-while-its-run-is-alive.md) | A claim locks the configuration only while its run is alive | accepted |
 | [0018](0018-one-agent-in-the-first-version-and-what-readmits-another.md) | One agent in the first version, and what re-admits another | accepted; narrows 0010 |
+| [0019](0019-the-offered-model-names-are-a-suggestion-in-the-product-file.md) | The offered model names are a suggestion in the product file, never a constraint | accepted |
 
 ## The rules
 
