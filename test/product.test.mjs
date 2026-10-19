@@ -31,7 +31,7 @@ test('the shape in DESIGN.md §11, minus what is not accepted yet, loads', () =>
       branches: { integration: 'agent/dev', task: 'agent/task-{id}-{slug}' },
       concurrency: 2,
       attempts: 3,
-      models: { implement: { agent: 'claude', model: 'claude-sonnet-5' }, accept: { agent: 'codex' } },
+      models: { implement: { agent: 'claude', model: 'claude-sonnet-5' }, accept: { agent: 'claude', model: 'claude-opus-5' } },
       repos: [
         {
           name: 'acme-api',
@@ -40,7 +40,7 @@ test('the shape in DESIGN.md §11, minus what is not accepted yet, loads', () =>
           stack: ['node', 'nestjs', 'postgres'],
           compare: 'dev',
           gauge: { exit: [{ stage: 'test', command: 'npm test' }], merge: [{ stage: 'build', command: 'npm run build' }] },
-          models: { implement: { agent: 'gemini', model: 'gemini-3-pro' } },
+          models: { implement: { agent: 'claude', model: 'claude-opus-5' }, accept: { agent: 'claude', model: 'claude-sonnet-5' } },
           neverCommit: ['shared-docs'],
         },
         { name: 'acme-web', compare: 'main' },
@@ -107,7 +107,7 @@ test('queueOf reads the queue before the rest of the file can be judged', () => 
 test('a repository overrides a role, never the models as a whole', () => {
   const { product } = validateProduct(
     minimal({
-      models: { implement: { agent: 'codex', model: 'cheap' }, accept: { agent: 'claude', model: 'reviewer' } },
+      models: { implement: { agent: 'claude', model: 'cheap' }, accept: { agent: 'claude', model: 'reviewer' } },
       repos: [{ name: 'acme-api', compare: 'dev', models: { implement: { agent: 'claude', model: 'expensive' } } }],
     }),
   )
@@ -116,12 +116,26 @@ test('a repository overrides a role, never the models as a whole', () => {
 })
 
 test('a role names its agent; the model is optional', () => {
-  assert.deepEqual(validateProduct(minimal({ models: { implement: { agent: 'gemini' } } })).product.models, { implement: { agent: 'gemini' } })
-  assertProblem(minimal({ models: { implement: 'claude-opus-5' } }), /^models\.implement: must be \{ "agent": "claude" \| "codex" \| "gemini"/)
-  assertProblem(minimal({ models: { implement: { agent: 'cursor' } } }), /^models\.implement\.agent: must be one of claude, codex, gemini/)
-  assertProblem(minimal({ models: { implement: { model: 'x' } } }), /^models\.implement\.agent/)
-  assertProblem(minimal({ models: { implement: { agent: 'codex', model: '' } } }), /^models\.implement\.model: must be a non-empty string/)
-  assertProblem(minimal({ models: { implement: { agent: 'codex', effort: 'high' } } }), /^models\.implement\.effort: unknown key/)
+  assert.deepEqual(validateProduct(minimal({ models: { implement: { agent: 'claude' } } })).product.models, { implement: { agent: 'claude' } })
+  assertProblem(minimal({ models: { implement: 'claude-opus-5' } }), /^models\.implement: must be \{ "agent": "claude", "model"\?: string \}/)
+  assertProblem(minimal({ models: { implement: { model: 'x' } } }), /^models\.implement\.agent: must be "claude" — a role names its agent, got undefined/)
+  assertProblem(minimal({ models: { implement: { agent: 'claude', model: '' } } }), /^models\.implement\.model: must be a non-empty string/)
+  assertProblem(minimal({ models: { implement: { agent: 'claude', effort: 'high' } } }), /^models\.implement\.effort: unknown key/)
+})
+
+// The two agents this version withdrew are refused like any other name it does
+// not offer — and the refusal says which decision took them and what brings
+// one back, because a product that configured `codex` was configured correctly
+// until 0018 (ADR 0018).
+test('an agent this version does not offer is refused by name, with the decision that took it', () => {
+  for (const agent of ['codex', 'gemini']) {
+    const problem = problemsOf(minimal({ models: { implement: { agent } } }))[0]
+    assert.match(problem, new RegExp(`^models\\.implement\\.agent: "${agent}" is not offered in this version — detent offers claude\\.`))
+    assert.match(problem, /An agent is added once it has run a real task and its adapter was written against what it printed/)
+    assert.match(problem, /docs\/adr\/0018-one-agent-in-the-first-version-and-what-readmits-another\.md$/)
+  }
+  // A typo is the same answer: it names what it was given rather than guessing.
+  assertProblem(minimal({ models: { accept: { agent: 'cursor' } } }), /^models\.accept\.agent: "cursor" is not offered in this version/)
 })
 
 test('an unknown key is an error, at any depth, naming its path', () => {
@@ -289,13 +303,15 @@ test('the acceptance pass runs on a different model from the one that implemente
     minimal({ models: { implement: { agent: 'claude', model: 'claude-opus-5' }, accept: { agent: 'claude', model: 'claude-opus-5' } } }),
     /^repos\[0\]\.models: implement and accept are both claude \(claude-opus-5\) — the acceptance pass runs on a different model/,
   )
-  assertProblem(minimal({ models: { implement: { agent: 'codex' }, accept: { agent: 'codex' } } }), /both codex — /)
+  assertProblem(minimal({ models: { implement: { agent: 'claude' }, accept: { agent: 'claude' } } }), /both claude — /)
   assertProblem(
-    minimal({ models: { implement: { agent: 'codex' } }, repos: [{ name: 'acme-api', compare: 'dev', models: { accept: { agent: 'codex' } } }] }),
-    /^repos\[0\]\.models: implement and accept are both codex/,
+    minimal({ models: { implement: { agent: 'claude' } }, repos: [{ name: 'acme-api', compare: 'dev', models: { accept: { agent: 'claude' } } }] }),
+    /^repos\[0\]\.models: implement and accept are both claude/,
   )
+  // With one agent offered (ADR 0018) this is the only shape that passes: the
+  // same agent on a different model. The rule is unchanged; what it costs is
+  // written down in 0018.
   assert.deepEqual(problemsOf(minimal({ models: { implement: { agent: 'claude', model: 'a' }, accept: { agent: 'claude', model: 'b' } } })), [])
-  assert.deepEqual(problemsOf(minimal({ models: { implement: { agent: 'claude' }, accept: { agent: 'codex' } } })), [])
 })
 
 test('timeout: 30 minutes unless the product or a repository says otherwise', () => {

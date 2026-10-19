@@ -64,10 +64,10 @@ function shop() {
 
 test('the scan reads what is there, and asks no model', () => {
   const dir = shop()
-  const scan = withAgents(['codex'], () => scanProduct(dir))
+  const scan = withAgents(['claude'], () => scanProduct(dir))
   assert.deepEqual(scan.repos.map((r) => r.name), ['shop-api', 'shop-docs', 'shop-svc', 'shop-web'])
   assert.deepEqual(scan.other, ['notes'], 'a folder that is not a repository is noted, not adopted')
-  assert.deepEqual(scan.agents, ['codex'])
+  assert.deepEqual(scan.agents, ['claude'])
   const api = scan.repos[0]
   assert.equal(api.packageManager, 'pnpm')
   assert.equal(api.shallow, false)
@@ -80,7 +80,7 @@ test('the scan reads what is there, and asks no model', () => {
 
 test('the proposal: compare from real branches, gauge from declared scripts, submodules as neverCommit and edges', () => {
   const dir = shop()
-  const raw = withAgents(['claude', 'gemini'], () => proposeProduct(scanProduct(dir)))
+  const raw = withAgents(['claude'], () => proposeProduct(scanProduct(dir)))
   const byName = Object.fromEntries(raw.repos.map((r) => [r.name, r]))
 
   assert.equal(byName['shop-api'].compare, 'dev', 'dev before main')
@@ -99,13 +99,17 @@ test('the proposal: compare from real branches, gauge from declared scripts, sub
   assert.deepEqual(byName['shop-svc'].stack, ['go'])
   assert.deepEqual(byName['shop-web'].neverCommit, ['docs'])
   assert.deepEqual(raw.edges, [{ from: 'shop-web', to: 'shop-docs', kind: 'submodule', source: 'scan' }])
-  assert.deepEqual(raw.models, { implement: { agent: 'claude' }, accept: { agent: 'gemini' } }, 'two agents installed: two different agents')
+  assert.deepEqual(raw.models, { implement: { agent: 'claude' } }, 'the installed agent implements, and no reviewer is invented for it')
   assert.deepEqual(validateProduct(raw, dir).problems, [])
 })
 
-test('one agent installed: no reviewer is invented; none installed: no models', () => {
+// One agent is offered (ADR 0018), so a reviewer would be the same agent on
+// another model — and which models an account has is not something a scan can
+// see. ADR 0004 is why the key is left out rather than filled: a pass by the
+// model that implemented agrees with itself.
+test('no reviewer is invented, whatever is installed; none installed: no models', () => {
   const dir = shop()
-  assert.deepEqual(withAgents(['codex'], () => proposeProduct(scanProduct(dir))).models, { implement: { agent: 'codex' } })
+  assert.deepEqual(withAgents(['claude'], () => proposeProduct(scanProduct(dir))).models, { implement: { agent: 'claude' } })
   assert.equal(withAgents([], () => proposeProduct(scanProduct(dir))).models, undefined)
 })
 
@@ -120,7 +124,7 @@ test('what a person wrote wins; the scan only adds', () => {
   const proposed = {
     version: 1,
     product: { name: 'shop' },
-    models: { implement: { agent: 'codex' } },
+    models: { implement: { agent: 'claude' } },
     repos: [{ name: 'shop-api', compare: 'dev', stack: ['node'] }, { name: 'shop-web', compare: 'main' }],
     edges: [{ from: 'shop-web', to: 'shop-api', kind: 'submodule', source: 'scan' }],
   }
@@ -138,7 +142,7 @@ test('diffLines marks what was added and removed', () => {
 
 test('detent init writes product.json, then proposes rather than overwrites', () => {
   const dir = shop()
-  const env = withAgents(['claude', 'codex'], (path) => ({ ...process.env, PATH: `${path}:${process.execPath.replace(/\/node$/, '')}` }))
+  const env = withAgents(['claude'], (path) => ({ ...process.env, PATH: `${path}:${process.execPath.replace(/\/node$/, '')}` }))
   const init = () => execFileSync(process.execPath, [cli, 'init', '--product', dir], { encoding: 'utf8', env })
 
   const first = init()
@@ -146,6 +150,10 @@ test('detent init writes product.json, then proposes rather than overwrites', ()
   assert.match(first, /shop-web: no gauge stages — /)
   const written = JSON.parse(readFileSync(join(dir, '.detent', 'product.json'), 'utf8'))
   assert.equal(written.repos.length, 4)
+  // No reviewer is written, and the note says why rather than leaving the key
+  // to be found missing (ADR 0018, ADR 0004).
+  assert.equal(written.models.accept, undefined)
+  assert.match(first, /models\.accept is not set — no acceptance pass\. This version offers one agent, so set it to claude with a different model; the scan cannot see which models you have/)
 
   const again = init()
   assert.match(again, /already says everything the scan found/)
@@ -198,7 +206,7 @@ test('detent init creates the queue, with --no-agent too, and leaves what is que
   const queued = join(dir, 'tasks', 'todo', '0001-wallet-endpoint.md')
   mkdirSync(join(dir, 'tasks', 'todo'), { recursive: true })
   writeFileSync(queued, '---\nid: 0001\nrepo: shop-api\n---\n\n# Goal\n')
-  const env = withAgents(['claude', 'codex'], (path) => ({ ...process.env, PATH: `${path}:${process.execPath.replace(/\/node$/, '')}` }))
+  const env = withAgents(['claude'], (path) => ({ ...process.env, PATH: `${path}:${process.execPath.replace(/\/node$/, '')}` }))
 
   const out = execFileSync(process.execPath, [cli, 'init', '--product', dir, '--no-agent'], { encoding: 'utf8', env })
   assert.match(out, /^created tasks\/hold, tasks\/done, tasks\/failed — the queue run reads and plan writes into$/m, 'only the folders it created are named')
@@ -249,7 +257,7 @@ test('a configured queue: init creates it there, and the folder it lives in is n
       repos: [{ name: 'shop-api', compare: 'dev' }],
     }),
   )
-  const env = withAgents(['claude', 'codex'], (path) => ({ ...process.env, PATH: `${path}:${process.execPath.replace(/\/node$/, '')}` }))
+  const env = withAgents(['claude'], (path) => ({ ...process.env, PATH: `${path}:${process.execPath.replace(/\/node$/, '')}` }))
 
   const out = execFileSync(process.execPath, [cli, 'init', '--product', dir, '--no-agent'], { encoding: 'utf8', env })
   assert.match(out, /^created agent-loop\/tasks\/todo, agent-loop\/tasks\/hold, agent-loop\/tasks\/done, agent-loop\/tasks\/failed — the queue run reads and plan writes into$/m)

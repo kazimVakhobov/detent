@@ -118,7 +118,8 @@ Nine conditions. `detent doctor` checks all of them and names what to change.
 4. the gauge is declared as stages: a name and a command, runnable locally — the
    per-attempt profile in seconds
 5. a clean tree when a run starts
-6. an agent CLI installed and authenticated — Claude Code, Codex or Gemini CLI
+6. an agent CLI installed and authenticated — Claude Code, the one agent this
+   version offers ([ADR 0018](docs/adr/0018-one-agent-in-the-first-version-and-what-readmits-another.md))
 7. the integration branch is not deployed; pushing is done by hand
 8. one person per workspace
 9. macOS or Linux, Node 22
@@ -552,11 +553,10 @@ theatre.
 How it runs:
 
 - **After the green commit, before the merge.** The reviewer is `models.accept`,
-  run in its CLI's **read-only mode** — Claude Code in plan mode, Codex in a
-  read-only sandbox, Gemini CLI in plan mode — on the committed task branch. It
-  is given the task body and the diff against `agent/dev`, and told what it is
-  for: a criterion not met, something out of scope done anyway, a check
-  satisfied by gaming it.
+  run in its CLI's **read-only mode** — Claude Code in plan mode — on the
+  committed task branch. It is given the task body and the diff against
+  `agent/dev`, and told what it is for: a criterion not met, something out of
+  scope done anyway, a check satisfied by gaming it.
 - **Read-only is checked, not trusted.** If the tree, the branch, a ref or a
   file that judges the agent changed, what the reviewer wrote is discarded and
   the task is paused as `error`.
@@ -568,7 +568,11 @@ How it runs:
 - **No `models.accept`, no pass.** The journal records `"verdict": "absent"`
   and the merge commit says `Acceptance: none declared`.
 - **`implement` and `accept` must differ** — at least in model — or the
-  configuration is refused.
+  configuration is refused. With one agent offered, that means a different
+  model of the same agent: shared training, shared blind spots, and "may only
+  raise a doubt" carrying more weight than it was meant to. That is the price
+  of the one-agent version and it is written down rather than discovered
+  ([ADR 0018](docs/adr/0018-one-agent-in-the-first-version-and-what-readmits-another.md)).
 - A rejected task resumed hands the doubts to the implementer, who addresses
   each one or says why it is wrong.
 
@@ -587,7 +591,7 @@ feat(wallet): driver wallet balance in the app
 Task: 0042
 Gauge: lint ✓ typecheck ✓ test ✓ (2 attempts)
 Agent: claude (claude-sonnet-5)
-Acceptance: codex — accepted
+Acceptance: claude (claude-opus-5) — accepted
 
 Co-Authored-By: ...
 ```
@@ -676,7 +680,7 @@ product.
   "notify": "notify-send detent \"$DETENT_MESSAGE\"",
   "models": {
     "implement": { "agent": "claude", "model": "claude-sonnet-5" },
-    "accept":    { "agent": "codex" }
+    "accept":    { "agent": "claude", "model": "claude-opus-5" }
   },
   "repos": [
     {
@@ -686,7 +690,10 @@ product.
       "stack": ["node", "nestjs", "postgres"],
       "compare": "dev",
       "gauge": { "exit": [], "merge": [], "promote": [] },
-      "models": { "implement": { "agent": "claude", "model": "claude-opus-5" } },
+      "models": {
+        "implement": { "agent": "claude", "model": "claude-opus-5" },
+        "accept":    { "agent": "claude", "model": "claude-sonnet-5" }
+      },
       "neverCommit": ["shared-docs"]
     }
   ],
@@ -724,9 +731,17 @@ Five things about this shape are deliberate:
   nothing is worse than a field that does not exist.
 - **A repository overrides a *role*, never "the model"** — otherwise you could
   not say "expensive implementation in the backend, one reviewer everywhere".
-  A role names its **agent** — `claude`, `codex` or `gemini` — and optionally a
-  model; without one the CLI's default runs, and the journal records which
-  model that was when the CLI says ([ADR 0010](docs/adr/0010-three-agent-clis.md)).
+  Above, `acme-api` goes further and names its own reviewer, because the
+  product-wide one is the model that repository implements with and the two
+  roles must differ (§9).
+  A role names its **agent** — `claude`, Claude Code, the one this version
+  offers ([ADR 0018](docs/adr/0018-one-agent-in-the-first-version-and-what-readmits-another.md)) —
+  and optionally a model; without one the CLI's default runs, and the journal
+  records which model that was when the CLI says
+  ([ADR 0010](docs/adr/0010-three-agent-clis.md)). The field and the list are
+  the mechanism 0010 got right and 0018 kept: another agent arrives as a name
+  here and a row in the adapter table, once it has run a real task and its
+  adapter was written against what it printed.
 - **Every edge carries its `source`.** Edges established by the deterministic
   scan are drawn plain; edges a model proposed are labelled with their kind, so
   a guess never looks like a fact.
@@ -747,7 +762,7 @@ Five things about this shape are deliberate:
   "gauge": { "profile": "exit", "failedStage": null },
   "models": {
     "implement": { "agent": "claude", "requested": "claude-opus-5", "actual": "claude-opus-5" },
-    "accept": { "agent": "codex", "requested": null, "actual": null }
+    "accept": { "agent": "claude", "requested": "claude-sonnet-5", "actual": "claude-sonnet-5" }
   },
   "acceptance": { "verdict": "accepted", "doubts": [], "cost": { "usd": 0.06, "tokens": { "input": 21004, "output": 312 } } },
   "links": { "checked": 3, "broken": ["shared-docs/adr/0003.md"] },
@@ -971,8 +986,11 @@ out, or the branch of a task that is running.
 
 ### Plan
 
-`detent plan [brief…] [--agent claude|codex|gemini]` opens the agent's own
-interactive session in the terminal, in the product folder, with an opening
+`detent plan [brief…] [--agent claude]` — `claude` being Claude Code, the one
+agent this version offers
+([ADR 0018](docs/adr/0018-one-agent-in-the-first-version-and-what-readmits-another.md)) —
+opens the agent's own interactive session in the terminal, in the product
+folder, with an opening
 that gives it the task format of §4, the repositories with their roles and
 relations, the next free numbers and the rules — one task per repository,
 `touches_contract` only for what others depend on, criteria someone can check —

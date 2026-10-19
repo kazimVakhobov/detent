@@ -35,7 +35,7 @@ function shop() {
   return dir
 }
 
-const scanOf = (dir) => ({ ...scanProduct(dir), agents: ['claude', 'codex'] })
+const scanOf = (dir) => ({ ...scanProduct(dir), agents: ['claude'] })
 
 function reply(message, extra = {}) {
   return { ok: true, message, model: { requested: null, actual: null }, cost: { usd: 0.02, tokens: { input: 100, output: 10 } }, session: null, error: null, ms: 1, ...extra }
@@ -128,9 +128,9 @@ test('three mismatches, or a failing agent, leave pass 1 untouched', async () =>
   assert.deepEqual(stubborn.proposal, pass1)
   assert.match(stubborn.report.error, /did not match the schema after 3 attempts/)
 
-  const broken = await modelPass(scan, pass1, { invoke: scripted(reply('', { ok: false, error: 'not logged in' })).invoke, role: { agent: 'gemini' } })
+  const broken = await modelPass(scan, pass1, { invoke: scripted(reply('', { ok: false, error: 'not logged in' })).invoke, role: { agent: 'claude' } })
   assert.deepEqual(broken.proposal, pass1)
-  assert.equal(broken.report.error, 'gemini failed: not logged in')
+  assert.equal(broken.report.error, 'claude failed: not logged in')
 })
 
 test('parseAnswer reads the last fenced block, or the outermost object', () => {

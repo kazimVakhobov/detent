@@ -132,6 +132,63 @@ Notable changes, newest first. The format follows
   signal 0 on macOS, where there is no `/proc` and nothing lingers. The
   assertion is the same one: a stopped command has to be gone.
 
+### Removed
+
+- **Two of the three agents.** `codex` and `gemini` are gone from
+  `core/agents.mjs`, from the schema, from `detent plan --agent`, from the
+  scan's search of `PATH` and from `DESIGN.md`. Only one of the three had ever
+  run: the header of `test/agents.test.mjs` had said so since the adapters
+  were written — Claude Code 2.1 run for real, Codex 0.160 and Gemini CLI 0.62
+  *read from their event and formatter code* — and every task detent has
+  worked ran on Claude Code. On top of that, Google stopped serving Gemini CLI
+  to free and individual accounts on 2026-06-18 and directs them to
+  Antigravity CLI, a different program with a different interface, so the
+  adapter targeted something its vendor had replaced for the people most
+  likely to try it. The product claimed three, had verified one, and the
+  README promised all of them
+  ([ADR 0018](docs/adr/0018-one-agent-in-the-first-version-and-what-readmits-another.md)).
+- **What was kept is the mechanism.** A role still names its agent,
+  `product.json` still carries that shape, and the adapter table is still a
+  table — with one row. Nothing hard-codes `claude` outside it: the schema,
+  `doctor`'s fix line, `plan`'s usage and the dashboard's choices all read the
+  list. 0018 rejected dropping the field by name, because the shape is what
+  makes adding an agent back a configuration rather than a rewrite, and the
+  cost of keeping it is one row.
+- **What brings one back:** it has run a real task in a real repository, and
+  its adapter was written against what it actually printed rather than against
+  its source. That is the condition both of these failed, and the reason they
+  left rather than waited. They are planned, not abandoned, and Antigravity
+  CLI is the first candidate — written today it would be a third adapter built
+  from documentation, which is the mistake being corrected.
+- A `product.json` naming `codex` or `gemini` stops loading, and the refusal
+  says so: `models.accept.agent: "codex" is not offered in this version —
+  detent offers claude. An agent is added once it has run a real task and its
+  adapter was written against what it printed: docs/adr/0018-…`. Nobody is
+  known to have one, and whoever does is owed the decision rather than
+  "unknown agent".
+- `init` no longer proposes two different agents for the two roles. It writes
+  `models.implement` and leaves `models.accept` out, and now says why: one
+  agent is offered, so a reviewer is that agent on a different model, and
+  which models an account has is not something a scan can see.
+  [ADR 0004](docs/adr/0004-acceptance-demotes-only.md)
+  is unchanged — an acceptance pass by the same model as the implementer is
+  worth nothing, and so is one by a model name that does not resolve — which
+  is why the key is left for a person rather than filled in.
+- The acceptance pass loses its only path to a reviewer from another vendor.
+  With one agent it is a different model of the same family — shared training,
+  shared blind spots — and 0004's "a model's judgement may only raise a doubt"
+  is carrying more weight than it was meant to. `DESIGN.md` §9 says so beside
+  the rule.
+- Four tests went with the adapters: `codex: exec with JSONL events…`,
+  `codex: a failed turn is not ok`, `gemini: headless JSON, yolo…` and
+  `gemini: an error object is not ok`. Each asserted one CLI's argv and one
+  CLI's output shape — the adapter, not the mechanism. Every test about the
+  mechanism stayed and now runs against `claude`: how it is called, how its
+  output is read, how a timeout stops it and everything it started, how a
+  missing binary and a failure are reported, and that an agent with no row is
+  a programming error. `node --test` reports one more test than before, not
+  fewer: the refusal that names a withdrawn agent is a test of its own.
+
 ## 0.5.0 — 2026-10-18
 
 A methodology from outside this repository, and the first one detent's

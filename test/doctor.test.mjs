@@ -36,14 +36,14 @@ function product(raw, build, { queue = true } = {}) {
 }
 
 // A scan as if the given agents were installed, on this machine.
-function scan(dir, agents = ['claude', 'codex']) {
+function scan(dir, agents = ['claude']) {
   return { ...scanProduct(dir), agents }
 }
 
 const healthy = {
   version: 1,
   product: { name: 'acme' },
-  models: { implement: { agent: 'claude' }, accept: { agent: 'codex' } },
+  models: { implement: { agent: 'claude', model: 'claude-sonnet-5' }, accept: { agent: 'claude', model: 'claude-opus-5' } },
   repos: [{ name: 'api', compare: 'dev', gauge: { exit: [{ stage: 'test', command: 'true' }] } }],
 }
 
@@ -183,9 +183,11 @@ test('a submodule outside neverCommit is tracked, not a problem; one with unpush
 
 test('an agent that is not installed fails condition 6', () => {
   const dir = product(healthy, (d) => repo(d, 'api'))
-  const report = diagnose(dir, scan(dir, ['claude']))
-  const codex = report.product.find((c) => c.condition === 6 && /codex/.test(c.text))
-  assert.equal(codex.status, FAIL)
+  const report = diagnose(dir, scan(dir, []))
+  const found = report.product.find((c) => c.condition === 6 && /claude/.test(c.text))
+  assert.equal(found.status, FAIL)
+  assert.match(found.text, /claude is not on PATH/)
+  assert.equal(found.fix, 'install claude and sign in')
 })
 
 test('no product.json, or a broken one, is reported with the way out', () => {
@@ -201,7 +203,7 @@ test('no product.json, or a broken one, is reported with the way out', () => {
 test('detent doctor exits 1 on a failure, 0 when ready, and writes nothing', () => {
   const dir = product(healthy, (d) => repo(d, 'api', { branches: [] }))
   const bin = mkdtempSync(join(tmpdir(), 'detent-agents-'))
-  for (const agent of ['claude', 'codex']) {
+  for (const agent of ['claude']) {
     writeFileSync(join(bin, agent), '#!/bin/sh\n')
     chmodSync(join(bin, agent), 0o755)
   }
@@ -277,7 +279,7 @@ test('detent doctor does not take the folder the queue lives in for a repository
   }, { queue: false })
   for (const folder of FOLDERS) mkdirSync(join(dir, 'agent-loop', 'tasks', folder), { recursive: true })
   const bin = mkdtempSync(join(tmpdir(), 'detent-agents-'))
-  for (const agent of ['claude', 'codex']) {
+  for (const agent of ['claude']) {
     writeFileSync(join(bin, agent), '#!/bin/sh\n')
     chmodSync(join(bin, agent), 0o755)
   }
