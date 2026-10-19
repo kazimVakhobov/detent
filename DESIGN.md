@@ -1014,15 +1014,18 @@ The sections are:
 - **Overview** — the figures `summary` computes, from the same code.
 - **Repositories** — where each repository's `agent/dev` stands against its
   `compare` branch (identical, behind — agents cannot see your work — or tasks
-  ahead, waiting for your review), and the same numbers per repository.
+  ahead, waiting for your review), and the same numbers per repository. Not
+  which models it uses: that is read in **Configuration**, which is where it is
+  written, and two renderings of one fact are free to disagree.
 - **Queue** — all four folders: `todo/`, the paused tasks with why each was
   paused and the reviewer's doubts, the `done/` detent has finished with, and
   the `failed/` a person abandoned.
 - **Task** — one task, opened by its number.
 - **Agents** — runs, passes, attempts and cost per pass, per agent and model.
 - **Recent runs** — the last fifteen, newest first.
-- **Configuration** — the one thing the page writes, and beside it the keys
-  that are shown here and changed on disk.
+- **Configuration** — what the file says, read as text, and beside it the keys
+  that are shown here and changed on disk. It is also the one thing the page
+  writes, on request.
 
 **What is wrong is in none of them.** A run whose process is gone, a paused
 task, and a queue that would not parse are drawn above every section on every
@@ -1082,6 +1085,21 @@ only when no run is active
 `GET` and `HEAD` serve the page, the snapshot, the configuration and one task;
 `POST /configuration.json` is the one write, and every other method gets `405`.
 
+**The page reads the configuration, and writes it on request.** Viewing is the
+default and shows what the file says as text — each model, each limit, and
+what a repository inherits with whose setting it is inheriting. The editor is
+entered deliberately and leaving it discards; nothing is written but by the
+one write above
+([ADR 0020](docs/adr/0020-the-dashboard-is-sections-and-the-configuration-is-read-before-it-is-written.md)).
+**Reading is not what a run stops.** A run refuses the editor and never the
+view: somebody who opens the page during a run to see which model is costing
+what finds the answer, which is the whole of the separation. **The view may
+refresh; an open editor never does** — opening it takes a read of its own, so
+what is edited is what the file currently says, and from then until it closes
+nothing moves under the person typing. A write the server refuses leaves the
+editor open with what was typed still in it and the problems against their
+paths.
+
 What may change is the models for each role — product-wide and per repository —
 `attempts`, `timeout`, `concurrency` and `notify`. Not `repos`, not `queue`,
 not `docs`, not `branches`: those name things on disk, and a page cannot create
@@ -1090,11 +1108,12 @@ what it names, so they are shown with the reason they are not editable there.
 Three things hold every write.
 
 - **A run is active, and the write is refused** — by the same `state.json`
-  `recover` reads, naming which repository is on which task. The inputs are
-  disabled as a courtesy and the server refuses regardless: the files that
-  judge an agent are fingerprinted before each of its turns (§5), and that
-  guard does not ask who changed one, so a write during a run would pause the
-  task blaming the agent for a person's edit.
+  `recover` reads, naming which repository is on which task. The page refuses
+  to open its editor as a courtesy, with that explanation beside the disabled
+  button, and the server refuses the write regardless: the files that judge an
+  agent are fingerprinted before each of its turns (§5), and that guard does
+  not ask who changed one, so a write during a run would pause the task
+  blaming the agent for a person's edit.
 - **The whole file validates, through `validateProduct`** — the same code
   `loadProduct` uses, every problem at once, each naming its path, and nothing
   written if any of them fails. A page cannot write a `product.json` that

@@ -90,7 +90,7 @@ pre.body { white-space: pre-wrap; overflow-wrap: break-word; margin: 0; font: in
 .group { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
 .group > .legend { color: var(--text-2); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
 .field { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 6px 12px; align-items: center; margin-bottom: 8px; }
-.field > label { color: var(--text-2); }
+.field > label, .field > .name { color: var(--text-2); }
 .field:last-child { margin-bottom: 0; }
 @media (max-width: 560px) { .field { grid-template-columns: minmax(0, 1fr); } }
 .pair { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -99,6 +99,10 @@ pre.body { white-space: pre-wrap; overflow-wrap: break-word; margin: 0; font: in
 input, select, button { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
 input:disabled, select:disabled, button:disabled { opacity: .55; cursor: not-allowed; }
 button { background: var(--accent); color: #ffffff; border-color: transparent; font-weight: 600; cursor: pointer; }
+/* Leaving the editor discards, so the way out is not the loud button: the
+   configuration is read until a person says otherwise (ADR 0020 part 2). */
+button.quiet { background: var(--surface); color: var(--text); border-color: var(--line); font-weight: 400; }
+#config-view .field { margin-bottom: 4px; }
 .actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
 .lock { color: var(--warning); margin-bottom: 12px; }
 .lock:empty { display: none; }
