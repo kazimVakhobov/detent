@@ -7,8 +7,7 @@ deliberately released. Here it is released by a green gauge — the project's ow
 checks — and by nothing else.
 
 > **Status: 0.5.0 — all thirteen build steps are done.** `detent run` takes
-> tasks from a queue to `agent/dev` with Claude Code, Codex or Gemini CLI behind
-> the gauge, and `detent summary` reports what it cost; a second model reads
+> tasks from a queue to `agent/dev` with Claude Code behind the gauge, and `detent summary` reports what it cost; a second model reads
 > every green diff and may send it back, never wave it through; `init` asks
 > where the queue and the documents are and writes `product.json` from a scan,
 > `doctor` says what to change, and `dashboard` serves a page that watches it
@@ -50,8 +49,11 @@ judgement may only raise a doubt and send the task to a person. Otherwise
 npm i -g @kazimvakhobov/detent
 ```
 
-Node 22, and one of Claude Code, Codex or Gemini CLI installed and signed in.
-detent drives the agent you already pay for and ships none of its own.
+Node 22, and Claude Code installed and signed in. detent drives the agent you
+already pay for and ships none of its own. Codex and a Google agent are
+planned and not offered yet: an agent is added when it has run a real task,
+not when its adapter has been written
+([0018](docs/adr/0018-one-agent-in-the-first-version-and-what-readmits-another.md)).
 
 **A product folder is not the folder your repositories happen to sit in.**
 detent treats everything directly inside it as one product, so give it a folder
@@ -179,7 +181,8 @@ to everything:
 4. the gauge is declared as stages: a name and a command, runnable locally — the
    per-attempt profile in seconds
 5. a clean tree when a run starts
-6. an agent CLI installed and authenticated — Claude Code, Codex or Gemini CLI
+6. an agent CLI installed and authenticated — Claude Code, the only one offered
+   in this version ([0018](docs/adr/0018-one-agent-in-the-first-version-and-what-readmits-another.md))
 7. the integration branch is not deployed; pushing is done by hand
 8. one person per workspace
 9. macOS or Linux, Node 22
@@ -205,7 +208,7 @@ are recorded with the alternatives they displaced; and progress is a table the
 gauge refuses to let lie.
 
 - [CONTRIBUTING.md](CONTRIBUTING.md) — branches, commit format, how a release is cut
-- [docs/adr/](docs/adr/) — seventeen decisions, each with what it rejected and what that cost
+- [docs/adr/](docs/adr/) — eighteen decisions, each with what it rejected and what that cost
 - [PROGRESS.md](PROGRESS.md) — where the build actually is, against the build order
 - [CHANGELOG.md](CHANGELOG.md)
 
