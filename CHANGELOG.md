@@ -186,8 +186,9 @@ Notable changes, newest first. The format follows
   mechanism stayed and now runs against `claude`: how it is called, how its
   output is read, how a timeout stops it and everything it started, how a
   missing binary and a failure are reported, and that an agent with no row is
-  a programming error. `node --test` reports one more test than before, not
-  fewer: the refusal that names a withdrawn agent is a test of its own.
+  a programming error. One test arrived — the refusal that names a withdrawn
+  agent — so `node --test` reports 272 where it reported 275: four gone, one
+  added, three fewer.
 
 ## 0.5.0 — 2026-10-18
 
