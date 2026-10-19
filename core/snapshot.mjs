@@ -69,6 +69,10 @@ export function snapshot(product, { now = new Date() } = {}) {
 
 // Where a repository's agent/dev stands against its human branch — reported,
 // never acted on (§2). Reading a ref is not touching a branch.
+//
+// Which models it uses are not here: they are read from the configuration,
+// which is the one place they are written, and a second copy of that fact was
+// free to disagree with the first (ADR 0020 part 2).
 function standing(product, repo, active) {
   const integration = product.branches.integration
   const base = {
@@ -76,8 +80,6 @@ function standing(product, repo, active) {
     compare: repo.compare,
     lock: repo.gauge.exit.length ? 'enforced' : 'absent',
     gauge: repo.gauge.exit.map((s) => s.stage),
-    implement: repo.models.implement ?? null,
-    accept: repo.models.accept ?? null,
     active: active ? { task: active.task, attempt: active.attempt, started: active.started, alive: active.alive } : null,
   }
   let head

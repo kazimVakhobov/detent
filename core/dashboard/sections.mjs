@@ -25,8 +25,14 @@ export const SECTIONS = [
     nav: 'Repositories',
     // Where each repository stands, and how it has done: `numbers.byRepo` was
     // computed every read and drawn nowhere.
+    //
+    // Not which models it uses. This table stated that in a format of its own
+    // beside a configuration panel stating it as form controls, and two
+    // renderings of one fact are free to disagree — so it is read where it is
+    // written, and the line below says where that is (ADR 0020 part 2).
     markup: `<h2>Repositories</h2>
 <div class="scroll"><table id="repos"></table></div>
+<p class="muted">Which model each repository uses is read in <a href="#configuration">Configuration</a>, where it is also written.</p>
 <h2>By repository</h2>
 <div class="scroll"><table id="by-repo"></table></div>`,
   },
@@ -69,14 +75,19 @@ export const SECTIONS = [
   {
     id: 'configuration',
     nav: 'Configuration',
-    // Moved into a section of its own and otherwise untouched (ADR 0020 keeps
-    // reading-before-writing for its own change).
+    // Read until a person says otherwise (ADR 0020 part 2): the view is what
+    // is in the document, the editor is the half that is hidden until somebody
+    // asks for it, and the lock above both is why the asking is refused during
+    // a run.
     markup: `<h2>Configuration</h2>
 <div class="panel" id="config">
   <div class="status look lock" id="config-lock"></div>
-  <div id="config-fields"></div>
+  <div id="config-view"></div>
+  <div id="config-fields" hidden></div>
   <div class="actions">
-    <button type="button" id="save">Save configuration</button>
+    <button type="button" id="config-edit">Edit configuration</button>
+    <button type="button" id="config-save" hidden>Save configuration</button>
+    <button type="button" id="config-discard" class="quiet" hidden>Discard</button>
     <span id="config-note" class="muted"></span>
   </div>
   <ul class="problems" id="config-problems"></ul>

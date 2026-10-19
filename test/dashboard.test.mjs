@@ -14,6 +14,7 @@ import { PRODUCT_FILE, loadProduct } from '../core/product.mjs'
 import { snapshot } from '../core/snapshot.mjs'
 import { FOLDERS } from '../core/task.mjs'
 import { claim } from '../core/state.mjs'
+import { openPage } from './support/page.mjs'
 import { gitProduct, sh } from './support/product.mjs'
 
 function setup() {
@@ -534,7 +535,7 @@ test('a write is applied, and what comes back is read off the file rather than a
   })
 })
 
-test('a write is refused while a run is active, by the server and not only by the disabled inputs', async () => {
+test('a write is refused while a run is active, by the server and not only by the editor that will not open', async () => {
   const s = configured()
   claim(s.dir, 'acme-api', { task: '0003', branch: 'agent/task-0003-next' })
   const before = readFileSync(file(s), 'utf8')
@@ -663,15 +664,223 @@ test('the page offers what ADR 0015 allows, and says why the rest is not editabl
   for (const [, label] of LIMITS) assert.ok(PAGE.includes(label), label)
 })
 
-test('the page disables its inputs while a run is active, and has one timer, which reads the state', () => {
-  assert.match(PAGE, /node\.disabled = active/)
-  assert.match(PAGE, /A run is active — /)
-  // The configuration is fetched once and again after a write, never polled: a
-  // form whose values moved under the person filling it in would be a third
-  // state between what the file says and what the page shows (ADR 0015). So
-  // the page has one timer, and what it calls is the snapshot's own refresh.
+// ——— The configuration is read until a person says otherwise (ADR 0020 part 2).
+
+// The page, running: the script the server serves, a document that is enough
+// of one, and that same server in front of it (test/support/page.mjs). What is
+// asserted below is what the page does, not what its source says.
+async function onThePage(s, body) {
+  return dashboard(s, async (base) => {
+    const page = openPage(base)
+    await page.settle()
+    return body(page, base)
+  })
+}
+
+const LABELS = Object.fromEntries(LIMITS.map(([key, label]) => [key, label]))
+
+const editor = (page) => page.node('config-fields')
+
+// One group of the editor, by the legend over it: a role is `accept` in more
+// than one of them, which is the point of the per-repository ones.
+function group(page, legend) {
+  const [found] = editor(page).all((n) => n.className === 'group' && n.children[0]?.textContent === legend)
+  assert.ok(found, `the editor drew no group called "${legend}"`)
+  return found
+}
+
+// A control, found the way a person finds it: by the label beside it. Nothing
+// like it exists for the view, which has no controls to find.
+function control(root, label, tag = 'input') {
+  const [field] = root.all((n) => n.className === 'field' && n.children[0]?.textContent === label)
+  assert.ok(field, `the editor drew no field labelled "${label}"`)
+  const [node] = field.tags(tag)
+  assert.ok(node, `the field "${label}" has no ${tag}`)
+  return node
+}
+
+test('the configuration is a view by default: what the file says as text, and an inherited value says where from', async () => {
+  const s = configured()
+  await onThePage(s, async (page) => {
+    // The view is shown, the editor is not there at all, and the only button
+    // is the one that asks for it.
+    assert.equal(page.node('config-view').hidden, false)
+    assert.equal(page.node('config-fields').hidden, true)
+    assert.deepEqual(page.node('config-fields').children, [], 'the editor is not built until it is asked for')
+    assert.equal(page.node('config-edit').hidden, false)
+    assert.equal(page.node('config-save').hidden, true)
+    assert.equal(page.node('config-discard').hidden, true)
+
+    // Text, not disabled controls: reading which model a repository uses was
+    // reading the contents of form controls (ADR 0020 part 2).
+    assert.deepEqual(page.node('config-view').tags('input', 'select', 'button'), [], 'the view is built out of controls')
+    const view = page.node('config-view').textContent
+    assert.match(view, /implementclaude claude-opus-5/, 'the product’s own models')
+    assert.match(view, new RegExp(`${LABELS.attempts}5`), 'a key the file sets')
+    assert.match(view, new RegExp(`${LABELS.timeout}30 — the default`), 'and one it leaves out')
+    assert.match(view, new RegExp(`${LABELS.notify}none`))
+
+    // What a repository inherits is shown as inherited and says from where —
+    // a repository overrides a role and never "the model" — and the editor's
+    // empty option says the same sentence, because both say it from the one
+    // function.
+    assert.match(view, /Models for acme-api/)
+    assert.match(view, /acceptthe product setting — claude claude-sonnet-5/)
+    await page.click('config-edit')
+    const [option] = control(group(page, 'Models for acme-api'), 'accept', 'select').children
+    assert.equal(option.textContent, 'the product setting — claude claude-sonnet-5')
+    assert.equal(control(group(page, 'Models for the product'), 'accept', 'select').children[0].textContent, 'not set',
+      'and the product’s own roles inherit from nowhere')
+
+    // And the fact is stated once: the repositories table used to say it too.
+    assert.doesNotMatch(SCRIPT, /r\.implement|r\.accept/)
+    assert.ok(!('implement' in snapshot(s.product).repos[0]), 'and the snapshot no longer carries it')
+    assert.match(PAGE, /Which model each repository uses is read in <a href="#configuration">/)
+  })
+})
+
+test('the configuration view may refresh, and an open editor never does', async () => {
+  const s = configured()
+  // One timer on the page, and what it calls is the snapshot's own refresh,
+  // which reads the state and the configuration view beside it.
   assert.deepEqual(POLL, { call: 'refresh', every: 3000 })
+  assert.deepEqual([...PAGE.matchAll(/setInterval\((\w+)/g)].map((m) => m[1]), ['refresh'])
   assert.equal([...PAGE.matchAll(/setInterval|setTimeout|requestAnimationFrame/g)].length, 1, 'one timer')
   assert.ok(PAGE.includes(`setInterval(${POLL.call}, ${POLL.every})`))
   assert.match(SCRIPT, new RegExp(String.raw`async function ${POLL.call}\(\) \{[^}]*fetch\('state\.json'`))
+
+  await onThePage(s, async (page) => {
+    assert.deepEqual(page.timers, [{ call: page.refresh, every: POLL.every }], 'the timer calls the page’s own refresh')
+    assert.deepEqual(page.reads, ['GET state.json', 'GET configuration.json'], 'the load reads both')
+
+    // The view refreshes: the timer's own function, run again, reads the file
+    // again and shows what it now says.
+    writeFileSync(file(s), JSON.stringify({ ...JSON.parse(readFileSync(file(s), 'utf8')), attempts: 4 }, null, 2))
+    await page.refresh()
+    assert.match(page.node('config-view').textContent, new RegExp(`${LABELS.attempts}4`))
+
+    // The editor does not. From the read that opened it until it closes,
+    // nothing moves under the person typing — not the timer, not a write by
+    // something else (ADR 0020 part 2, narrowing ADR 0015).
+    await page.click('config-edit')
+    const typed = control(editor(page), LABELS.attempts)
+    typed.value = '6'
+    writeFileSync(file(s), JSON.stringify({ ...JSON.parse(readFileSync(file(s), 'utf8')), attempts: 7 }, null, 2))
+    const read = page.reads.length
+    await page.refresh()
+    await page.refresh()
+    assert.equal(page.editing(), true)
+    assert.equal(typed.value, '6', 'the timer moved a value under the person typing')
+    assert.deepEqual(page.reads.slice(read), ['GET state.json', 'GET state.json'], 'and read the configuration while it was open')
+  })
+})
+
+test('the editor takes a fresh read, so what is edited is what the file currently says', async () => {
+  const s = configured()
+  await onThePage(s, async (page) => {
+    // Something else writes the file after the view was drawn.
+    writeFileSync(file(s), JSON.stringify({ ...JSON.parse(readFileSync(file(s), 'utf8')), attempts: 9, notify: 'say done' }, null, 2))
+    const read = page.reads.length
+    await page.click('config-edit')
+
+    assert.deepEqual(page.reads.slice(read), ['GET configuration.json'], 'opening the editor reads the file')
+    assert.equal(page.editing(), true)
+    assert.equal(page.node('config-fields').hidden, false)
+    assert.equal(page.node('config-view').hidden, true)
+    assert.equal(control(editor(page), LABELS.attempts).value, '9')
+    assert.equal(control(editor(page), LABELS.notify).value, 'say done')
+    // The buttons swap: there is a way out that is not the write.
+    assert.equal(page.node('config-edit').hidden, true)
+    assert.equal(page.node('config-save').hidden, false)
+    assert.equal(page.node('config-discard').hidden, false)
+  })
+})
+
+test('the editor does not open while a run is active, and the view stays readable', async () => {
+  const s = configured()
+  claim(s.dir, 'acme-api', { task: '0003', branch: 'agent/task-0003-next' })
+  await onThePage(s, async (page) => {
+    // Nothing is disabled but the one button, and the view is text anyway:
+    // somebody who opens the page during a run to see which model is costing
+    // what finds the answer (ADR 0020 part 2).
+    assert.equal(page.node('config-edit').disabled, true)
+    assert.equal(page.node('config-view').hidden, false)
+    assert.match(page.node('config-view').textContent, /implementclaude claude-opus-5/)
+    assert.doesNotMatch(SCRIPT, /#config input|#config select/, 'the panel is not disabled whole')
+
+    // And the refusal keeps the explanation 0015 made part of the feature:
+    // that a run is active, what it is working on, and that the server refuses
+    // regardless of what this page allows.
+    const lock = page.text('config-lock')
+    assert.match(lock, /A run is active — acme-api on task 0003, attempt 0/)
+    assert.match(lock, /written between runs/)
+    assert.match(lock, /the server refuses a write now whatever this page allows/)
+
+    // Clicking it anyway — the button is a courtesy and this is the rule.
+    const read = page.reads.length
+    await page.click('config-edit')
+    assert.equal(page.editing(), false)
+    assert.deepEqual(page.node('config-fields').children, [], 'no editor was built')
+    assert.equal(page.node('config-view').hidden, false)
+    assert.deepEqual(page.reads.slice(read), [], 'and nothing was read for it')
+    assert.match(page.text('config-note'), /a run is active/)
+  })
+})
+
+test('a write the server refuses leaves the editor open with what was typed in it', async () => {
+  const s = configured()
+  const before = readFileSync(file(s), 'utf8')
+  await onThePage(s, async (page) => {
+    await page.click('config-edit')
+    control(editor(page), LABELS.attempts).value = '0'
+    control(editor(page), LABELS.notify).value = 'say done'
+    await page.click('config-save')
+
+    // Refused by the validator, whole and by path — the server's own rules,
+    // untouched (ADR 0015).
+    assert.ok(page.reads.includes('POST configuration.json'))
+    assert.equal(readFileSync(file(s), 'utf8'), before, 'nothing was written')
+    const problems = page.node('config-problems').textContent
+    assert.match(problems, /^attempts:/)
+    assert.match(page.text('config-note'), /was not written/)
+
+    // And the editor is still open with the edits in it: losing somebody's
+    // work to a validation error would make this mode worse than the one it
+    // replaced.
+    assert.equal(page.editing(), true)
+    assert.equal(page.node('config-fields').hidden, false)
+    assert.equal(control(editor(page), LABELS.attempts).value, '0')
+    assert.equal(control(editor(page), LABELS.notify).value, 'say done', 'the edit that was fine survived too')
+
+    // Fixed in place, from the same editor, and the write goes through.
+    control(editor(page), LABELS.attempts).value = '2'
+    await page.click('config-save')
+    assert.equal(page.editing(), false, 'a write that is accepted closes it')
+    assert.equal(JSON.parse(readFileSync(file(s), 'utf8')).attempts, 2)
+    assert.match(page.node('config-view').textContent, new RegExp(`${LABELS.attempts}2`))
+    assert.deepEqual(page.node('config-problems').children, [])
+  })
+})
+
+test('leaving the editor discards, and writes nothing', async () => {
+  const s = configured()
+  const before = readFileSync(file(s), 'utf8')
+  await onThePage(s, async (page) => {
+    await page.click('config-edit')
+    control(editor(page), LABELS.attempts).value = '11'
+    control(editor(page), 'implement', 'input').value = 'claude-haiku-4-5'
+    await page.click('config-discard')
+
+    assert.equal(page.editing(), false)
+    assert.deepEqual(page.node('config-fields').children, [], 'the editor and what was typed in it are gone')
+    assert.equal(page.node('config-view').hidden, false)
+    assert.equal(readFileSync(file(s), 'utf8'), before, 'discarding wrote nothing')
+    assert.ok(!page.reads.includes('POST configuration.json'), 'and asked for no write')
+    assert.match(page.node('config-view').textContent, new RegExp(`${LABELS.attempts}5`), 'the view says what the file says')
+
+    // There is no prompt on the way out and no change held back to be applied
+    // later: a change accepted and not yet applied is the third state the page
+    // exists to avoid (ADR 0015).
+    assert.doesNotMatch(SCRIPT, /confirm\(|beforeunload|dialog/)
+  })
 })

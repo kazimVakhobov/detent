@@ -127,6 +127,49 @@ Notable changes, newest first. The format follows
 
 ### Changed
 
+- **The configuration is read until a person says otherwise.** Every value in
+  the panel was a live `input` or `select` whether or not anybody meant to
+  change one, so reading which model a repository uses meant reading the
+  contents of form controls — and while a run was active every control was
+  disabled, which was right for the writing and cost the reading with it:
+  somebody who opened the page during a run to see which model was costing what
+  found the answer greyed out. Viewing is now the default and shows what the
+  file says as text, with a repository's inherited role saying whose setting it
+  is inheriting; the editor is entered deliberately from one button and leaving
+  it discards
+  ([ADR 0020](docs/adr/0020-the-dashboard-is-sections-and-the-configuration-is-read-before-it-is-written.md)
+  part 2). **Entering edit mode is refused while a run is active and viewing is
+  not**, with the explanation
+  [ADR 0015](docs/adr/0015-the-dashboard-may-write-the-configuration-between-runs.md)
+  made part of the feature beside the disabled button: that a run is active,
+  what it is working on, and that the server refuses whatever the page allows.
+  Nothing about the write changed — it still refuses during a run, still
+  validates whole through `validateProduct`, still requires the origin and the
+  JSON content type, and still answers with what the file says afterwards.
+- **A view may refresh; an open editor never does.** This narrows a rule that
+  was written as a comment rather than as an ADR — the configuration is fetched
+  once and after a write and never polled, because a form whose values move
+  under the person filling it in would be a third state between what the file
+  says and what the page shows. That argument is about a form: the view is now
+  read on the page's one timer, and opening the editor takes a read of its own
+  so what is edited is what the file currently says. From then until it closes,
+  neither the timer nor anything else moves a value under the person typing. A
+  write the server refuses leaves the editor open with what was typed still in
+  it and the problems against their paths, because losing somebody's edits to a
+  validation error would make the mode worse than the one it replaced.
+- **Which model a repository uses is stated once.** The repositories table drew
+  it in a format of its own (`implement claude …`, `review …`) beside a
+  configuration panel that drew the same fact as form controls, and two
+  renderings of one fact are free to disagree. The configuration is where a
+  model is read, because it is where one is written; the table's column is gone,
+  the repositories section says where to look, and `snapshot()` no longer
+  carries a second copy of it.
+- The page's one script is now run by its tests, not only read by them:
+  `test/support/page.mjs` puts a document that is enough of one under the
+  string the server serves and that same server in front of it, so "the default
+  is a view", "the editor does not open during a run", "a refusal keeps what
+  was typed" and "discarding writes nothing" are asserted as behaviour rather
+  than as a regular expression over the source.
 - **The dashboard page is sections, one shown at a time, and the one shown is
   named in the fragment.** Nine blocks down a single scroll put the densest of
   them — the configuration, the only one with inputs — below everything else,
@@ -138,7 +181,7 @@ Notable changes, newest first. The format follows
   Configuration. An absent or unrecognised fragment lands on the first of them
   rather than on nothing, and nothing rewrites it — a page that corrects the
   address bar loses the one thing the fragment was for. The configuration moved
-  into a section and changed in no other way.
+  into a section of its own, and what reading it became is the entry above.
 - **What is wrong is in no section.** A run whose process is gone, a paused
   task, and a queue that would not parse are drawn above every section on every
   read, each naming the section that holds the detail. A single scroll had the

@@ -88,6 +88,7 @@ function standing(r) {
 
 // Which run is active, kept for the configuration panel: the same snapshot
 // already being read, rather than a second request asking the same question.
+// It is what refuses the editor and never the view (ADR 0020 part 2).
 let running = []
 
 function render(s) {
@@ -117,12 +118,14 @@ function render(s) {
     figures.append(tile('Red batch', pct(n.batches.red / n.batches.checked), n.batches.red + ' of ' + n.batches.checked + ' batches red with every task green'))
   }
 
-  table(document.getElementById('repos'), [['Repository'], ['agent/dev'], ['Lock'], ['Now'], ['Agents']], s.repos.map((r) => [
+  // Where each repository stands, and no column for its models: which model it
+  // uses is read in the configuration, which is the one place it is written
+  // (ADR 0020 part 2).
+  table(document.getElementById('repos'), [['Repository'], ['agent/dev'], ['Lock'], ['Now']], s.repos.map((r) => [
     el('strong', {}, r.name),
     standing(r),
     r.lock === 'enforced' ? el('span', {}, el('code', {}, r.gauge.join(' · '))) : el('span', { class: 'status look' }, el('span', { class: 'icon' }, '!'), 'no gauge'),
     r.active ? 'task ' + r.active.task + ', attempt ' + r.active.attempt + (r.active.alive ? '' : ' — run gone, detent recover') : el('span', { class: 'muted' }, r.clean === false ? 'tree not clean' : 'idle'),
-    el('span', {}, 'implement ' + agent(r.implement), el('br'), el('span', { class: 'muted' }, 'review ' + (r.accept ? agent(r.accept) : 'none'))),
   ]), 'no repositories')
   numbersFor('by-repo', 'Repository', n.byRepo)
 
@@ -143,7 +146,7 @@ function render(s) {
   if (n.unreadable) notes.push(n.unreadable + ' journal lines unreadable')
   if (s.queueProblems.length) notes.push('the queue has problems: ' + s.queueProblems.join('; '))
   document.getElementById('footer').textContent = notes.join(' · ')
-  lock()
+  lockEditing()
 }
 
 async function refresh() {
@@ -154,5 +157,8 @@ async function refresh() {
   } catch (error) {
     document.getElementById('state-text').textContent = 'cannot read the product: ' + error.message
   }
+  // The page's one timer reads the configuration view too — a view may
+  // refresh. An open editor is never re-read (ADR 0020 part 2).
+  await refreshConfig()
 }
 `
