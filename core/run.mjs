@@ -27,9 +27,10 @@ import { taskBranch } from './task.mjs'
 import { withTask } from './workspace.mjs'
 import { invoke as defaultInvoke } from './agents.mjs'
 import { appendJournal, lastRun, watchJournal } from './journal.mjs'
+import { openAttemptLog } from './log.mjs'
 import { PRODUCT_FILE } from './product.mjs'
 
-export async function runTask(product, repo, task, { invoke = defaultInvoke, notify = defaultNotify, now = () => new Date() } = {}) {
+export async function runTask(product, repo, task, { invoke = defaultInvoke, notify = defaultNotify, openLog = openAttemptLog, now = () => new Date() } = {}) {
   const role = repo.models.implement
   if (!role) throw new Error(`${repo.name} has no implementing agent — set models.implement in product.json`)
 
@@ -207,11 +208,21 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
         setAttempt(attempt)
         record.attempts = attempt
 
-        const answer = await invoke(role, {
-          cwd,
-          timeoutMs: repo.timeout * 60_000,
-          prompt: implementPrompt({ task, repo, branch, attempt, limit, resumed, feedback, previous: resumed ? previous : null, tracked, brokenLinks: record.links.broken }),
-        })
+        // What the agent says, in a file of its own, while it says it (ADR
+        // 0021). The journal is unaffected either way: this run's numbers come
+        // from the result object below, and nothing reads the log back.
+        const log = openLog(product.dir, task.id, attempt)
+        let answer
+        try {
+          answer = await invoke(role, {
+            cwd,
+            log,
+            timeoutMs: repo.timeout * 60_000,
+            prompt: implementPrompt({ task, repo, branch, attempt, limit, resumed, feedback, previous: resumed ? previous : null, tracked, brokenLinks: record.links.broken }),
+          })
+        } finally {
+          log.close()
+        }
         account(record, answer)
 
         // The agent has a shell, so the boundary is checked after it, not

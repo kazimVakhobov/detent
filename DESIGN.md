@@ -326,6 +326,44 @@ are the person's, so detent does not restore them — and the run goes on using
 the product it loaded before the agent started, so an edited gauge never judges
 the attempt that edited it.
 
+### What the agent is saying, while it says it
+
+The agent's output arrives **as a stream**, and every attempt's raw stdout is
+written to `runs/logs/<task>-attempt-<n>.jsonl` as it arrives, byte for byte
+([ADR 0021](docs/adr/0021-the-agents-output-is-a-stream-written-to-a-file-that-is-not-a-record.md)).
+A run used to print a line when a task started and a line when it ended, and
+between them — minutes, sometimes a quarter of an hour — nothing.
+
+**The name is the index.** Nothing records where a log is: a task id and an
+attempt number are enough to write the path, which is what makes `tail -f`
+possible without copying anything out of a terminal a run has occupied.
+`detent run` prints the path for attempt 1 when a task starts and shows nothing
+— several tasks may be running, and their output interleaved in one terminal is
+unreadable. The surface this is for is the dashboard (§12), which shows it
+inside the task's own detail view.
+
+**A log is not a record.** Nothing reads one to decide an outcome, a cost, a
+verdict or a model. Every number in a journal line comes from the result object
+the agent prints last, exactly as it did when that object was the only thing it
+printed; a number taken from a transcript is a number nobody can check. The
+stream is parsed in one place, for display on the page, and a line that will
+not parse is shown as it arrived.
+
+**Losing it never costs the task.** A log that cannot be opened or written says
+so once, on stderr, and then does nothing. The run carries on and the journal
+is unaffected.
+
+**It goes no further than this machine.** A transcript holds whatever the agent
+read — file contents, values from the environment, whatever a tool returned —
+and the dashboard that serves it is on loopback.
+
+**It is kept until `detent prune`**, which deletes the attempt logs of tasks in
+`done/` and `failed/`, and of tasks whose file is in none of the four folders.
+A task in `todo/` or `hold/` keeps its last attempt, because that is what a
+person opens the task to read, and a task a run is holding is being written to
+right now. An artefact with no stated end is a disk leak with a feature request
+attached.
+
 ### The shared context
 
 A product may mount documentation, a kit or the queue as submodules of its
@@ -642,6 +680,8 @@ concluded, and which tasks went into which batch.
   .detent/state.json         per repository: active task, attempt, started at
   tasks/{todo,hold,done,failed}/NNNN-<slug>.md      the queue, where `queue` puts it
   runs/journal.jsonl         append-only, one line per run
+  runs/logs/NNNN-attempt-N.jsonl   what the agent printed, as it printed it —
+                             not a record, and deleted by `prune` (§5)
   map.json  map.mmd          the relationship map; committed, diffed by a person
   acme-api/ acme-web/ …      the product's repositories
 ```
@@ -984,6 +1024,13 @@ lands, so what remains is mostly paused work, which prune keeps. It never
 touches a branch outside `refs/heads/agent/task-`, the branch that is checked
 out, or the branch of a task that is running.
 
+It also deletes the **attempt logs** of settled tasks — those in `done/` and
+`failed/`, and those whose task file is in none of the four folders — which is
+the stated end of the one artefact detent writes that nothing depends on (§5).
+Naming repositories narrows which branches are considered and not which logs: a
+log belongs to a task, and its name does not say which repository the task was
+for. A queue that will not read keeps every log and says why.
+
 ### Plan
 
 `detent plan [brief…] [--agent claude]` — `claude` being Claude Code, the one
@@ -1020,7 +1067,8 @@ The sections are:
 - **Queue** — all four folders: `todo/`, the paused tasks with why each was
   paused and the reviewer's doubts, the `done/` detent has finished with, and
   the `failed/` a person abandoned.
-- **Task** — one task, opened by its number.
+- **Task** — one task, opened by its number, and under it what its agent is
+  saying while it says it.
 - **Agents** — runs, passes, attempts and cost per pass, per agent and model.
 - **Recent runs** — the last fifteen, newest first.
 - **Configuration** — what the file says, read as text, and beside it the keys
@@ -1055,8 +1103,26 @@ parsed sections rather than from a sanitiser this project would have to write
 ([ADR 0020](docs/adr/0020-the-dashboard-is-sections-and-the-configuration-is-read-before-it-is-written.md),
 [ADR 0006](docs/adr/0006-zero-dependencies-node-22.md)).
 
-The task is fetched when it is opened and is never polled; `state.json` carries
-nothing about it. The number is matched as digits and resolved against the four
+**What the agent is saying is under it, and is the one part of a task that is
+polled.** A person who ran `detent run` has that terminal occupied; this is
+where the output of a running task is read, a few seconds behind, which is what
+watching is
+([ADR 0021](docs/adr/0021-the-agents-output-is-a-stream-written-to-a-file-that-is-not-a-record.md)).
+It is the end of the newest attempt's log — read from the same file `tail -f`
+would read, on the timer the page already has — and three things keep it from
+growing with the run: the page asks to carry on from the byte its last answer
+ended at, so it never re-reads what it has; what arrives is kept as a bounded
+number of lines, oldest off the top; and each line is clipped, because a tool
+result the agent read in full is not a line somebody scans. Each event is read
+for display and for nothing else, and a line that will not parse is shown as it
+arrived. **When the task is not running the page says so in a sentence** —
+what it shows is what the last attempt said, not something happening now — and
+a task nothing has ever run says *that* rather than showing an empty box that
+could be either. It lives here and nowhere else: a transcript with no task
+attached is a log viewer, which is not what this is for.
+
+The task itself is fetched when it is opened and is never polled; `state.json`
+carries nothing about it. The number is matched as digits and resolved against the four
 folders by file name — it never becomes a path, and nothing outside the queue
 is reachable by asking for it. A file that will not parse opens anyway, showing
 what it says and naming what is wrong with it, because a task nobody can open
@@ -1082,8 +1148,9 @@ document, one request, and no second asset.
 It reads everything and writes one thing: the product's configuration, and
 only when no run is active
 ([ADR 0015](docs/adr/0015-the-dashboard-may-write-the-configuration-between-runs.md)).
-`GET` and `HEAD` serve the page, the snapshot, the configuration and one task;
-`POST /configuration.json` is the one write, and every other method gets `405`.
+`GET` and `HEAD` serve the page, the snapshot, the configuration, one task and
+the end of what that task's agent is printing; `POST /configuration.json` is
+the one write, and every other method gets `405`.
 
 **The page reads the configuration, and writes it on request.** Viewing is the
 default and shows what the file says as text — each model, each limit, and

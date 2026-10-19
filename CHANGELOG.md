@@ -8,6 +8,47 @@ Notable changes, newest first. The format follows
 
 ### Added
 
+- **What the agent is doing, while it does it.** A run printed a line when a
+  task started and a line when it ended; between them — minutes, sometimes a
+  quarter of an hour — nothing, and the person who dispatched it had no way to
+  tell working from stuck without reaching for `ps`. The agent is now invoked
+  so that its output arrives **as a stream**, and every attempt's raw stdout is
+  written to `runs/logs/<task>-attempt-<n>.jsonl` as it arrives
+  ([ADR 0021](docs/adr/0021-the-agents-output-is-a-stream-written-to-a-file-that-is-not-a-record.md)).
+  Two facts made this cheap and both were checked rather than assumed: the last
+  line of `--output-format stream-json --verbose` is the same `type: "result"`
+  object the single-object format printed on its own, so every number the
+  journal records is read from the same place; and there is one agent now
+  ([ADR 0018](docs/adr/0018-one-agent-in-the-first-version-and-what-readmits-another.md)),
+  so streaming no longer means privileging one of three in the most
+  load-bearing code in the product.
+- **The dashboard shows the output of a running task**, inside the task's own
+  detail view, under its body and its history — the surface somebody watching
+  is already looking at, read from the same file `tail -f` would read, on the
+  timer the page already has. It does not grow with the run: the page asks to
+  carry on from the byte its last answer ended at rather than re-reading what
+  it has, keeps a bounded number of lines, and clips each one. When the task is
+  not running it says so in a sentence — what it shows is what the last attempt
+  said, not something happening now — and a task nothing has ever run says
+  *that* rather than showing an empty box that could be either.
+- `detent run` prints the path when a task starts and shows nothing: several
+  tasks may be running and their output interleaved in one terminal would be
+  unreadable, so the path is the offer and `tail -f` is the choice. The name is
+  derivable from a task id and an attempt, so a second terminal needs nothing
+  copied out of the first.
+- **A log is not the journal.** Nothing reads one to decide an outcome, a cost,
+  a verdict or a model; the journal's numbers come from the result object as
+  they always have, and a number taken from a transcript is a number nobody can
+  check. A run that cannot write its log says so once and carries on — losing a
+  log must never cost the task — and the output goes no further than this
+  machine, because a transcript holds whatever the agent read.
+- **It has a stated end.** `detent prune` now also deletes the attempt logs of
+  settled tasks: `done/`, `failed/`, and tasks whose file is in none of the four
+  folders. A task in `todo/` or `hold/` keeps its last attempt, because that is
+  what a person opens it to read, and a task a run is holding is being written
+  to right now. An artefact with no stated lifetime is a disk leak with a
+  feature request attached.
+
 - **A task can be opened on the dashboard.** A task on the page was
   `id + ' ' + slug`, and for a paused one its reason and the reviewer's doubts
   — not the goal it was given, not the criteria it is judged against, not what
@@ -266,6 +307,11 @@ Notable changes, newest first. The format follows
   It now reads `/proc` on Linux, where an exited process says so, and keeps
   signal 0 on macOS, where there is no `/proc` and nothing lingers. The
   assertion is the same one: a stopped command has to be gone.
+- A multi-byte character split across two chunks of the agent's output was
+  decoded as two broken halves: `stdout += chunk` turns each buffer into text
+  on its own, wherever the pipe happened to fill. One object at the end
+  survived that by luck; a stream of lines would not, so the decoding moved
+  into the stream, which holds a partial sequence until the rest of it arrives.
 
 ### Removed
 

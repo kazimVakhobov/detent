@@ -1,10 +1,10 @@
 // detent dashboard — a page that watches this product, on localhost.
 //
 // It reads a product and writes its configuration between runs (ADR 0015).
-// GET and HEAD serve the page, the snapshot, the configuration and one task;
-// the one write is `POST /configuration.json`, and every other method gets
-// 405. It listens on 127.0.0.1 only, and the page it serves loads nothing from
-// anywhere else.
+// GET and HEAD serve the page, the snapshot, the configuration, one task and
+// the end of what that task's agent is printing; the one write is
+// `POST /configuration.json`, and every other method gets 405. It listens on
+// 127.0.0.1 only, and the page it serves loads nothing from anywhere else.
 
 import { createServer } from 'node:http'
 import { Buffer } from 'node:buffer'
@@ -12,7 +12,7 @@ import process from 'node:process'
 import { readConfiguration, writeConfiguration } from '../configure.mjs'
 import { PAGE } from '../dashboard-page.mjs'
 import { snapshot } from '../snapshot.mjs'
-import { openTask } from '../task-detail.mjs'
+import { openLog, openTask } from '../task-detail.mjs'
 
 export const options = { port: { type: 'string', default: '4100' } }
 
@@ -27,6 +27,13 @@ const LIMIT = 1 << 20
 // matched as digits, so nothing a browser asks for becomes a path and nothing
 // outside the queue is reachable (ADR 0020 part 3).
 const TASK = '/task.json'
+
+// And the end of what its agent is printing, by the same number and a byte
+// offset to carry on from (ADR 0021). The offset is what keeps a page that
+// refreshes every few seconds from asking for what it already has. It goes no
+// further than this machine: a transcript holds whatever the agent read, and
+// this server is on loopback.
+const LOG = '/log.json'
 
 // A refusal is still an answer: which status each one gets. A number that is
 // not digits is the request's fault; a number in no folder is nothing's fault;
@@ -67,10 +74,12 @@ export function serve(product, { port = 4100, host = '127.0.0.1' } = {}) {
       response.writeHead(200, { ...headers, 'content-type': 'text/html; charset=utf-8' })
       return response.end(PAGE)
     }
-    if (path === TASK) {
+    if (path === TASK || path === LOG) {
       try {
-        const detail = openTask(product, url.searchParams.get('task'))
-        return json(detail.refused ? REFUSED[detail.refused] : 200, detail)
+        const body = path === TASK
+          ? openTask(product, url.searchParams.get('task'))
+          : openLog(product, url.searchParams.get('task'), url.searchParams.get('from'))
+        return json(body.refused ? REFUSED[body.refused] : 200, body)
       } catch (error) {
         return text(500, `${error.message}\n`)
       }

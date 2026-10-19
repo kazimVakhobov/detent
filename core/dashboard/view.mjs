@@ -158,7 +158,10 @@ async function refresh() {
     document.getElementById('state-text').textContent = 'cannot read the product: ' + error.message
   }
   // The page's one timer reads the configuration view too — a view may
-  // refresh. An open editor is never re-read (ADR 0020 part 2).
+  // refresh. An open editor is never re-read (ADR 0020 part 2). And the end of
+  // what an open task's agent is printing, which is the one thing on this page
+  // that is behind by design rather than by accident (ADR 0021).
   await refreshConfig()
+  await refreshLog()
 }
 `
