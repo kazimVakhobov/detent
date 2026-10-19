@@ -4,7 +4,50 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
-## Unreleased
+## 0.6.0 — 2026-10-20
+
+The release where the product stopped claiming three agents and the dashboard
+stopped being a thing you only read.
+
+**One agent, and the table it came out of.** Three adapters were offered and
+one had ever run: the header of `test/agents.test.mjs` had said so since they
+were written, and one of the unverified two pointed at a program its vendor had
+replaced for free accounts four months earlier. `codex` and `gemini` are gone
+and the mechanism they came in is untouched — a role still names its agent, and
+the adapter table is still a table with one row, because what makes adding one
+back a configuration rather than a rewrite is the shape
+([0018](docs/adr/0018-one-agent-in-the-first-version-and-what-readmits-another.md)).
+The cost is written down rather than discovered: with one vendor, an acceptance
+pass is a different model of the same family, so `0004`'s "a model's judgement
+may only raise a doubt" carries more weight than it was meant to.
+
+**The page you watch a run on.** It is sections now, one shown at a time and
+named in the fragment, so what was wrong with a single scroll — the densest
+block at the bottom, two of four queue folders drawn, numbers computed and
+displayed nowhere — is gone, and what is wrong with *sections* is answered in
+the same change: a dead run, a paused task and a queue that will not parse are
+drawn above every section, because a page that can hide the thing that is wrong
+has lost the one job it had. A task is something you can open, with its body as
+text and no markdown rendered. The configuration is read before it is written,
+which also narrows a rule: a view may refresh, an open editor never does
+([0020](docs/adr/0020-the-dashboard-is-sections-and-the-configuration-is-read-before-it-is-written.md)).
+And what the agent is saying arrives while it says it, in a file that is not a
+record — nothing reads one to decide an outcome, a cost or a verdict
+([0021](docs/adr/0021-the-agents-output-is-a-stream-written-to-a-file-that-is-not-a-record.md)).
+
+**Which model to type.** Nothing detent can reach knows: the CLI holds no
+list, the API's list needs a credential this product does not have, and
+availability turned out to depend on the installed CLI as well as the account.
+So the names it has watched work are a suggestion in `product.json`, editable
+there, and the validator never checks a model against them
+([0019](docs/adr/0019-the-offered-model-names-are-a-suggestion-in-the-product-file.md)).
+
+One thing in here cost two runs, and it is the part worth reporting. The
+logging change passed its gauge and was **demoted by the acceptance pass**,
+which found that the page said "running" over a tail that had stopped growing
+whenever the run was in a phase that writes no log — the exact symptom the
+change existed to remove. It went back and came out naming the third state. The
+reviewer could not approve and did not have to; `0004` earned its keep.
 
 ### Added
 
