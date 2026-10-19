@@ -84,6 +84,55 @@ Notable changes, newest first. The format follows
 
 ### Changed
 
+- **The dashboard page is sections, one shown at a time, and the one shown is
+  named in the fragment.** Nine blocks down a single scroll put the densest of
+  them — the configuration, the only one with inputs — below everything else,
+  and the fragment means a reload and a copied link both come back to where
+  somebody was: no server route, nothing fetched to change section, and the
+  whole document still arrives in one request
+  ([ADR 0020](docs/adr/0020-the-dashboard-is-sections-and-the-configuration-is-read-before-it-is-written.md)).
+  The sections are Overview, Repositories, Queue, Agents, Recent runs and
+  Configuration. An absent or unrecognised fragment lands on the first of them
+  rather than on nothing, and nothing rewrites it — a page that corrects the
+  address bar loses the one thing the fragment was for. The configuration moved
+  into a section and changed in no other way.
+- **What is wrong is in no section.** A run whose process is gone, a paused
+  task, and a queue that would not parse are drawn above every section on every
+  read, each naming the section that holds the detail. A single scroll had the
+  property that everything was somewhere below you, and a page that can hide
+  the thing that is wrong has lost the one job it had: ADR 0020 names this as
+  how the split makes the page worse, and the strip is what keeps it from
+  happening.
+- **The page shows what it was already being sent.** `done/` and `failed/` were
+  read on every snapshot and drawn nowhere — the queue section now has all four
+  folders, `done/` with what the journal says became of each task and `failed/`
+  with why, which is a person abandoning a task rather than detent deciding
+  anything. `numbers.byRepo` was computed on every read and displayed nowhere;
+  it is a table beside the repositories, the same six columns the agents table
+  has. Nothing new is fetched and nothing was added to `state.json`.
+- The page's source is several modules under `core/dashboard/` — the sections
+  and the fragment that names one, the strip of what is wrong, the stylesheet,
+  the rendering, and the configuration panel — composed into one string at
+  import time. What is served is unchanged: one document, one request, no
+  second asset, and the same content security policy, which is now asserted
+  whole rather than by one of its directives. Serving the script as its own
+  asset would let `script-src 'unsafe-inline'` go and is worth doing on its own
+  merits; ADR 0020 declines to do it as a side effect of moving blocks around.
+- The tests that read the page's own source for what it does assert the
+  property instead, because splitting the file breaks a regular expression over
+  it by construction. `PAGE.matchAll(/^ {2}\['(\w+)', '/gm)` — which read the
+  offered configuration keys out of the source by their indentation — is now
+  `LIMITS` imported from the module that draws them, compared against
+  `EDITABLE` less `models` and checked to reach the document. The single
+  `setInterval` compared with `['refresh']` is now the exported `POLL` plus a
+  count of every timer in the document, so "one timer, and it reads the state"
+  survives the timer moving file. The assertion that the empty-queue line is
+  built from `s.product.queue` is now the rule it stood for: wherever the page
+  writes a folder name, the queue the snapshot carries is written immediately
+  before it, and no literal queue path appears anywhere. Three more properties
+  are checked that one file made true by accident — no two elements share an
+  id, every id the script reads exists in the document, and every block the
+  page draws is inside exactly one section.
 - `DESIGN.md` §12 and the README stop saying the dashboard is read-only. What
   replaces it is narrower and less memorable: it reads a product and writes its
   configuration between runs. `GET` and `HEAD` are unchanged — the page, the

@@ -1005,13 +1005,39 @@ repository, to `product.json` or to a task outside `todo/` is named.
 ### The dashboard
 
 `detent dashboard [--port 4100]` serves one page on `127.0.0.1` that watches
-the product: whether a run is active and on what, where each repository's
-`agent/dev` stands against its `compare` branch (identical, behind — agents
-cannot see your work — or tasks ahead, waiting for your review), the queue,
-every paused task with why it was paused and the reviewer's doubts, and the
-numbers `summary` computes, from the same code. The page loads nothing from
-outside and sets every value as text, and a status is always an icon and a
-word, never a colour alone.
+the product. **It is sections, one shown at a time, and the one shown is named
+in the fragment**, so a reload and a copied link both come back to where
+somebody was — no server route, and nothing fetched to change section
+([ADR 0020](docs/adr/0020-the-dashboard-is-sections-and-the-configuration-is-read-before-it-is-written.md)).
+The sections are:
+
+- **Overview** — the figures `summary` computes, from the same code.
+- **Repositories** — where each repository's `agent/dev` stands against its
+  `compare` branch (identical, behind — agents cannot see your work — or tasks
+  ahead, waiting for your review), and the same numbers per repository.
+- **Queue** — all four folders: `todo/`, the paused tasks with why each was
+  paused and the reviewer's doubts, the `done/` detent has finished with, and
+  the `failed/` a person abandoned.
+- **Agents** — runs, passes, attempts and cost per pass, per agent and model.
+- **Recent runs** — the last fifteen, newest first.
+- **Configuration** — the one thing the page writes, and beside it the keys
+  that are shown here and changed on disk.
+
+**What is wrong is in none of them.** A run whose process is gone, a paused
+task, and a queue that would not parse are drawn above every section on every
+read, each naming the section that holds the detail. A single scroll had the
+property that everything was somewhere below you; sections mean a person can
+be looking at a page that does not contain the thing that is wrong, and
+noticing that is the one job the page has.
+
+An absent or unrecognised fragment lands on the first section rather than on
+nothing, and nothing rewrites it: a page that corrects the address bar loses
+the one thing the fragment was for.
+
+The page loads nothing from outside and sets every value as text, and a status
+is always an icon and a word, never a colour alone. Its source is several
+modules under `core/dashboard/`, composed at import time; what is served is one
+document, one request, and no second asset.
 
 ### The dashboard reads a product and writes its configuration between runs
 
