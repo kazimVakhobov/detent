@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { validateProduct } from '../core/product.mjs'
+import { MODEL_SUGGESTIONS, validateProduct } from '../core/product.mjs'
 import { diffLines, mergeProposal, proposeProduct } from '../core/propose.mjs'
 import { scanProduct } from '../core/scan.mjs'
 
@@ -155,8 +155,27 @@ test('detent init writes product.json, then proposes rather than overwrites', ()
   assert.equal(written.models.accept, undefined)
   assert.match(first, /models\.accept is not set — no acceptance pass\. This version offers one agent, so set it to claude with a different model; the scan cannot see which models you have/)
 
+  // The names a person is offered where a model is typed, written into the file
+  // rather than left only in detent, with the sentence that says what they are:
+  // a suggestion, confirmed by running them, and the person's to extend
+  // (ADR 0019). This is the line the key exists for — there was nowhere to
+  // learn what a model name looks like.
+  assert.deepEqual(written.modelSuggestions, [...MODEL_SUGGESTIONS])
+  assert.deepEqual(Object.keys(written), ['version', 'product', 'queue', 'docs', 'models', 'modelSuggestions', 'repos', 'edges'])
+  assert.match(first, /modelSuggestions: 8 model names detent has watched run \(opus, sonnet, haiku, …\), offered wherever a model is typed — yours to extend in \.detent\/product\.json, and any name may be used: nothing checks a model against the list/)
+
   const again = init()
   assert.match(again, /already says everything the scan found/)
+  assert.match(again, /yours to extend in \.detent\/product\.json/, 'said whether the file was written or already said it')
+
+  // A file carrying its own list keeps it, and the note counts that one: the
+  // list is the product's, and a name removed from it stays removed.
+  writeFileSync(join(dir, '.detent', 'product.json'), JSON.stringify({ ...written, modelSuggestions: ['opus', 'mine-5'] }, null, 2))
+  const mine = init()
+  assert.match(mine, /modelSuggestions: 2 model names detent has watched run \(opus, mine-5, …\)/)
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, '.detent', 'product.json'), 'utf8')).modelSuggestions, ['opus', 'mine-5'])
+  assert.doesNotMatch(mine, /modelSuggestions.*not usable|modelSuggestions: must be/, 'and nothing refuses a list of the product’s own')
+  writeFileSync(join(dir, '.detent', 'product.json'), JSON.stringify(written, null, 2))
 
   written.repos[0].role = 'the API, by hand'
   writeFileSync(join(dir, '.detent', 'product.json'), JSON.stringify(written, null, 2))

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { ConfigError, loadProduct, queueOf, validateProduct } from '../core/product.mjs'
+import { ConfigError, MODEL_SUGGESTIONS, loadProduct, modelSuggestionsOf, queueOf, validateProduct } from '../core/product.mjs'
 
 function minimal(overrides = {}) {
   return {
@@ -136,6 +136,77 @@ test('an agent this version does not offer is refused by name, with the decision
   }
   // A typo is the same answer: it names what it was given rather than guessing.
   assertProblem(minimal({ models: { accept: { agent: 'cursor' } } }), /^models\.accept\.agent: "cursor" is not offered in this version/)
+})
+
+// ——— The offered model names are a suggestion (ADR 0019).
+
+// The list as shipped: the order is part of it, because the aliases lead — they
+// are the entries that do not go stale, and a run with one still gives the
+// journal the model it resolved to.
+test('detent ships the suggested names in one place, aliases first', () => {
+  assert.deepEqual([...MODEL_SUGGESTIONS], [
+    'opus',
+    'sonnet',
+    'haiku',
+    'claude-opus-5',
+    'claude-sonnet-5',
+    'claude-haiku-4-5',
+    'claude-opus-4-8',
+    'claude-fable-5',
+  ])
+})
+
+// Present means exactly what it says, including empty: a name removed from a
+// file's own list stays removed, and a file that says nothing is offered the
+// shipped list, so nothing that exists today has to be edited to get them.
+test('a file carrying modelSuggestions is offered its own list; one without it, the shipped one', () => {
+  const offered = (raw) => validateProduct(raw, '/p').product.modelSuggestions
+
+  assert.deepEqual(offered(minimal()), [...MODEL_SUGGESTIONS], 'a file that says nothing')
+  assert.deepEqual(offered(minimal({ modelSuggestions: ['opus', 'mine-5'] })), ['opus', 'mine-5'])
+  assert.deepEqual(offered(minimal({ modelSuggestions: [] })), [], 'an empty list offers nothing, rather than meaning "unset"')
+
+  // The same question asked of a file nobody has validated — how the dashboard
+  // reads it, exactly as it reads `queue`.
+  assert.deepEqual([...modelSuggestionsOf({ version: 1 })], [...MODEL_SUGGESTIONS])
+  assert.deepEqual([...modelSuggestionsOf(null)], [...MODEL_SUGGESTIONS], 'and no file at all')
+  assert.deepEqual(modelSuggestionsOf({ modelSuggestions: ['sonnet'] }), ['sonnet'])
+  assert.deepEqual(modelSuggestionsOf({ modelSuggestions: [] }), [])
+  assert.deepEqual([...modelSuggestionsOf({ modelSuggestions: 'opus' })], [...MODEL_SUGGESTIONS],
+    'a value that is not a list is not a list to offer; the validator names it')
+})
+
+test('modelSuggestions is refused by name when it is the wrong shape, with every other problem at once', () => {
+  assertProblem(minimal({ modelSuggestions: 'opus' }), /^modelSuggestions: must be an array of non-empty strings$/)
+  assertProblem(minimal({ modelSuggestions: ['opus', 4] }), /^modelSuggestions: must be an array of non-empty strings$/)
+  assertProblem(minimal({ modelSuggestions: [''] }), /^modelSuggestions: must be an array of non-empty strings$/)
+  assertProblem(minimal({ modelSuggestions: [' '] }), /^modelSuggestions: must be an array of non-empty strings$/)
+  assertProblem(minimal({ modelSuggestion: ['opus'] }), /^modelSuggestion: unknown key/)
+
+  // Beside the rest, each naming its path: the person fixing the file wants the
+  // whole list, and this key arrived because somebody was handed seven problems
+  // with no way to know what a model name looks like (ADR 0019).
+  const problems = problemsOf(minimal({ modelSuggestions: 3, attempts: 0 }))
+  assert.deepEqual(problems.map((p) => p.split(':')[0]).sort(), ['attempts', 'modelSuggestions'])
+})
+
+// The whole of the decision: the list is offered and never enforced. There is
+// no refusal to assert here, which is the point — this is the test that fails
+// if one is ever added.
+test('a model name outside the list loads, is kept as written, and is what the agent is asked for', () => {
+  const { product, problems } = validateProduct(
+    minimal({
+      modelSuggestions: ['opus'],
+      models: { implement: { agent: 'claude', model: 'claude-sonnet-5-5' }, accept: { agent: 'claude', model: 'a-model-nobody-ships' } },
+    }),
+    '/p',
+  )
+  assert.deepEqual(problems, [])
+  for (const name of ['claude-sonnet-5-5', 'a-model-nobody-ships']) {
+    assert.ok(!MODEL_SUGGESTIONS.includes(name) && !product.modelSuggestions.includes(name), `${name} is not on either list`)
+  }
+  assert.equal(product.models.implement.model, 'claude-sonnet-5-5')
+  assert.equal(product.repos[0].models.accept.model, 'a-model-nobody-ships', 'and it reaches the role a run invokes')
 })
 
 test('an unknown key is an error, at any depth, naming its path', () => {

@@ -23,6 +23,13 @@
 // the file currently says, and from then until it closes nothing moves under
 // the person typing.
 //
+// **The model input is backed by a list and stays free text** (ADR 0019). The
+// names come from `modelSuggestions` in `product.json`, the input offers them
+// and accepts anything, and the line under it says where the list is and that
+// any name may be typed — which is the question this panel could not answer
+// before: there was nowhere to learn what a model name looks like. The list is
+// shown and used here and edited in the file, like `repos` and `branches`.
+//
 // **Entering edit mode is refused while a run is active, and viewing is not.**
 // The refusal carries the explanation 0015 made part of the feature — that a
 // run is active, what it is working on, and that the server refuses whatever
@@ -97,6 +104,26 @@ function renderFixed() {
 
 // ——— The editor: the same values as controls, built once from one read.
 
+// The names on offer where a model is typed, and the one list every model
+// input points at (ADR 0019).
+//
+// The list is a suggestion and the input stays free text: picking a name and
+// typing one that is not there are both ordinary, and nothing on this page or
+// behind it checks a model against the list. \`modelSuggestions\` is what the
+// file says, or the list detent ships when it says nothing.
+const MODEL_LIST = 'model-names'
+
+// And the sentence the whole thing exists for. There was nowhere to learn what
+// a model name looks like — no keys anywhere, no list — so this says where the
+// names come from, where to add one, and that any name may be typed. It does
+// not claim the list is what the account can run, because nothing this page
+// has access to knows that.
+function suggestions() {
+  document.getElementById(MODEL_LIST).replaceChildren(...config.modelSuggestions.map((name) => el('option', { value: name })))
+  document.getElementById('config-models-note').textContent =
+    'The model names offered are modelSuggestions in ' + config.file + ', and yours to extend there. Any model name may be typed: the list is what detent has watched run, not what your account and your installed CLI can run between them, and nothing checks a model against it.'
+}
+
 // A role: which agent, and optionally which model of it. The empty option is
 // not a blank — for a repository it means the product's setting, and it says
 // which one that is.
@@ -108,7 +135,7 @@ function modelField(label, current, from) {
     if (current && current.agent === name) option.selected = true
     select.append(option)
   }
-  const model = el('input', { type: 'text', placeholder: 'model — optional' })
+  const model = el('input', { type: 'text', list: MODEL_LIST, placeholder: 'model — optional, a suggestion or any name' })
   model.value = current && current.model ? current.model : ''
   const read = () => {
     if (select.value === '') return null
@@ -136,6 +163,7 @@ function valueField(label, key, attrs) {
 function renderEditor() {
   fields = []
   const groups = []
+  suggestions()
 
   const product = el('div', { class: 'group' }, el('div', { class: 'legend' }, 'Models for the product'))
   for (const name of config.roles) {
@@ -179,6 +207,9 @@ function renderEditor() {
 function mode() {
   document.getElementById('config-view').hidden = editing
   document.getElementById('config-fields').hidden = !editing
+  // With the inputs it is about, and only while they are there: the view has
+  // no model to type into.
+  document.getElementById('config-models-note').hidden = !editing
   document.getElementById('config-edit').hidden = editing
   document.getElementById('config-save').hidden = !editing
   document.getElementById('config-discard').hidden = !editing

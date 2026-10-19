@@ -12,7 +12,7 @@ import { warnings } from '../core/dashboard/warnings.mjs'
 import { appendJournal } from '../core/journal.mjs'
 import { snapshotRefs } from '../core/git.mjs'
 import { openAttemptLog } from '../core/log.mjs'
-import { PRODUCT_FILE, loadProduct } from '../core/product.mjs'
+import { MODEL_SUGGESTIONS, PRODUCT_FILE, loadProduct } from '../core/product.mjs'
 import { snapshot } from '../core/snapshot.mjs'
 import { FOLDERS } from '../core/task.mjs'
 import { claim, setAttempt } from '../core/state.mjs'
@@ -1130,6 +1130,84 @@ test('a write the server refuses leaves the editor open with what was typed in i
     assert.equal(JSON.parse(readFileSync(file(s), 'utf8')).attempts, 2)
     assert.match(page.node('config-view').textContent, new RegExp(`${LABELS.attempts}2`))
     assert.deepEqual(page.node('config-problems').children, [])
+  })
+})
+
+// ——— The names on offer where a model is typed (ADR 0019).
+
+// The list on the page is the file's or the shipped one, the input stays free
+// text, and the line under it says the thing somebody had to ask for: where
+// the names come from, where to add one, and that any name may be typed.
+test('the model input is backed by the list and stays free text, and the page says where the list is', async () => {
+  const s = configured()
+  await onThePage(s, async (page) => {
+    // Read with the rest of the configuration, from the file or from detent.
+    assert.deepEqual(readConfiguration(s.dir).modelSuggestions, [...MODEL_SUGGESTIONS], 'a file that says nothing is offered the shipped list')
+
+    // Nothing of it in the view: there is no model to type into there.
+    assert.equal(page.node('config-models-note').hidden, true)
+    assert.deepEqual(page.node('model-names').children, [])
+
+    await page.click('config-edit')
+    const names = page.node('model-names').children.map((option) => option.getAttribute('value'))
+    assert.deepEqual(names, [...MODEL_SUGGESTIONS], 'the aliases lead, as shipped')
+
+    // Every model input offers it, and every one of them is still free text.
+    const inputs = [
+      control(group(page, 'Models for the product'), 'implement', 'input'),
+      control(group(page, 'Models for the product'), 'accept', 'input'),
+      control(group(page, 'Models for acme-api'), 'implement', 'input'),
+    ]
+    for (const input of inputs) {
+      assert.equal(input.getAttribute('list'), 'model-names')
+      assert.equal(input.getAttribute('type'), 'text', 'a list to pick from, and anything may be typed')
+      assert.match(input.getAttribute('placeholder'), /optional, a suggestion or any name/)
+    }
+    assert.deepEqual(group(page, 'Models for the product').tags('datalist'), [], 'one list for the page, not one per field')
+
+    // The sentence the whole task exists to make unnecessary to ask for.
+    assert.equal(page.node('config-models-note').hidden, false)
+    const note = page.text('config-models-note')
+    assert.match(note, /modelSuggestions in \.detent\/product\.json/, 'where the list comes from')
+    assert.match(note, /yours to extend there/, 'and that it can be extended there')
+    assert.match(note, /Any model name may be typed/, 'and that the list is not the limit')
+    assert.match(note, /not what your account and your installed CLI can run between them/,
+      'and it does not claim to be what the account can run')
+  })
+})
+
+test('a file with its own list is offered that list and nothing else, and an empty one offers nothing', async () => {
+  for (const [offered, shown] of [[['opus', 'mine-5'], ['opus', 'mine-5']], [[], []]]) {
+    const s = configured()
+    writeFileSync(file(s), JSON.stringify({ ...JSON.parse(readFileSync(file(s), 'utf8')), modelSuggestions: offered }, null, 2))
+    assert.deepEqual(readConfiguration(s.dir).modelSuggestions, shown)
+    await onThePage(s, async (page) => {
+      await page.click('config-edit')
+      assert.deepEqual(page.node('model-names').children.map((option) => option.getAttribute('value')), shown)
+      // A name the shipped list has and this file does not stays removed.
+      if (offered.length) assert.ok(!shown.includes('sonnet'), 'the shipped list is not merged back in')
+      // And the sentence is there either way: an empty list is still a list
+      // somebody can extend, and that is where it says to do it.
+      assert.match(page.text('config-models-note'), /modelSuggestions in \.detent\/product\.json/)
+    })
+  }
+})
+
+test('a model the list does not offer is written from the page like any other', async () => {
+  const s = configured()
+  writeFileSync(file(s), JSON.stringify({ ...JSON.parse(readFileSync(file(s), 'utf8')), modelSuggestions: ['opus'] }, null, 2))
+  await onThePage(s, async (page) => {
+    await page.click('config-edit')
+    control(group(page, 'Models for the product'), 'implement', 'input').value = 'a-model-nobody-ships'
+    await page.click('config-save')
+
+    assert.equal(page.editing(), false, 'the write went through — nothing checks a model against the list')
+    assert.deepEqual(page.node('config-problems').children, [])
+    const raw = JSON.parse(readFileSync(file(s), 'utf8'))
+    assert.deepEqual(raw.models.implement, { agent: 'claude', model: 'a-model-nobody-ships' })
+    assert.deepEqual(raw.modelSuggestions, ['opus'], 'and the list the page showed is not rewritten by showing it')
+    // And a run would load it: the validator is the same code.
+    assert.equal(loadProduct(s.dir).models.implement.model, 'a-model-nobody-ships')
   })
 })
 

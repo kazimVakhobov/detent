@@ -42,10 +42,28 @@ export const AGENTS = {
           usage.output_tokens,
         ),
         session: out.session_id ?? null,
-        error: out.is_error ? `${out.subtype ?? 'error'}${out.api_error_status ? ` (${out.api_error_status})` : ''}: ${out.result ?? ''}`.trim() : null,
+        error: failure(out),
       }
     },
   },
+}
+
+// Why an errored result failed, in the CLI's own words with a word of detent's
+// in front of it to say what kind of failure it was.
+//
+// `subtype` says how the turn ended and not whether it worked: a model the
+// installed CLI cannot run comes back `is_error: true` with `subtype:
+// "success"` and `api_error_status: 400`. The verdict was always right — `ok`
+// requires both — but the sentence opened with the word `success`, and the
+// first person to mistype a model name is the person who reads it (ADR 0019).
+// So the subtype leads only when it is not that one word, and otherwise the
+// status does: a 400 reads as a 400.
+function failure(out) {
+  if (!out.is_error) return null
+  const status = out.api_error_status ?? null
+  const subtype = typeof out.subtype === 'string' && out.subtype !== 'success' ? out.subtype : null
+  const what = subtype ? `${subtype}${status ? ` (${status})` : ''}` : status ? String(status) : 'error'
+  return `${what}: ${out.result ?? ''}`.trim()
 }
 
 // `readOnly` runs the agent in its CLI's read-only mode — for a reviewer, which
