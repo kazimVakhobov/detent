@@ -8,6 +8,33 @@ Notable changes, newest first. The format follows
 
 ### Added
 
+- **A model name you can pick, and a list you can extend.** A role names an
+  agent and optionally a model, the validator took any non-empty string for it,
+  and the dashboard offered a bare text box beside the agent select — correct,
+  and no help at all to somebody who said plainly that there were no keys
+  anywhere and no way to know what a model name looks like. detent now ships a
+  list of names it has watched work, `init` writes it into `product.json` as
+  `modelSuggestions`, and the dashboard's model field offers it while staying
+  free text
+  ([ADR 0019](docs/adr/0019-the-offered-model-names-are-a-suggestion-in-the-product-file.md)).
+  The aliases lead — `opus`, `sonnet`, `haiku` — because they are the entries
+  that do not go stale, and they cost the journal nothing: a run with an alias
+  came back naming the model it resolved to, so `requested` keeps the alias and
+  `actual` keeps the model. **Nothing is checked against the list**, not on
+  load, not in `doctor`, not on the page: a name that is not on it is accepted,
+  written and run. A file carrying the key is offered its own list and nothing
+  else, empty included; a file without it is offered the shipped one, so every
+  product that exists today gets the suggestions without being edited. The
+  reason it is a suggestion is that nothing detent can reach knows the answer —
+  the CLI holds no list, the API's needs a credential this product does not
+  have, and `--model claude-opus-5-5` turned out to be refused by the installed
+  binary rather than by the account, so a list that refused a model would be
+  wrong for somebody on the day it shipped.
+- **The page says where the names come from**, under the field: the list is
+  `modelSuggestions` in `product.json`, it can be extended there, and any name
+  may be typed. It does not claim the list is what an account can run, because
+  nothing the page can reach knows that.
+
 - **What the agent is doing, while it does it.** A run printed a line when a
   task started and a line when it ended; between them — minutes, sometimes a
   quarter of an hour — nothing, and the person who dispatched it had no way to
@@ -307,6 +334,13 @@ Notable changes, newest first. The format follows
 
 ### Fixed
 
+- **A refused model no longer reads as a success.** An errored result from
+  Claude Code arrives as `is_error: true` with `subtype: "success"`, and the
+  adapter composed its error string from that subtype — so a model name the
+  installed CLI will not run produced `success (400): …`. The verdict was
+  always right, since `ok` requires both fields; the sentence now leads with
+  the status when the subtype is the one word the failure is not, so a 400
+  reads as a 400. What is recorded as the failure is otherwise unchanged.
 - The test that checks a timed-out agent is stopped along with what it started
   read an exited-but-unreaped process as still running: signal 0 succeeds on a
   zombie, and the process's parent is the shell detent had just stopped, so

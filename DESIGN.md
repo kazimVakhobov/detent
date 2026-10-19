@@ -741,6 +741,7 @@ product.
     "implement": { "agent": "claude", "model": "claude-sonnet-5" },
     "accept":    { "agent": "claude", "model": "claude-opus-5" }
   },
+  "modelSuggestions": ["opus", "sonnet", "haiku", "claude-opus-5"],
   "repos": [
     {
       "name": "acme-api",
@@ -763,7 +764,7 @@ product.
 }
 ```
 
-Five things about this shape are deliberate:
+Six things about this shape are deliberate:
 
 - **`queue` is a path inside the product folder, and `tasks` when it is left
   out.** It is validated like `repos[].path`: a value that escapes the product
@@ -801,6 +802,21 @@ Five things about this shape are deliberate:
   the mechanism 0010 got right and 0018 kept: another agent arrives as a name
   here and a row in the adapter table, once it has run a real task and its
   adapter was written against what it printed.
+- **`modelSuggestions` is a suggestion and not a constraint.** It is the model
+  names offered where a model is typed — the dashboard's field beside the agent
+  select — and **nothing is ever checked against it**: a name that is not on the
+  list is accepted, written and run. detent ships a list, `init` writes it into
+  the file, and extending it is editing a file the product owns. Present means
+  exactly what it says, empty included: a file carrying the key is offered that
+  list and nothing else, and a file without it is offered the shipped one. The
+  names are ones detent has watched work rather than ones it read about, which
+  is also why the list is not a whitelist: nothing detent can reach knows which
+  models an account and an installed CLI can run between them — the CLI holds
+  no list, the API's needs a credential this product does not have
+  ([ADR 0013](docs/adr/0013-the-agent-gets-a-prompt-and-a-directory.md)), and a
+  name can be refused by the binary as well as by the plan, so a list that
+  refused a model would be wrong for somebody on the day it shipped
+  ([ADR 0019](docs/adr/0019-the-offered-model-names-are-a-suggestion-in-the-product-file.md)).
 - **Every edge carries its `source`.** Edges established by the deterministic
   scan are drawn plain; edges a model proposed are labelled with their kind, so
   a guess never looks like a fact.
@@ -1208,6 +1224,9 @@ What may change is the models for each role — product-wide and per repository 
 `attempts`, `timeout`, `concurrency` and `notify`. Not `repos`, not `queue`,
 not `docs`, not `branches`: those name things on disk, and a page cannot create
 what it names, so they are shown with the reason they are not editable there.
+Not `modelSuggestions` either: the model field offers that list, accepts any
+name, and says where the list is — it is shown and used on the page and
+extended in the file (§11).
 
 Three things hold every write.
 

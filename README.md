@@ -92,7 +92,11 @@ Read the two things it cannot decide for you before an agent is held to them:
   `init` leaves it empty: it must name a different model from `implement`, and
   with one agent offered that means a different model of Claude Code — which
   models your account can run is not something a scan can see, so the line is
-  yours to write.
+  yours to write. The names to choose from are in the file `init` just wrote:
+  `modelSuggestions` is a list detent has watched work, offered on the
+  dashboard where a model is typed and yours to extend. It is a suggestion and
+  never a constraint — nothing checks a model against it
+  ([ADR 0019](docs/adr/0019-the-offered-model-names-are-a-suggestion-in-the-product-file.md)).
 
 `doctor` answers `ready` when the shape is right. Then write a task. The
 frontmatter is bookkeeping and **only the body reaches the agent** — the spec

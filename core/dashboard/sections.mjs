@@ -95,6 +95,8 @@ export const SECTIONS = [
   <div class="status look lock" id="config-lock"></div>
   <div id="config-view"></div>
   <div id="config-fields" hidden></div>
+  <datalist id="model-names"></datalist>
+  <p class="muted" id="config-models-note" hidden></p>
   <div class="actions">
     <button type="button" id="config-edit">Edit configuration</button>
     <button type="button" id="config-save" hidden>Save configuration</button>

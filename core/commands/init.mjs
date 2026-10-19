@@ -209,6 +209,15 @@ export async function run(dir, _positionals = [], values = {}, { invoke = defaul
     const implementing = typeof proposal.models.implement?.agent === 'string' ? proposal.models.implement.agent : AGENT_NAMES[0]
     notes.push(`models.accept is not set — no acceptance pass. This version offers one agent, so set it to ${implementing} with a different model; the scan cannot see which models you have`)
   }
+  // The one key in the file that is an offer rather than a setting, so the
+  // sentence says both halves: where the names came from, and that nothing is
+  // ever checked against them (ADR 0019). This is the sentence that answers
+  // the question this key exists for — there was nowhere to learn what a model
+  // name looks like — so it is printed whether the file was written or
+  // proposed, and it names the list's length from the proposal rather than
+  // from detent, because a file that already carries its own list keeps it.
+  const offered = Array.isArray(proposal.modelSuggestions) ? proposal.modelSuggestions : []
+  notes.push(`modelSuggestions: ${offered.length} model names detent has watched run${offered.length ? ` (${offered.slice(0, 3).join(', ')}, …)` : ''}, offered wherever a model is typed — yours to extend in ${PRODUCT_FILE}, and any name may be used: nothing checks a model against the list`)
   for (const repo of proposal.repos) {
     if (!repo.gauge?.exit?.length) notes.push(`${repo.name}: no gauge stages — without them it has no lock`)
   }

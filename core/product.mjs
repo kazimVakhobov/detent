@@ -26,6 +26,31 @@ export const ROLES = Object.freeze(['implement', 'accept'])
 // One name in this version (ADR 0018). The list is the list, here and in the
 // adapter table: another agent arrives as an entry, not as a rewrite.
 export const AGENT_NAMES = Object.freeze(['claude'])
+
+// The model names detent offers, and that is all they are: a suggestion, never
+// a constraint (ADR 0019). Nothing here checks a model against this list, and
+// nothing anywhere else does either — a name that is not on it is accepted,
+// written and run, because nothing detent can reach knows which models an
+// account and an installed CLI can run between them.
+//
+// **Every entry was confirmed by running it**, not read out of documentation:
+// `claude -p --model <name>` came back `subtype: "success"` for each.
+//
+// The three aliases lead, because they are the entries that do not go stale.
+// `modelUsage` on those same runs named the model each resolved to, so an
+// alias in the file costs the journal nothing: `requested` keeps the alias and
+// `actual` keeps the model. The full identifiers follow, for pinning.
+export const MODEL_SUGGESTIONS = Object.freeze([
+  'opus',
+  'sonnet',
+  'haiku',
+  'claude-opus-5',
+  'claude-sonnet-5',
+  'claude-haiku-4-5',
+  'claude-opus-4-8',
+  'claude-fable-5',
+])
+
 const ADR_0018 = 'docs/adr/0018-one-agent-in-the-first-version-and-what-readmits-another.md'
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 const SOURCES = new Set(['scan', 'model'])
@@ -183,6 +208,22 @@ export function queueOf(raw) {
   return relativePath(raw.queue, 'queue', () => {})
 }
 
+// The model names a person is offered, from a parsed product.json or from
+// nothing (ADR 0019). **Present means exactly what it says, including empty:**
+// a file carrying `modelSuggestions` is offered that list and nothing else, so
+// a name removed from it stays removed. A file without the key is offered the
+// shipped list, so every product that exists today gets the suggestions
+// without being edited.
+//
+// A value that is not a list of names is not a list to offer, so the shipped
+// one stands while the validator reports the value by path — the dashboard
+// reads this out of a file it is not validating, exactly as it reads `queue`.
+export function modelSuggestionsOf(raw) {
+  if (!isObject(raw) || raw.modelSuggestions === undefined) return MODEL_SUGGESTIONS
+  if (!Array.isArray(raw.modelSuggestions)) return MODEL_SUGGESTIONS
+  return raw.modelSuggestions.filter((name) => typeof name === 'string' && name.trim() !== '')
+}
+
 export function loadProduct(productDir) {
   const dir = resolve(productDir)
   const file = join(dir, PRODUCT_FILE)
@@ -210,7 +251,7 @@ export function validateProduct(raw, dir = '.') {
     return { product: null, problems }
   }
 
-  strict(raw, '(root)', ['version', 'product', 'branches', 'queue', 'docs', 'concurrency', 'attempts', 'timeout', 'notify', 'models', 'repos', 'edges'], fail)
+  strict(raw, '(root)', ['version', 'product', 'branches', 'queue', 'docs', 'concurrency', 'attempts', 'timeout', 'notify', 'models', 'modelSuggestions', 'repos', 'edges'], fail)
 
   if (raw.version !== 1) fail('version', `must be 1, got ${JSON.stringify(raw.version)}`)
 
@@ -316,6 +357,16 @@ export function validateProduct(raw, dir = '.') {
   const notify = raw.notify === undefined ? null : nonEmptyString(raw.notify, 'notify', fail)
   const models = validateModels(raw.models, 'models', fail) ?? {}
 
+  // The names offered where a model is typed — the shape only, and never the
+  // values a role was given (ADR 0019). The wrong shape is refused by name
+  // with every other problem at once; a model that is not on the list is not a
+  // problem at all, here or anywhere else.
+  let modelSuggestions = MODEL_SUGGESTIONS
+  if (raw.modelSuggestions !== undefined) {
+    const offered = stringArray(raw.modelSuggestions, 'modelSuggestions', fail)
+    if (offered !== null) modelSuggestions = Object.freeze([...offered])
+  }
+
   // edges
   const edges = []
   if (raw.edges !== undefined) {
@@ -371,6 +422,7 @@ export function validateProduct(raw, dir = '.') {
       timeout,
       notify,
       models,
+      modelSuggestions,
       repos: resolved,
       edges,
     },
@@ -591,7 +643,7 @@ function nonEmptyString(value, path, fail) {
 }
 
 function stringArray(value, path, fail) {
-  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || item === '')) {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || item.trim() === '')) {
     fail(path, 'must be an array of non-empty strings')
     return null
   }

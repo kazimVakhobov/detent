@@ -19,7 +19,7 @@
 import { renameSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import process from 'node:process'
-import { AGENT_NAMES, DEFAULTS, PRODUCT_FILE, ROLES, readConfig, validateProduct } from './product.mjs'
+import { AGENT_NAMES, DEFAULTS, PRODUCT_FILE, ROLES, modelSuggestionsOf, readConfig, validateProduct } from './product.mjs'
 import { isAlive, readState } from './state.mjs'
 
 // The keys of `product.json` a page may change (ADR 0015, decision 1). Plus
@@ -81,6 +81,11 @@ export function readConfiguration(productDir) {
     file: PRODUCT_FILE,
     agents: AGENT_NAMES,
     roles: ROLES,
+    // What the file offers where a model is typed, or the list detent ships
+    // when it says nothing (ADR 0019). Read here and shown there; the page
+    // does not write it — a model name is free text, and the names on offer
+    // are changed in the file like `repos` and `branches` are.
+    modelSuggestions: modelSuggestionsOf(raw),
     models: roles(models),
     attempts: field(raw.attempts, DEFAULTS.attempts),
     timeout: field(raw.timeout, DEFAULTS.timeout),

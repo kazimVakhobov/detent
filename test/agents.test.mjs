@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { invoke, stopAgents } from '../core/agents.mjs'
 import { openAttemptLog } from '../core/log.mjs'
+import { MODEL_SUGGESTIONS } from '../core/product.mjs'
 
 const CLAUDE = {
   type: 'result',
@@ -107,7 +108,65 @@ test('claude: an error result is not ok, and says why', async () => {
   const cli = fake('claude', JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'Credit balance is too low', api_error_status: 400 }), { code: 1 })
   const result = await invoke({ agent: 'claude' }, { cwd, prompt: 'x', env: cli.env })
   assert.equal(result.ok, false)
-  assert.match(result.error, /error_during_execution \(400\): Credit balance is too low/)
+  // A subtype that says what went wrong still leads, with the status after it:
+  // what is recorded as the failure is unchanged where it was already right.
+  assert.equal(result.error, 'error_during_execution (400): Credit balance is too low')
+})
+
+// A model the installed binary will not run, as the CLI really answers it: the
+// verdict was always right — `ok` requires `is_error: false` *and* a `success`
+// subtype — but the sentence was composed from the subtype and so opened with
+// the word `success`, and the first person to mistype a model name is the
+// person who reads it (ADR 0019).
+test('claude: an errored result whose subtype says "success" reads as the status it carries', async () => {
+  const refused = {
+    type: 'result',
+    subtype: 'success',
+    is_error: true,
+    api_error_status: 400,
+    result: 'API Error: 400 Claude Code 2.1.220 does not support this model; version 2.1.280 or newer is required',
+  }
+  const cli = fake('claude', JSON.stringify(refused))
+  const result = await invoke({ agent: 'claude', model: 'claude-opus-5-5' }, { cwd, prompt: 'x', env: cli.env })
+  assert.equal(result.ok, false)
+  assert.equal(result.error, `400: ${refused.result}`)
+  assert.ok(!result.error.startsWith('success'), 'a 400 reads as a 400')
+  // And the service's own sentence is carried whole: which version of the CLI
+  // would have run it is the only thing that answers the question.
+  assert.match(result.error, /version 2\.1\.280 or newer is required$/)
+  assert.deepEqual(result.model, { requested: 'claude-opus-5-5', actual: null })
+})
+
+// An error with no status either: the leading word is detent's and says only
+// that it failed, rather than borrowing a word that means the opposite.
+test('claude: an errored result with nothing to lead with says error', async () => {
+  const cli = fake('claude', JSON.stringify({ type: 'result', subtype: 'success', is_error: true, result: 'something went wrong' }))
+  const result = await invoke({ agent: 'claude' }, { cwd, prompt: 'x', env: cli.env })
+  assert.equal(result.ok, false)
+  assert.equal(result.error, 'error: something went wrong')
+})
+
+// The suggestions are a suggestion: a model that is on no list is passed to the
+// CLI as written and the run is an ordinary one (ADR 0019).
+test('a model name outside the shipped list is passed to the CLI and runs', async () => {
+  assert.ok(!MODEL_SUGGESTIONS.includes('claude-sonnet-5-5'))
+  const cli = fake('claude', STREAM)
+  const result = await invoke({ agent: 'claude', model: 'claude-sonnet-5-5' }, { cwd, prompt: 'x', env: cli.env })
+  const argv = cli.argv()
+  assert.deepEqual(argv.slice(argv.indexOf('--model'), argv.indexOf('--model') + 2), ['--model', 'claude-sonnet-5-5'])
+  assert.equal(result.ok, true)
+  assert.equal(result.model.requested, 'claude-sonnet-5-5')
+})
+
+// And an alias costs the journal nothing: `requested` keeps what was asked for
+// and `actual` keeps the model the CLI reported resolving it to, so the pair
+// stays comparable across months in which the alias pointed at different
+// things (ADR 0019).
+test('an alias is requested and the model it resolved to is recorded', async () => {
+  const cli = fake('claude', JSON.stringify({ ...CLAUDE, modelUsage: { 'claude-opus-5': { outputTokens: 600 } } }))
+  const result = await invoke({ agent: 'claude', model: 'opus' }, { cwd, prompt: 'x', env: cli.env })
+  assert.ok(MODEL_SUGGESTIONS.includes('opus'), 'the aliases lead the shipped list')
+  assert.deepEqual(result.model, { requested: 'opus', actual: 'claude-opus-5' })
 })
 
 test('an agent that is not installed resolves with the reason, not a throw', async () => {

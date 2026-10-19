@@ -4,6 +4,7 @@
 // accepts (DESIGN.md §12).
 
 import { basename } from 'node:path'
+import { MODEL_SUGGESTIONS } from './product.mjs'
 import { proposeCompare, proposeGauge, proposeModels } from './scan.mjs'
 import { QUEUE } from './task.mjs'
 
@@ -28,6 +29,11 @@ export function proposeProduct(scan, { queue = QUEUE, docs = null } = {}) {
   const raw = { version: 1, product: { name: basename(scan.dir) }, queue, docs }
   const models = proposeModels(scan.agents)
   if (models) raw.models = models
+  // Written into the file rather than left only in detent, so extending the
+  // names on offer is editing a file the product owns and what a person is
+  // offered sits next to what they chose (ADR 0019). A suggestion: nothing
+  // checks a model against it, here or at any later point.
+  raw.modelSuggestions = [...MODEL_SUGGESTIONS]
 
   raw.repos = scan.repos.map((repo) => {
     const entry = { name: repo.name }
