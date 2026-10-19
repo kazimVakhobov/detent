@@ -114,6 +114,38 @@ export function readQueue(productDir, product) {
   return tasks.sort((a, b) => Number(a.id) - Number(b.id))
 }
 
+// The one file in the queue whose number this is, and the folder it is in — or
+// null for a number that is in none of them.
+//
+// Nothing is opened and nothing is parsed: the four folders are read by name
+// only, so a number resolves to a file in a queue `readQueue` would refuse
+// whole, which is what lets a task that will not parse still be opened (ADR
+// 0020 part 3). The number is matched as digits and compared as a number — it
+// is never joined to a path, so 42, 0042 and 00042 are one task and nothing
+// outside the queue is reachable by asking for one.
+export function findTask(productDir, product, number) {
+  if (!/^\d+$/.test(String(number))) return null
+  // Not defaulted, for `readQueue`'s reason: a product carries its queue.
+  const queue = product.queue
+
+  for (const folder of FOLDERS) {
+    const dir = join(productDir, queue, folder)
+    let entries
+    try {
+      entries = readdirSync(dir)
+    } catch (error) {
+      if (error.code === 'ENOENT') continue
+      throw error
+    }
+    for (const name of entries.sort((a, b) => a.localeCompare(b))) {
+      const match = FILE.exec(name)
+      if (!match || Number(match[1]) !== Number(number)) continue
+      return { id: match[1], slug: match[2], folder, file: join(dir, name), where: `${queue}/${folder}/${name}` }
+    }
+  }
+  return null
+}
+
 // The counter is the highest number across all four folders: there is no
 // counter file, and therefore nothing that can disagree with reality.
 export function nextId(tasks) {
@@ -189,8 +221,10 @@ export function parseTask(text, { id, slug }) {
   return { task: { id, slug, repo: fields.repo, touchesContract, body, criteria }, problems }
 }
 
-// The lines under a heading, up to the next heading of the same or a higher level.
-function section(body, title) {
+// The lines under a heading, up to the next heading of the same or a higher
+// level. Exported because the page shows the same sections `run` sends to the
+// agent, from the same parse (ADR 0020 part 3).
+export function section(body, title) {
   const lines = body.split('\n')
   const start = lines.findIndex((line) => {
     const heading = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line)

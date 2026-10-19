@@ -6,7 +6,7 @@ import { serve } from '../core/commands/dashboard.mjs'
 import { EDITABLE, NOT_EDITABLE, readConfiguration } from '../core/configure.mjs'
 import { PAGE, POLL, SCRIPT } from '../core/dashboard-page.mjs'
 import { LIMITS } from '../core/dashboard/configuration.mjs'
-import { SECTIONS, SECTION_IDS, sectionFor } from '../core/dashboard/sections.mjs'
+import { SECTIONS, SECTION_IDS, TASK_SECTION, sectionFor, taskFor } from '../core/dashboard/sections.mjs'
 import { warnings } from '../core/dashboard/warnings.mjs'
 import { appendJournal } from '../core/journal.mjs'
 import { snapshotRefs } from '../core/git.mjs'
@@ -94,6 +94,7 @@ const BLOCKS = {
   overview: ['figures'],
   repositories: ['repos', 'by-repo'],
   queue: ['todo', 'hold', 'done', 'failed'],
+  task: ['task-detail'],
   agents: ['by-model'],
   runs: ['recent'],
   configuration: ['config', 'fixed'],
@@ -141,7 +142,8 @@ test('the fragment names the section, an unknown one still lands somewhere, and 
 
   for (const id of SECTION_IDS) assert.equal(sectionFor(`#${id}`, SECTION_IDS), id)
   // Absent, empty, or a name this page has not got: the first section, which is
-  // a section rather than nothing.
+  // a section rather than nothing. A number after a section that takes none is
+  // not that section either — only the detail answers to the longer shape.
   for (const hash of [undefined, '', '#', '#nope', '#configuration/0003']) {
     assert.equal(sectionFor(hash, SECTION_IDS), 'overview', JSON.stringify(hash))
   }
@@ -150,8 +152,46 @@ test('the fragment names the section, an unknown one still lands somewhere, and 
   assert.doesNotMatch(SCRIPT, /location\.hash\s*=|location\.replace|(?:replace|push)State/)
   // Changing section is an attribute on markup already served.
   assert.doesNotMatch(SCRIPT, /addEventListener\('hashchange', (?!showSection)/)
-  assert.deepEqual([...SCRIPT.matchAll(/fetch\('([\w.]+)'/g)].map((m) => m[1]).sort(),
-    ['configuration.json', 'configuration.json', 'state.json'], 'nothing is fetched to change section')
+  // Nothing is fetched to change section, with one exception the fragment
+  // itself names: a task, which is not in the snapshot (ADR 0020 part 3).
+  assert.deepEqual([...SCRIPT.matchAll(/fetch\('([\w.?=]+)/g)].map((m) => m[1]).sort(),
+    ['configuration.json', 'configuration.json', 'state.json', 'task.json?task='])
+})
+
+test('the fragment carries the task number, and a fragment that names none still lands on the section', () => {
+  // Both functions the page runs, called here: they are serialised into it.
+  assert.ok(SCRIPT.includes(String(sectionFor)) && SCRIPT.includes(String(taskFor)), 'the page runs some other copy of them')
+  assert.ok(SECTION_IDS.includes(TASK_SECTION), 'the detail is a section')
+
+  // A link to one task: the section, and the number after it.
+  assert.equal(sectionFor(`#${TASK_SECTION}/0042`, SECTION_IDS), TASK_SECTION)
+  assert.equal(taskFor(`#${TASK_SECTION}/0042`), '0042')
+  assert.equal(taskFor(`${TASK_SECTION}/7`), '7', 'with or without the #')
+
+  // The section named with no number, or with something that is not digits:
+  // still the detail section rather than nothing, and it opens no task. The
+  // number never becomes a path, here either.
+  for (const hash of [`#${TASK_SECTION}`, `#${TASK_SECTION}/`, `#${TASK_SECTION}/nope`, `#${TASK_SECTION}/../0001`, `#${TASK_SECTION}/0001/x`]) {
+    assert.equal(sectionFor(hash, SECTION_IDS), TASK_SECTION, hash)
+    if (hash !== `#${TASK_SECTION}`) assert.equal(taskFor(hash), null, hash)
+  }
+  assert.equal(taskFor(`#${TASK_SECTION}`), null)
+  assert.equal(taskFor('#queue/0001'), null, 'no other section opens a task')
+
+  // Every table that lists a task opens it, and the detail is what the page
+  // fetches when one is.
+  assert.match(SCRIPT, /const opens = \(id, slug\) => el\('a', \{ href: '#' \+ TASK_SECTION \+ '\/' \+ id \}/)
+  for (const table of ['todo', 'done']) assert.match(SCRIPT, new RegExp(String.raw`s\.queue\.${table}\.map\(\(t\) => \[opens\(t\.id, t\.slug\)`), table)
+  for (const table of ['hold', 'failed']) assert.match(SCRIPT, new RegExp(String.raw`s\.queue\.${table}\.map\(\(t\) => \[queued\(t\)`), table)
+  assert.match(SCRIPT, /function queued\(t\) \{\n\s*return el\('div', \{\}, el\('strong', \{\}, opens\(t\.id, t\.slug\)\)/)
+  assert.match(SCRIPT, /s\.recent\.map\(\(r\) => \[when\(r\.finished\), opens\(r\.task, r\.slug\)/)
+  assert.match(SCRIPT, new RegExp(String.raw`if \(current === TASK_SECTION\) loadTask\(taskFor\(location\.hash\)\)`))
+
+  // And the body is text: nothing renders markdown, and what a task file says
+  // only ever reaches a text node (ADR 0020 part 3, ADR 0006).
+  assert.doesNotMatch(SCRIPT, /innerHTML|outerHTML|insertAdjacentHTML/)
+  assert.match(SCRIPT, /el\('pre', \{ class: 'body' \}, text\)/)
+  assert.match(SCRIPT, /el\('pre', \{ class: 'body' \}, d\.unreadable\.text\)/)
 })
 
 test('the server: 127.0.0.1 only, GET only, the page and its state', async () => {
@@ -275,6 +315,152 @@ test('what is wrong is reachable from every section: a gone run, a paused task, 
   const outside = SECTION_IDS.reduce((text, id) => text.replace(sectionOf(id), ''), PAGE)
   assert.ok(outside.includes('<div class="alerts" id="alerts">'), 'the strip is inside a section')
   assert.match(SCRIPT, /renderWarnings\(s\)/)
+})
+
+// ——— One task, opened by its number (ADR 0020 part 3).
+
+// The four folders, each with a task in it: the three `readQueue` never opens,
+// and the one it does.
+function queued(s) {
+  for (const folder of FOLDERS) mkdirSync(join(s.dir, 'tasks', folder), { recursive: true })
+  const body = (id) => `---\nid: ${id}\nrepo: acme-api\ntouches_contract: false\n---\n\n# Goal\n\nTask ${id} must work.\n\n`
+    + `# Acceptance criteria\n\n- [ ] the first one\n- [ ] the second one\n\n# Out of scope\n\nNothing else in ${id}.\n`
+  writeFileSync(join(s.dir, 'tasks', 'done', '0001-first.md'), body('0001'))
+  writeFileSync(join(s.dir, 'tasks', 'failed', '0004-gone.md'), body('0004'))
+  return s
+}
+
+const open = async (base, asked) => {
+  const response = await fetch(`${base}/task.json?task=${asked}`)
+  return { response, detail: await response.json() }
+}
+
+test('a task in each of the four folders opens, with its sections and the journal lines for its number', async () => {
+  const s = queued(setup())
+  await dashboard(s, async (base) => {
+    for (const [asked, folder, slug] of [['0003', 'todo', 'next'], ['0002', 'hold', 'float'], ['0001', 'done', 'first'], ['0004', 'failed', 'gone']]) {
+      const { response, detail } = await open(base, asked)
+      assert.equal(response.status, 200, asked)
+      assert.equal(detail.folder, folder, asked)
+      assert.equal(detail.slug, slug, asked)
+      assert.equal(detail.where, `tasks/${folder}/${asked}-${slug}.md`, asked)
+      assert.equal(detail.frontmatter.repo, 'acme-api', asked)
+      assert.equal(detail.unreadable, null, asked)
+    }
+
+    // The three folders `readQueue` pushes without opening are read here: the
+    // sections of a task that has already run are what a person wants when
+    // working out why it stopped.
+    const { detail } = await open(base, '0001')
+    assert.deepEqual(detail.frontmatter, { id: '0001', repo: 'acme-api', touches_contract: false })
+    assert.deepEqual(detail.goal.join('\n').trim(), 'Task 0001 must work.')
+    assert.deepEqual(detail.criteria, ['the first one', 'the second one'])
+    assert.deepEqual(detail.outOfScope.join('\n').trim(), 'Nothing else in 0001.')
+
+    // The journal lines for that number and no others, with what each attempt
+    // cost, what the reviewer said, and whether its links checked.
+    assert.deepEqual(detail.history.map((r) => [r.task, r.outcome]), [['0001', 'passed']])
+    const paused = (await open(base, '0002')).detail
+    assert.deepEqual(paused.history.map((r) => r.task), ['0002'])
+    assert.deepEqual(paused.history[0].acceptance, { verdict: 'rejected', doubts: ['add rounds'] })
+    assert.equal(paused.history[0].attempts, 1)
+    assert.deepEqual(paused.history[0].cost, { usd: 0.1, tokens: null })
+
+    // 0042 and 00042 are one task: the number is compared as a number, which
+    // is the rule the queue's own uniqueness check uses.
+    assert.equal((await open(base, '00003')).detail.where, 'tasks/todo/0003-next.md')
+    assert.equal((await open(base, '3')).detail.where, 'tasks/todo/0003-next.md')
+  })
+})
+
+test('the journal history is the lines for that number, however many runs a task had', async () => {
+  const s = queued(setup())
+  const line = (o) => ({ kind: 'task', repo: 'acme-api', attempts: 2, lock: 'enforced', cost: { usd: 0.2, tokens: null }, links: { checked: 2, broken: ['shared-docs/adr/0003.md'] }, acceptance: { verdict: 'accepted', doubts: [] }, ...o })
+  appendJournal(s.dir, line({ task: '0001', slug: 'first', outcome: 'error', reason: 'the agent stopped', finished: '2026-10-07T10:00:00Z' }))
+  appendJournal(s.dir, line({ task: '0004', slug: 'gone', outcome: 'escalated', finished: '2026-10-07T11:00:00Z' }))
+
+  await dashboard(s, async (base) => {
+    const { detail } = await open(base, '0001')
+    assert.deepEqual(detail.history.map((r) => r.outcome), ['passed', 'error'], 'both of its runs, in the order they happened')
+    assert.deepEqual(detail.history.map((r) => r.task), ['0001', '0001'], 'and nobody else’s')
+    assert.deepEqual(detail.history[1].links, { checked: 2, broken: ['shared-docs/adr/0003.md'] }, 'what the run recorded, not a second check')
+    assert.deepEqual((await open(base, '0004')).detail.history.map((r) => r.outcome), ['escalated'])
+    assert.deepEqual((await open(base, '0003')).detail.history, [], 'a task that has not run')
+  })
+})
+
+test('a file that will not parse still opens: what it says, and what is wrong with it', async () => {
+  const s = queued(setup())
+  // In done/, which readQueue never opens, so the queue still reads whole.
+  writeFileSync(join(s.dir, 'tasks', 'done', '0005-broken.md'), 'no frontmatter, no criteria, nobody can run it\n')
+  await dashboard(s, async (base) => {
+    const { response, detail } = await open(base, '0005')
+    assert.equal(response.status, 200, 'a task nobody can open is a task nobody can fix')
+    assert.equal(detail.folder, 'done')
+    assert.equal(detail.frontmatter, null)
+    assert.match(detail.unreadable.problems.join(' '), /no frontmatter/)
+    assert.equal(detail.unreadable.text, 'no frontmatter, no criteria, nobody can run it\n', 'what the file says')
+  })
+})
+
+test('a number in no folder is refused as that; a queue that will not read says so instead', async () => {
+  const s = queued(setup())
+  await dashboard(s, async (base) => {
+    const { response, detail } = await open(base, '0099')
+    assert.equal(response.status, 404)
+    assert.equal(detail.refused, 'unknown')
+    assert.match(detail.message, /there is no task 0099 in tasks\/ — it is in none of its four folders/)
+
+    // A number that is not digits never becomes a path: a traversal is a
+    // refusal rather than a file, and nothing outside the queue is reachable.
+    for (const asked of ['..%2F..%2F..%2Fetc%2Fpasswd', '0003%2F..%2F..%2Fsecret', encodeURIComponent('../../.detent/product.json'), 'nope', '']) {
+      const refused = await open(base, asked)
+      assert.equal(refused.response.status, 400, asked)
+      assert.equal(refused.detail.refused, 'number', asked)
+      assert.match(refused.detail.message, /is not a task number/, asked)
+      assert.equal(refused.detail.text, undefined, asked)
+    }
+  })
+
+  // A queue with one unreadable file is no queue at all (§4), and the detail
+  // says that rather than pretending the task is missing.
+  writeFileSync(join(s.dir, 'tasks', 'todo', 'nope.md'), 'not a task file name\n')
+  await dashboard(s, async (base) => {
+    const { response, detail } = await open(base, '0099')
+    assert.equal(response.status, 500)
+    assert.equal(detail.refused, 'queue')
+    assert.match(detail.message, /the queue at tasks\/ cannot be read/)
+    assert.match(detail.problems.join(' '), /not a task file name/)
+
+    // And a task that is in a folder still opens, because the one file is read
+    // directly rather than looked up in a queue that will not read.
+    const { response: ok, detail: task } = await open(base, '0003')
+    assert.equal(ok.status, 200)
+    assert.equal(task.where, 'tasks/todo/0003-next.md')
+    assert.deepEqual(task.criteria, ['x'])
+  })
+})
+
+test('the detail is a read: it is not polled, and state.json gains nothing', async () => {
+  const s = queued(setup())
+  // The page polls the snapshot and nothing else: a task is fetched when it is
+  // opened, so no key of it is in the state the timer reads.
+  const snap = snapshot(s.product)
+  assert.deepEqual(Object.keys(snap).filter((key) => /task|detail|body|goal|criteria/i.test(key)), [])
+  for (const t of snap.queue.todo) assert.deepEqual(Object.keys(t), ['id', 'slug', 'repo', 'outcome', 'reason', 'doubts', 'branch'])
+  assert.doesNotMatch(SCRIPT, new RegExp(String.raw`setInterval\((?!${POLL.call})`))
+
+  await dashboard(s, async (base) => {
+    // It reads, like every other path but the one write.
+    for (const method of ['POST', 'PUT', 'DELETE']) {
+      const response = await fetch(`${base}/task.json?task=0003`, { method })
+      assert.equal(response.status, 405, method)
+      assert.equal(response.headers.get('allow'), 'GET, HEAD')
+    }
+    const before = readFileSync(join(s.dir, 'tasks', 'todo', '0003-next.md'), 'utf8')
+    await open(base, '0003')
+    assert.equal(readFileSync(join(s.dir, 'tasks', 'todo', '0003-next.md'), 'utf8'), before, 'opening a task wrote nothing')
+  })
 })
 
 // ——— The one write: the configuration, between runs (ADR 0015).

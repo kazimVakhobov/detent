@@ -1,9 +1,9 @@
 // detent dashboard — a page that watches this product, on localhost.
 //
 // It reads a product and writes its configuration between runs (ADR 0015).
-// GET and HEAD serve the page, the snapshot and the configuration; the one
-// write is `POST /configuration.json`, and every other method gets 405. It
-// listens on 127.0.0.1 only, and the page it serves loads nothing from
+// GET and HEAD serve the page, the snapshot, the configuration and one task;
+// the one write is `POST /configuration.json`, and every other method gets
+// 405. It listens on 127.0.0.1 only, and the page it serves loads nothing from
 // anywhere else.
 
 import { createServer } from 'node:http'
@@ -12,6 +12,7 @@ import process from 'node:process'
 import { readConfiguration, writeConfiguration } from '../configure.mjs'
 import { PAGE } from '../dashboard-page.mjs'
 import { snapshot } from '../snapshot.mjs'
+import { openTask } from '../task-detail.mjs'
 
 export const options = { port: { type: 'string', default: '4100' } }
 
@@ -21,6 +22,17 @@ export const options = { port: { type: 'string', default: '4100' } }
 // server gets to decline.
 const CONFIGURATION = '/configuration.json'
 const LIMIT = 1 << 20
+
+// One task, by number. The path is fixed and the number is a query parameter
+// matched as digits, so nothing a browser asks for becomes a path and nothing
+// outside the queue is reachable (ADR 0020 part 3).
+const TASK = '/task.json'
+
+// A refusal is still an answer: which status each one gets. A number that is
+// not digits is the request's fault; a number in no folder is nothing's fault;
+// a queue that will not read is the product's, which is why it is not a 404 —
+// the task is not missing, the queue is broken.
+const REFUSED = { number: 400, unknown: 404, queue: 500 }
 
 export function serve(product, { port = 4100, host = '127.0.0.1' } = {}) {
   const server = createServer((request, response) => {
@@ -39,7 +51,8 @@ export function serve(product, { port = 4100, host = '127.0.0.1' } = {}) {
       response.end(JSON.stringify(body))
     }
 
-    const path = new URL(request.url, 'http://localhost').pathname
+    const url = new URL(request.url, 'http://localhost')
+    const path = url.pathname
 
     if (request.method === 'POST' && path === CONFIGURATION) {
       return configure(product, request, json).catch((error) => text(500, `${error.message}\n`))
@@ -53,6 +66,14 @@ export function serve(product, { port = 4100, host = '127.0.0.1' } = {}) {
     if (path === '/') {
       response.writeHead(200, { ...headers, 'content-type': 'text/html; charset=utf-8' })
       return response.end(PAGE)
+    }
+    if (path === TASK) {
+      try {
+        const detail = openTask(product, url.searchParams.get('task'))
+        return json(detail.refused ? REFUSED[detail.refused] : 200, detail)
+      } catch (error) {
+        return text(500, `${error.message}\n`)
+      }
     }
     if (path === '/state.json' || path === CONFIGURATION) {
       try {
