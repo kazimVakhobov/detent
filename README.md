@@ -139,6 +139,11 @@ A run also prints a path when each task starts, so the same output is a
       tail -f /path/to/product/runs/logs/0001-attempt-1.jsonl  (one per attempt, up to -attempt-3)
 ```
 
+One file per attempt, and only the agent's own turn writes one: the gauge, the
+link check, the acceptance pass and the merge print nothing there. So a task can
+be running with nothing arriving, and the dashboard says that rather than
+showing a line that has stopped moving under the word "running".
+
 ## The line agents do not cross
 
 ```

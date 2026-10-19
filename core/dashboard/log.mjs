@@ -17,20 +17,42 @@
 // parses, exactly as they did before this file existed. Nothing here is a
 // number anything depends on, which is why a line that will not parse is shown
 // as it arrived rather than treated as a problem.
+//
+// And there are **three states, not two**. "Running" over a tail that has
+// stopped moving is the symptom this surface exists to remove: only the agent's
+// own turn writes a log, so a task can be running while what is running is the
+// gauge, the link check, the acceptance pass or the merge — and none of those
+// print here. So the sentence above the lines is made from what the page can
+// actually tell: whether a run holds the task, which attempt that run is on,
+// which attempt these lines are, whether the last of them is the agent's result
+// object, and how long the file has been quiet. No phase is guessed, and none
+// is recorded anywhere for this to read.
 
 export const LOG_LINES = 400
 export const LOG_CLIP = 220
+
+// How long a log may be quiet before a running task is said to be quiet rather
+// than watched. Longer than the pause between two things an agent prints and
+// shorter than a gauge stage: under it, silence is this page being a few
+// seconds behind; over it, silence is the thing worth saying.
+export const LOG_QUIET = 20_000
 
 export const LOG = `// The end of an attempt's log, from log.json — polled, unlike the rest of the
 // task, because it is the one part of a task that changes under a reader.
 const LOG_LINES = ${LOG_LINES}
 const LOG_CLIP = ${LOG_CLIP}
+const LOG_QUIET = ${LOG_QUIET}
 
 // Which log the lines on the page belong to, and where to carry on from.
 let logTask = null
 let logAttempt = null
 let logFrom = 0
 let logLines = []
+// Whether the last line that arrived is the agent's result object — the one
+// event that says its turn is over. Read for the sentence above the lines and
+// for nothing else: the journal's copy of that object is parsed where it always
+// was, and nothing on this page is a number anything depends on.
+let logDone = false
 // One read at a time: the timer must not overlap the read that opening a task
 // started, or both would answer from the same offset and say it twice.
 let logReading = false
@@ -67,6 +89,19 @@ function said(piece) {
   return ''
 }
 
+// Whether a line is the agent's last — the result object it prints when its
+// turn is over. One field of it is read, and no number in it: what it costs and
+// what it says are the journal's, from the same object, parsed where they
+// always were (ADR 0021).
+function isResult(raw) {
+  try {
+    const event = JSON.parse(raw)
+    return Boolean(event) && typeof event === 'object' && event.type === 'result'
+  } catch (error) {
+    return false
+  }
+}
+
 // And what came back, which is the half that says whether it worked.
 function back(piece) {
   if (!piece || typeof piece !== 'object' || piece.type !== 'tool_result') return ''
@@ -77,20 +112,59 @@ function back(piece) {
   return '← ' + clip(text)
 }
 
-// Whether what is on the page is happening now. Said in a sentence rather than
-// implied by a colour or by the lines moving: a task that is not running shows
-// what its last attempt said, and a person must not have to guess which.
+// How long since anything arrived, as somebody would read it off a clock.
+function logSince(ms) {
+  const seconds = Math.round(ms / 1000)
+  if (seconds < 60) return seconds + 's'
+  return Math.floor(seconds / 60) + 'm ' + (seconds % 60) + 's'
+}
+
+// Whether what is on the page is happening now — and when the lines are not
+// moving, which kind of not-moving it is. Said in a sentence rather than
+// implied by a colour or by the lines themselves, because a frozen tail under
+// the word "running" is the thing this surface was built to stop.
+//
+// Every branch is a fact the page holds: a run claims the task or none does,
+// the claim names an attempt, these lines are an attempt, the last of them is
+// the result object or is not, the file changed recently or has not. Nothing
+// below names the phase a run is in — detent records none, and a guessed one
+// would be wrong in exactly the cases worth reading.
 function logState(d) {
-  if (d.running) {
-    return el('span', { class: 'status passed' }, icon('▶'),
-      'running now in ' + d.running.repo + ', attempt ' + (d.running.attempt || d.attempt || 1) + ' — the end of what it has printed, a few seconds behind')
-  }
-  if (d.attempt === null) {
+  if (!d.running) {
+    if (d.attempt === null) {
+      return el('span', { class: 'status info' }, icon('·'),
+        'nothing has run this task, or detent prune has cleared what it said')
+    }
     return el('span', { class: 'status info' }, icon('·'),
-      'nothing has run this task, or detent prune has cleared what it said')
+      'not running — this is what attempt ' + d.attempt + ' said, not something happening now')
   }
-  return el('span', { class: 'status info' }, icon('·'),
-    'not running — this is what attempt ' + d.attempt + ' said, not something happening now')
+
+  const attempt = d.running.attempt || d.attempt || 1
+  const where = 'running now in ' + d.running.repo + ', attempt ' + attempt
+  const elsewhere = ' — the agent is not printing: the rest of a run writes no log, so what is running is the gauge, the acceptance pass or the merge'
+  // Running with no log at all, or with one belonging to an earlier attempt:
+  // nothing is arriving here and the box would otherwise look like a run that
+  // had gone quiet.
+  if (d.attempt === null) {
+    return el('span', { class: 'status look' }, icon('!'),
+      where + ' — nothing is being written here: the run could not open a log, or detent prune has cleared it')
+  }
+  if (d.attempt !== attempt) {
+    return el('span', { class: 'status look' }, icon('!'),
+      where + ', and the lines below are attempt ' + d.attempt + elsewhere)
+  }
+  // The agent printed its result object: its turn is over, and whatever is
+  // keeping the task claimed is not it.
+  if (logDone) {
+    return el('span', { class: 'status look' }, icon('!'),
+      where + ', and the agent has finished printing' + elsewhere)
+  }
+  if (typeof d.quiet === 'number' && d.quiet >= LOG_QUIET) {
+    return el('span', { class: 'status look' }, icon('!'),
+      where + ' — nothing has arrived for ' + logSince(d.quiet) + '; the agent is mid-turn, and a tool call prints nothing here until it returns')
+  }
+  return el('span', { class: 'status passed' }, icon('▶'),
+    where + ' — the end of what it has printed, a few seconds behind')
 }
 
 async function refreshLog() {
@@ -126,10 +200,13 @@ async function refreshLog() {
       logTask = d.task
       logAttempt = d.attempt
       logLines = []
+      logDone = false
     }
     logFrom = d.to
     if (d.text) {
-      logLines = logLines.concat(d.text.split('\\n').filter(Boolean).map(saying)).slice(-LOG_LINES)
+      const arrived = d.text.split('\\n').filter(Boolean)
+      logLines = logLines.concat(arrived.map(saying)).slice(-LOG_LINES)
+      logDone = isResult(arrived[arrived.length - 1])
     }
     document.getElementById('task-log-state').replaceChildren(logState(d))
     const pre = document.getElementById('task-log')

@@ -1,12 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { serve } from '../core/commands/dashboard.mjs'
 import { EDITABLE, NOT_EDITABLE, readConfiguration } from '../core/configure.mjs'
 import { PAGE, POLL, SCRIPT } from '../core/dashboard-page.mjs'
 import { LIMITS } from '../core/dashboard/configuration.mjs'
-import { LOG_CLIP, LOG_LINES } from '../core/dashboard/log.mjs'
+import { LOG_CLIP, LOG_LINES, LOG_QUIET } from '../core/dashboard/log.mjs'
 import { SECTIONS, SECTION_IDS, TASK_SECTION, sectionFor, taskFor } from '../core/dashboard/sections.mjs'
 import { warnings } from '../core/dashboard/warnings.mjs'
 import { appendJournal } from '../core/journal.mjs'
@@ -609,6 +609,111 @@ test('the page says plainly when what it shows is not happening now', async () =
     await page.settle()
     assert.match(page.text('task-log-state'), /nothing has run this task, or detent prune has cleared what it said/)
     assert.equal(page.text('task-log'), '')
+  })
+})
+
+// A log nothing has written to for a while, which is what the file looks like
+// whenever a run is between attempts: the gauge, the link check, the acceptance
+// pass and the merge write no log at all.
+function quietFor(log, ms) {
+  const when = new Date(Date.now() - ms)
+  utimesSync(log.path, when, when)
+  return log
+}
+
+const DONE = { type: 'result', subtype: 'success', is_error: false, total_cost_usd: 0.42, session_id: 'abc' }
+
+test('the log says how long it has been quiet, so a frozen tail can be told from a live one', async () => {
+  const s = queued(setup())
+  claim(s.dir, 'acme-api', { task: '0003', branch: 'agent/task-0003-next' })
+  const printed = quietFor(printing(s, '0003', 1, [INIT, SAID]), 3 * 60_000)
+
+  await dashboard(s, async (base) => {
+    const answer = await (await log(base, '0003')).json()
+    assert.ok(answer.quiet >= 3 * 60_000, `the file's own mtime against the clock: ${answer.quiet}`)
+    // Which is the whole of what the page is given about it: no phase is
+    // recorded anywhere, and the claim says a repository, a task, an attempt
+    // and a pid (ADR 0017).
+    assert.deepEqual(Object.keys(answer.running).sort(), ['attempt', 'repo'])
+  })
+  printed.close()
+})
+
+test('the page distinguishes running and printing from running and not printing', async () => {
+  const s = queued(setup())
+  claim(s.dir, 'acme-api', { task: '0003', branch: 'agent/task-0003-next' })
+  setAttempt(s.dir, 'acme-api', 1)
+
+  // The reviewer's case, and the one this surface would otherwise lie about:
+  // the agent has printed its result object and the task is still claimed,
+  // because what is running now is the gauge, the link check, the acceptance
+  // pass or the merge — and none of those write a log.
+  const printed = printing(s, '0003', 1, [INIT, SAID, DONE])
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: `#${TASK_SECTION}/0003` })
+    await page.settle()
+    const said = page.text('task-log-state')
+    assert.match(said, /running now in acme-api, attempt 1, and the agent has finished printing/)
+    assert.match(said, /the rest of a run writes no log/)
+    assert.match(said, /what is running is the gauge, the acceptance pass or the merge/)
+    // What it printed is still there: the lines are the point, and the sentence
+    // is about them rather than instead of them.
+    assert.match(page.text('task-log'), /Looking at the wallet module\./)
+  })
+  printed.close()
+
+  // Mid-turn and quiet: a tool call prints nothing here until it returns, which
+  // is not the same sentence and is not "a few seconds behind" either.
+  const s2 = queued(setup())
+  claim(s2.dir, 'acme-api', { task: '0003', branch: 'agent/task-0003-next' })
+  setAttempt(s2.dir, 'acme-api', 1)
+  const waiting = quietFor(printing(s2, '0003', 1, [INIT, SAID]), LOG_QUIET + 100_000)
+  await dashboard(s2, async (base) => {
+    const page = openPage(base, { hash: `#${TASK_SECTION}/0003` })
+    await page.settle()
+    const said = page.text('task-log-state')
+    assert.match(said, /nothing has arrived for 2m \d+s/)
+    assert.match(said, /the agent is mid-turn, and a tool call prints nothing here until it returns/)
+  })
+  waiting.close()
+
+  // And a log that is moving says what it has always said: this is now.
+  const s3 = queued(setup())
+  claim(s3.dir, 'acme-api', { task: '0003', branch: 'agent/task-0003-next' })
+  setAttempt(s3.dir, 'acme-api', 1)
+  const live = printing(s3, '0003', 1, [INIT, SAID])
+  await dashboard(s3, async (base) => {
+    const page = openPage(base, { hash: `#${TASK_SECTION}/0003` })
+    await page.settle()
+    assert.match(page.text('task-log-state'), /running now in acme-api, attempt 1 — the end of what it has printed, a few seconds behind/)
+  })
+  live.close()
+})
+
+test('a running task whose log is not the attempt that is running says so', async () => {
+  const s = queued(setup())
+  claim(s.dir, 'acme-api', { task: '0003', branch: 'agent/task-0003-next' })
+  setAttempt(s.dir, 'acme-api', 2)
+
+  // Attempt 2 has been claimed and has printed nothing yet — the gauge sent the
+  // agent back, and what is below belongs to the attempt before it.
+  const printed = printing(s, '0003', 1, [INIT, SAID])
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: `#${TASK_SECTION}/0003` })
+    await page.settle()
+    assert.match(page.text('task-log-state'), /running now in acme-api, attempt 2, and the lines below are attempt 1/)
+    assert.match(page.text('task-log-state'), /writes no log/)
+  })
+  printed.close()
+
+  // And a run with no log at all — one that could not open its file, or one
+  // prune has been through — is not an empty box under the word "running".
+  const bare = queued(setup())
+  claim(bare.dir, 'acme-api', { task: '0003', branch: 'agent/task-0003-next' })
+  await dashboard(bare, async (base) => {
+    const page = openPage(base, { hash: `#${TASK_SECTION}/0003` })
+    await page.settle()
+    assert.match(page.text('task-log-state'), /running now in acme-api, attempt 1 — nothing is being written here: the run could not open a log, or detent prune has cleared it/)
   })
 })
 

@@ -7,6 +7,13 @@
 // now asked for its output as a stream, and the stream is written here as it
 // arrives, so a person can watch a task that is already running.
 //
+// **One file per implementing attempt, and nothing else in a run writes one.**
+// The gauge, the link check, the acceptance pass and the merge print nothing
+// here, so a task can be running with nothing arriving — which is why `tailLog`
+// reports how long it has been since this file changed, and why the page says
+// which of the two it is rather than leaving a frozen tail under the word
+// "running" (ADR 0021, DESIGN.md §5).
+//
 // **It is not a record.** Nothing reads a log to decide an outcome, a cost or a
 // verdict — those come from the result object the journal has always parsed. So
 // a log that cannot be opened or written says so once and then does nothing: a
@@ -128,21 +135,30 @@ export const WINDOW = 64 * 1024
 // that asks again with the `to` it was given gets only what has arrived since,
 // and one whose `from` no longer makes sense (a new attempt, a truncated file)
 // is given the tail and told by a `from` that is not the one it asked for.
+//
+// `quiet` is how long it has been since anything was written here, in
+// milliseconds — the file's own mtime against the clock, and so a fact rather
+// than a guess. It is what lets a reader be told that a running task is not
+// printing, which is a different sentence from "running" and the one a frozen
+// tail needs: most of a run is not the agent's turn, and none of the rest of
+// it writes here (DESIGN.md §5).
 export function tailLog(productDir, task, { from = null, window = WINDOW } = {}) {
   const found = latestAttempt(productDir, task)
-  if (!found) return { attempt: null, file: null, from: 0, to: 0, text: '' }
+  if (!found) return { attempt: null, file: null, from: 0, to: 0, quiet: null, text: '' }
 
-  let size
+  let stat
   try {
-    size = statSync(found.file).size
+    stat = statSync(found.file)
   } catch {
-    return { attempt: found.attempt, file: found.file, from: 0, to: 0, text: '' }
+    return { attempt: found.attempt, file: found.file, from: 0, to: 0, quiet: null, text: '' }
   }
+  const size = stat.size
+  const quiet = Math.max(0, Date.now() - stat.mtimeMs)
 
   const continued = typeof from === 'number' && Number.isInteger(from) && from >= 0 && from <= size
   const start = continued ? from : Math.max(0, size - window)
   const buffer = read(found.file, start, size - start)
-  const answer = { attempt: found.attempt, file: found.file }
+  const answer = { attempt: found.attempt, file: found.file, quiet }
 
   // Line boundaries are found in the bytes, not in the text: a window that
   // begins in the middle of a multi-byte character would otherwise be decoded

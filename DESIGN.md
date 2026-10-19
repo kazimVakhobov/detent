@@ -342,6 +342,25 @@ possible without copying anything out of a terminal a run has occupied.
 unreadable. The surface this is for is the dashboard (§12), which shows it
 inside the task's own detail view.
 
+**What is logged, and what is not.** One file per **implementing attempt**, and
+nothing else in a run writes one:
+
+| Part of a run | Log |
+|---|---|
+| each of the agent's implementing attempts | `<task>-attempt-<n>.jsonl` |
+| the gauge, either profile (§6) | none — its stages are commands, and their output is the feedback the next attempt is handed |
+| the link check (§4) | none — what it found is in the journal line and on the task |
+| the acceptance pass (§9) | none — its output is a verdict and its doubts, which the journal line carries and the task detail shows; a transcript of it would widen the privacy cost stated below for content already recorded |
+| the merge, the commit, the queue move (§5) | none — git's own work, and the journal says what came of it |
+
+So **a task can be running with nothing arriving here**, and a reader of this
+section must not take "what the agent is saying" for a record of the run: most
+of the wall clock of a run is the agent's turn, but the parts that are not are
+exactly the ones that print nothing. The journal line is the record of the whole
+run; a log is one attempt's output and no more. The dashboard therefore
+distinguishes three states rather than two, and §12 says how it tells them
+apart without a phase field anything would have to keep true.
+
 **A log is not a record.** Nothing reads one to decide an outcome, a cost, a
 verdict or a model. Every number in a journal line comes from the result object
 the agent prints last, exactly as it did when that object was the only thing it
@@ -1115,11 +1134,29 @@ ended at, so it never re-reads what it has; what arrives is kept as a bounded
 number of lines, oldest off the top; and each line is clipped, because a tool
 result the agent read in full is not a line somebody scans. Each event is read
 for display and for nothing else, and a line that will not parse is shown as it
-arrived. **When the task is not running the page says so in a sentence** —
-what it shows is what the last attempt said, not something happening now — and
-a task nothing has ever run says *that* rather than showing an empty box that
-could be either. It lives here and nowhere else: a transcript with no task
-attached is a log viewer, which is not what this is for.
+arrived. It lives here and nowhere else: a transcript with no task attached is a
+log viewer, which is not what this is for.
+
+**It says which of three states it is in, in a sentence above the lines.** Not
+running: what is shown is what the last attempt said, not something happening
+now — and a task nothing has ever run says *that* rather than showing an empty
+box that could be either. Running and printing: the end of the output, a few
+seconds behind. **Running and not printing:** what is running is the gauge, the
+acceptance pass or the merge, because none of the rest of a run writes a log
+(§5) — so "running" over a tail that has stopped moving is the one thing this
+surface must never show, because working and stuck look identical again.
+
+The third sentence is built from facts the page holds and **no phase field
+exists to be read**: a claim records a repository, a task, an attempt and a pid
+([ADR 0017](docs/adr/0017-a-claim-locks-the-configuration-only-while-its-run-is-alive.md)),
+and adding a phase would mean a writer keeping it true through
+every branch of a run, including the ones that end badly. What the page has
+instead is the claim's attempt against the attempt the log belongs to, whether
+the last line that arrived is the agent's result object — the event that says
+its turn is over — and how long the file has been quiet, which is its mtime
+against the clock. A log that has gone quiet while its attempt is claimed says
+so with the time; one that has ended, or belongs to an earlier attempt, or
+cannot be found at all while a run holds the task, says that instead.
 
 The task itself is fetched when it is opened and is never polled; `state.json`
 carries nothing about it. The number is matched as digits and resolved against the four

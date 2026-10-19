@@ -65,6 +65,16 @@ export function openTask(product, asked) {
 // transcript is a number nobody can check, so the journal's numbers come from
 // the result object and this is for a person to read. A task with no log is not
 // a refusal — nothing has run it, or `prune` has been through.
+//
+// Three facts leave here, and the page makes its sentence out of them: which
+// run holds the task and which attempt it is on, which attempt the log belongs
+// to, and how long that file has been quiet. Between them they tell a task
+// whose agent is printing from one whose agent has stopped — the gauge, the
+// acceptance pass, the link check or the merge, none of which write a log.
+// **No phase is read or recorded.** A claim says a repository, a task, an
+// attempt and a pid (ADR 0017); whether the log is growing is answered by the
+// log, and a phase field would be a fifth thing to keep true through every
+// branch of a run, including the ones that end badly.
 export function openLog(product, asked, from = null) {
   const number = digits(asked)
   if (number === null) return notANumber(asked)

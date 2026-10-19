@@ -56,13 +56,35 @@ shown as it arrived.
 so once, on stderr, and then does nothing. The run carries on; the journal is
 unaffected; a sink that throws loses the log and not the run.
 
+**One file per implementing attempt, and nothing else in a run writes one.**
+Not the gauge, whose stages are commands and whose output is the feedback the
+next attempt is handed; not the link check; not the merge; and not the
+acceptance pass, whose output is a verdict and its doubts, which the journal
+line carries and the task detail already shows. So a task can be running with
+nothing arriving, which is a fact about this design and is written down as one
+(DESIGN.md §5) rather than left for a reader to discover from a page that has
+stopped moving.
+
 **The dashboard is where it is read**, inside the task's own detail view, under
 its body and its history, on the timer the page already has. The page asks to
 carry on from the byte its last answer ended at, keeps a bounded number of
 lines, and clips each one — so a page watching a long run neither re-reads what
-it has nor grows with the output. When a task is not running the page says, in
-a sentence, that what it shows is what the last attempt said rather than
-something happening now.
+it has nor grows with the output.
+
+**And it says which of three states it is in.** Not running: what is shown is
+what the last attempt said rather than something happening now. Running and
+printing: the end of the output, a few seconds behind. Running and *not*
+printing: the rest of a run writes no log, so what is running is the gauge, the
+acceptance pass or the merge. The third is not a nicety —
+"running" over a frozen tail is the symptom this decision exists to remove, and
+a page that showed it for the half of a run that is not the agent's turn would
+have reintroduced it. It is told from what the page can check: the claim's
+attempt against the log's, whether the last line to arrive is the result object,
+and how long the file has been quiet. **No phase is recorded to drive it.** A
+claim is a repository, a task, an attempt and a pid
+([0017](0017-a-claim-locks-the-configuration-only-while-its-run-is-alive.md)); a
+phase field would need a writer keeping it accurate through every branch of a
+run, including the ones that end badly, and a stale phase is worse than none.
 
 **It goes no further than this machine.** A transcript holds whatever the agent
 read: file contents, values from the environment, whatever a tool returned.
@@ -90,7 +112,11 @@ it to read, and a task a run is holding is being written to right now.
   chunks was two broken halves.
 - The acceptance pass streams too, and no log is written for it. Its output is
   a verdict and its doubts, which the journal line carries and the task detail
-  already shows.
+  already shows, and a transcript of it would widen the privacy cost above for
+  content already recorded. The price is that a task is claimed and running
+  while nothing arrives on the page — which is why the page has a third state
+  and DESIGN.md §5 names every part of a run that writes no log. The page
+  telling the truth about the gap is the answer to it; a second log is not.
 - `prune` grows a second job and a dependency on the queue. A queue that will
   not read keeps every log and says why — the one thing worse than a transcript
   nobody deletes is one deleted because the folder it belonged to would not

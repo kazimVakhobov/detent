@@ -27,10 +27,19 @@ Notable changes, newest first. The format follows
   is already looking at, read from the same file `tail -f` would read, on the
   timer the page already has. It does not grow with the run: the page asks to
   carry on from the byte its last answer ended at rather than re-reading what
-  it has, keeps a bounded number of lines, and clips each one. When the task is
-  not running it says so in a sentence — what it shows is what the last attempt
-  said, not something happening now — and a task nothing has ever run says
-  *that* rather than showing an empty box that could be either.
+  it has, keeps a bounded number of lines, and clips each one.
+- **It says which of three states it is in.** Not running: what is shown is what
+  the last attempt said, not something happening now — and a task nothing has
+  ever run says *that* rather than showing an empty box that could be either.
+  Running and printing: the end of the output, a few seconds behind. Running and
+  **not** printing: only the agent's own turn writes a log, so the gauge, the
+  link check, the acceptance pass and the merge print nothing there, and the
+  page says that rather than leaving a frozen tail under the word "running",
+  which is the symptom this change exists to remove. It is told from what the
+  page can check: the claim's attempt against the log's, whether the last line
+  to arrive is the agent's result object, and how long the file has been quiet.
+  No phase is recorded anywhere to drive it, and `DESIGN.md` §5 names every part
+  of a run that writes no log.
 - `detent run` prints the path when a task starts and shows nothing: several
   tasks may be running and their output interleaved in one terminal would be
   unreadable, so the path is the offer and `tail -f` is the choice. The name is

@@ -5,7 +5,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { attemptLogPath, attemptLogs, latestAttempt, openAttemptLog, tailLog } from '../core/log.mjs'
@@ -84,7 +84,7 @@ test('what is in the folder, and which attempt is the newest', () => {
 
 test('the tail: the end of the newest attempt, and never half a line', () => {
   const dir = productDir()
-  assert.deepEqual(tailLog(dir, '0042'), { attempt: null, file: null, from: 0, to: 0, text: '' })
+  assert.deepEqual(tailLog(dir, '0042'), { attempt: null, file: null, from: 0, to: 0, quiet: null, text: '' })
 
   existing(dir, '0042', 1, 'ignored\n')
   const path = existing(dir, '0042', 2, '{"a":1}\n{"b":2}\n')
@@ -95,7 +95,8 @@ test('the tail: the end of the newest attempt, and never half a line', () => {
   assert.equal(whole.text, '{"a":1}\n{"b":2}\n')
 
   // Carried on from where the last answer ended: only what has arrived since.
-  assert.deepEqual(tailLog(dir, '0042', { from: whole.to }), { attempt: 2, file: path, from: 16, to: 16, text: '' })
+  const carried = tailLog(dir, '0042', { from: whole.to })
+  assert.deepEqual([carried.attempt, carried.file, carried.from, carried.to, carried.text], [2, path, 16, 16, ''])
   writeFileSync(path, '{"a":1}\n{"b":2}\n{"c":3}\n')
   const more = tailLog(dir, '0042', { from: whole.to })
   assert.equal(more.text, '{"c":3}\n')
@@ -124,6 +125,23 @@ test('the tail is bounded, and begins on a line of its own', () => {
   // The offset it reports is a byte in this file, so asking again with it
   // returns nothing rather than repeating the window.
   assert.equal(tailLog(dir, '0042', { from: end.to, window: 100 }).text, '')
+})
+
+test('the tail says how long it has been since anything was written', () => {
+  const dir = productDir()
+  const path = existing(dir, '0042', 1, 'one\n')
+  const fresh = tailLog(dir, '0042')
+  assert.ok(fresh.quiet >= 0 && fresh.quiet < 5000, `just written, and said to be: ${fresh.quiet}`)
+
+  // The file's own mtime against the clock — a fact, not a guess, and the one
+  // thing that tells a running task whose agent is printing from a running task
+  // whose agent has stopped. Nothing else in a run writes here.
+  const when = new Date(Date.now() - 4 * 60_000)
+  utimesSync(path, when, when)
+  assert.ok(tailLog(dir, '0042').quiet >= 4 * 60_000, 'a log nothing has touched for four minutes')
+  // And a task with no log has no answer to the question rather than a zero,
+  // which would read as "written just now".
+  assert.equal(tailLog(dir, '0099').quiet, null)
 })
 
 test('an offset that no longer makes sense is answered with the tail, and said to be', () => {

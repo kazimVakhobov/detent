@@ -133,6 +133,13 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
         record.acceptance.cost = { usd: null, tokens: null }
         const committed = tip(cwd, branch)
         const { diff, truncated } = taskDiff(cwd, start, branch)
+        // No `log`, deliberately (ADR 0021): this pass streams like any other
+        // call, and nothing writes it down. Its output is a verdict and its
+        // doubts — the journal line carries both and the task detail shows
+        // them — so a transcript of it would widen the privacy surface for
+        // content already recorded. What it costs is that a task is claimed
+        // while nothing arrives on the page, which is why the page says that
+        // in a sentence rather than leaving a frozen tail under "running".
         const answer = await invoke(accept, {
           cwd,
           readOnly: true,
