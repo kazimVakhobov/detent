@@ -8,6 +8,49 @@ Notable changes, newest first. The format follows
 
 ### Added
 
+- **A task can be opened on the dashboard.** A task on the page was
+  `id + ' ' + slug`, and for a paused one its reason and the reviewer's doubts
+  — not the goal it was given, not the criteria it is judged against, not what
+  its attempts did. The one thing a person wants when deciding whether to run a
+  task, or working out why it stopped, is now a section of its own: the
+  frontmatter, the folder, the goal, the acceptance criteria, the out-of-scope,
+  and the journal's lines for that number with each run's outcome, attempts and
+  cost, the acceptance verdict with its doubts, and whether the task's links
+  checked
+  ([ADR 0020](docs/adr/0020-the-dashboard-is-sections-and-the-configuration-is-read-before-it-is-written.md)).
+  The parse already existed — `parseTask` splits a task into its frontmatter
+  and its three sections because `detent run` needs them — and the page had
+  never seen the result. It is read by `core/task-detail.mjs` and drawn by a
+  sixth module under `core/dashboard/`, composed into the same one document:
+  one request, no second asset, and the same content security policy.
+- Every table that lists a task opens it: `todo/`, the paused tasks, `done/`,
+  `failed/` and the recent runs. The fragment carries the number, `#task/0042`,
+  so a link to one task is a link somebody can send and reload, and a task with
+  no row in any table is still reachable by typing one. A fragment that names
+  the section with no number, or with a number that is not digits, still lands
+  on the section, and nothing rewrites the address bar.
+- **The body is shown as written.** detent renders no markdown: a task body is
+  markdown somebody wrote, every line of it reaches the page as text, and the
+  structure comes from the sections already parsed — so nothing in a task file
+  can become markup and there is no sanitiser here to be wrong about
+  ([ADR 0006](docs/adr/0006-zero-dependencies-node-22.md)). Somebody will ask
+  for headings.
+- A task in `hold/`, `done/` or `failed/` opens too, which means reading and
+  parsing a file nothing else in the process opens: `readQueue` holds `todo/`
+  to the full shape and pushes the other three folders by name alone, so a task
+  that has already run was a file nobody had read. **A file that will not parse
+  opens anyway**, showing what it says and naming the problem — a task nobody
+  can open is a task nobody can fix.
+- The number never becomes a path: it is matched as digits, compared as a
+  number, and resolved against the four folders by file name, so nothing
+  outside the queue is reachable by asking for it. A number that is in none of
+  them is refused in a sentence that says so, and a queue that will not read
+  says *that* instead, with its problems — the detail does not report a task
+  missing from a queue it could not read. `readQueue` stays all-or-nothing,
+  which is what keeps a typo from costing three attempts; the one file is read
+  directly. Nothing in the view writes, and the detail is fetched when a task
+  is opened rather than polled: `state.json` gains nothing.
+
 - **The dashboard writes the product's configuration, between runs.** The page
   that knows which model implements, which reviews, how many attempts a task
   gets and how long an agent may run could not change any of it: all twelve

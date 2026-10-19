@@ -56,11 +56,16 @@ function numbersFor(id, head, groups) {
     groups.map((r) => [r.name || '—', r.runs, r.passed, pct(r.passRate), r.attemptsPerRun.toFixed(1), cost(r.costPerPass)]), 'no runs yet')
 }
 
+// Every table that lists a task opens it: the fragment carries the number, so
+// a row is a link somebody can send and reload, and a task with no row in any
+// table is still reachable by typing one (ADR 0020 part 3).
+const opens = (id, slug) => el('a', { href: '#' + TASK_SECTION + '/' + id }, id + (slug ? ' ' + slug : ''))
+
 // A task in the queue, and why it is where it is. The same two cells serve
 // hold/ and failed/: one is detent waiting for a person, the other is a person
 // who has stopped waiting for detent.
 function queued(t) {
-  return el('div', {}, el('strong', {}, t.id + ' ' + t.slug), el('div', { class: 'muted' }, t.branch ? el('code', {}, t.branch) : ''))
+  return el('div', {}, el('strong', {}, opens(t.id, t.slug)), el('div', { class: 'muted' }, t.branch ? el('code', {}, t.branch) : ''))
 }
 function because(t, parked) {
   return el('div', {}, t.outcome ? status(t.outcome) : el('span', { class: 'muted' }, parked),
@@ -121,17 +126,17 @@ function render(s) {
   ]), 'no repositories')
   numbersFor('by-repo', 'Repository', n.byRepo)
 
-  table(document.getElementById('todo'), [['Task'], ['Repository']], s.queue.todo.map((t) => [t.id + ' ' + t.slug, t.repo || '—']), s.product.queue + '/todo/ is empty')
+  table(document.getElementById('todo'), [['Task'], ['Repository']], s.queue.todo.map((t) => [opens(t.id, t.slug), t.repo || '—']), s.product.queue + '/todo/ is empty')
   table(document.getElementById('hold'), [['Task'], ['Why']], s.queue.hold.map((t) => [queued(t), because(t, 'parked by hand')]), 'nothing paused')
   table(document.getElementById('done'), [['Task'], ['Repository'], ['Outcome']],
-    s.queue.done.map((t) => [t.id + ' ' + t.slug, t.repo || '—', t.outcome ? status(t.outcome) : el('span', { class: 'muted' }, '—')]), s.product.queue + '/done/ is empty')
+    s.queue.done.map((t) => [opens(t.id, t.slug), t.repo || '—', t.outcome ? status(t.outcome) : el('span', { class: 'muted' }, '—')]), s.product.queue + '/done/ is empty')
   table(document.getElementById('failed'), [['Task'], ['Repository'], ['Why']],
     s.queue.failed.map((t) => [queued(t), t.repo || '—', because(t, 'abandoned by hand')]), s.product.queue + '/failed/ is empty')
 
   numbersFor('by-model', 'Agent and model', n.byModel)
 
   table(document.getElementById('recent'), [['Finished'], ['Task'], ['Repository'], ['Outcome'], ['Attempts', 'num'], ['Cost', 'num']],
-    s.recent.map((r) => [when(r.finished), r.task + ' ' + r.slug, r.repo, status(r.outcome), r.attempts, runCost(r.cost)]), 'no runs yet')
+    s.recent.map((r) => [when(r.finished), opens(r.task, r.slug), r.repo, status(r.outcome), r.attempts, runCost(r.cost)]), 'no runs yet')
 
   const notes = ['read at ' + new Date(s.generated).toLocaleTimeString(), s.product.dir]
   if (n.skipped) notes.push(n.skipped + ' skipped runs not counted')

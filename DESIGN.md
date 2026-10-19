@@ -1018,6 +1018,7 @@ The sections are:
 - **Queue** — all four folders: `todo/`, the paused tasks with why each was
   paused and the reviewer's doubts, the `done/` detent has finished with, and
   the `failed/` a person abandoned.
+- **Task** — one task, opened by its number.
 - **Agents** — runs, passes, attempts and cost per pass, per agent and model.
 - **Recent runs** — the last fifteen, newest first.
 - **Configuration** — the one thing the page writes, and beside it the keys
@@ -1034,6 +1035,40 @@ An absent or unrecognised fragment lands on the first section rather than on
 nothing, and nothing rewrites it: a page that corrects the address bar loses
 the one thing the fragment was for.
 
+**A task can be opened**, from every table that lists one — `todo/`, the paused
+tasks, `done/`, `failed/` and the recent runs — and by a fragment of the shape
+`#task/0042`, so a link to one task is a link somebody can send and reload. It
+shows the task's frontmatter, which folder it is in, its goal, its acceptance
+criteria, its out-of-scope, and what its attempts did: each run's outcome,
+attempts and cost, the acceptance verdict with its doubts, and whether the
+task's links checked. The sections are the ones `parseTask` already finds
+because a run needs them, and the history is the journal's own lines for that
+number; nothing is computed here and nothing is checked again.
+
+**The body is shown as written.** A task body is markdown somebody wrote, and
+**detent renders no markdown**: every line of it reaches the page as text, so
+nothing in a task file can become markup, and the structure comes from the
+parsed sections rather than from a sanitiser this project would have to write
+([ADR 0020](docs/adr/0020-the-dashboard-is-sections-and-the-configuration-is-read-before-it-is-written.md),
+[ADR 0006](docs/adr/0006-zero-dependencies-node-22.md)).
+
+The task is fetched when it is opened and is never polled; `state.json` carries
+nothing about it. The number is matched as digits and resolved against the four
+folders by file name — it never becomes a path, and nothing outside the queue
+is reachable by asking for it. A file that will not parse opens anyway, showing
+what it says and naming what is wrong with it, because a task nobody can open
+is a task nobody can fix; this is the one place a task outside `todo/` is read
+and parsed at all. A number that is in none of the four folders is refused in a
+sentence that says so, and a queue that will not read says *that* instead, with
+its problems: the detail does not report a task missing from a queue it could
+not read. `readQueue` stays all-or-nothing (§4) — the one file is read
+directly.
+
+**Nothing in this view writes.** Not moving a task between folders, not editing
+a body, not retrying, not unpausing: detent moves tasks by its own results, and
+two writers shuffling the same files is a bug that arrives later disguised as a
+mystery.
+
 The page loads nothing from outside and sets every value as text, and a status
 is always an icon and a word, never a colour alone. Its source is several
 modules under `core/dashboard/`, composed at import time; what is served is one
@@ -1044,7 +1079,7 @@ document, one request, and no second asset.
 It reads everything and writes one thing: the product's configuration, and
 only when no run is active
 ([ADR 0015](docs/adr/0015-the-dashboard-may-write-the-configuration-between-runs.md)).
-`GET` and `HEAD` serve the page, the snapshot and the configuration;
+`GET` and `HEAD` serve the page, the snapshot, the configuration and one task;
 `POST /configuration.json` is the one write, and every other method gets `405`.
 
 What may change is the models for each role — product-wide and per repository —

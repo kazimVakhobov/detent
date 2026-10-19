@@ -79,6 +79,13 @@ main > section > h2:first-child { margin-top: 8px; }
 .alert.error { border-left-color: var(--critical); }
 .alert a { color: var(--accent); }
 
+/* One task, opened from any table that lists it (ADR 0020 part 3). Its body is
+   a text node in a <pre> — detent renders no markdown, so a task file looks
+   like the text file it is, and wraps rather than scrolling sideways. */
+table a { color: var(--accent); }
+.task-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-bottom: 12px; }
+pre.body { white-space: pre-wrap; overflow-wrap: break-word; margin: 0; font: inherit; color: var(--text-2); }
+
 .panel { background: var(--raised); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
 .group { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
 .group > .legend { color: var(--text-2); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
