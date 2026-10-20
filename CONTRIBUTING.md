@@ -102,13 +102,18 @@ npm run verify
 
 Zero dependencies, so there is no install step. It must be green before a pull
 request, and CI runs the same command on `main`, `dev`, `staging` and anything
-under `agent/`. Four things run in it, each its own stage so that a failure
-names itself:
+under `agent/`, **on Linux and on macOS** — a matrix in
+[`verify.yml`](.github/workflows/verify.yml), because condition 9 promises both
+and a gauge that only ever ran on one of them was how a suite stayed red on
+Linux through six tasks and two releases. Each check says which platform it
+ran on, so a red one is readable from the list. Four things run in it, each its
+own stage so that a failure names itself:
 
 1. `check-no-deps.mjs` — the zero-dependency claim
 2. `check-progress.mjs` — `PROGRESS.md` says nothing it cannot prove
 3. `check-docs.mjs` — links resolve, a version called current is the current
-   one, and the ADR index matches `docs/adr/`
+   one, the ADR index matches `docs/adr/`, and a number written beside the
+   thing it counts is that count
 4. `node --test` — the tests
 
 The `docs` stage exists because two of the first four tasks run here changed

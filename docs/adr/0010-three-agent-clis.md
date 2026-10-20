@@ -1,7 +1,7 @@
 # 0010. Three agent CLIs behind one call, and a role names its agent
 
 - **Date:** 2026-10-06
-- **Status:** accepted
+- **Status:** accepted; narrowed to one agent by 0018
 
 ## Context
 

@@ -16,7 +16,7 @@ import { assertInvariant, gitProduct, sharedContext, sh } from './support/produc
 
 const BRANCH = 'agent/task-0042-wallet-endpoint'
 const GAUGE = { exit: [{ stage: 'test', command: 'test "$(cat value.txt 2>/dev/null)" = ok' }] }
-const MODELS = { implement: { agent: 'claude', model: 'claude-opus-5' }, accept: { agent: 'codex', model: 'gpt-5-codex' } }
+const MODELS = { implement: { agent: 'claude', model: 'claude-opus-5' }, accept: { agent: 'claude', model: 'claude-sonnet-5' } }
 
 test('a link is a relative markdown link, and nothing else is', () => {
   assert.deepEqual(taskLinks('Read [the decision](shared-docs/adr/0003.md) first.'), ['shared-docs/adr/0003.md'])

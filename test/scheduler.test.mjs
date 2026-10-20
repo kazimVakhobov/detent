@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { schedule } from '../core/scheduler.mjs'
 import { validateProduct } from '../core/product.mjs'
@@ -95,16 +96,18 @@ test('two repositories run side by side, each returned, each journaled, each lan
   sh(web, 'commit', '--quiet', '-m', 'init')
   sh(web, 'branch', 'agent/dev')
   const gauge = { exit: [{ stage: 'test', command: 'test -f done.txt' }] }
-  const { product } = validateProduct(
-    {
-      version: 1,
-      product: { name: 'acme' },
-      concurrency: 2,
-      models: { implement: { agent: 'claude' } },
-      repos: [{ name: 'acme-api', compare: 'dev', gauge }, { name: 'acme-web', compare: 'dev', gauge }],
-    },
-    s.dir,
-  )
+  const raw = {
+    version: 1,
+    product: { name: 'acme' },
+    concurrency: 2,
+    models: { implement: { agent: 'claude' } },
+    repos: [{ name: 'acme-api', compare: 'dev', gauge }, { name: 'acme-web', compare: 'dev', gauge }],
+  }
+  // On disk as well as in hand: `run` asks doctor what it would fail on in the
+  // repositories the queue names, and doctor reads product.json. A fixture whose
+  // file says something else is a product nobody has.
+  writeFileSync(join(s.dir, '.detent', 'product.json'), JSON.stringify(raw))
+  const { product } = validateProduct(raw, s.dir)
   mkdirSync(join(s.dir, 'tasks', 'todo'), { recursive: true })
   for (const [id, repo] of [['0001', 'acme-api'], ['0002', 'acme-web']]) {
     writeFileSync(join(s.dir, 'tasks', 'todo', `${id}-t.md`), `---\nid: ${id}\nrepo: ${repo}\n---\n\n# Acceptance criteria\n\n- [ ] done\n`)
@@ -121,14 +124,25 @@ test('two repositories run side by side, each returned, each journaled, each lan
     concurrent -= 1
     return { ok: true, message: 'Commit: feat: done', model: { requested: null, actual: null }, cost: { usd: 0.1, tokens: null }, session: null, error: null, ms: 1 }
   }
+  // The agent is injected here, but what `run` asks before it starts anything
+  // is doctor's question, and doctor asks PATH: a declared agent nobody has
+  // installed is a run refused. One that answers nothing is enough — this test
+  // never invokes it.
+  const bin = mkdtempSync(join(tmpdir(), 'detent-bin-'))
+  writeFileSync(join(bin, 'claude'), '#!/bin/sh\n')
+  chmodSync(join(bin, 'claude'), 0o755)
+
   const out = []
   const write = process.stdout.write
+  const path = process.env.PATH
   process.stdout.write = (chunk) => (out.push(String(chunk)), true)
+  process.env.PATH = `${bin}:${path}`
   let code
   try {
     code = await runCommand(product, [], {}, { runTask: (p, repo, t) => runTask(p, repo, t, { invoke, notify: () => ({ sent: true }) }) })
   } finally {
     process.stdout.write = write
+    process.env.PATH = path
   }
   assert.equal(code, 0, out.join(''))
   assert.equal(peak, 2, 'both agents worked at once')

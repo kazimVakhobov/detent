@@ -118,7 +118,8 @@ Nine conditions. `detent doctor` checks all of them and names what to change.
 4. the gauge is declared as stages: a name and a command, runnable locally — the
    per-attempt profile in seconds
 5. a clean tree when a run starts
-6. an agent CLI installed and authenticated — Claude Code, Codex or Gemini CLI
+6. an agent CLI installed and authenticated — Claude Code, the one agent this
+   version offers ([ADR 0018](docs/adr/0018-one-agent-in-the-first-version-and-what-readmits-another.md))
 7. the integration branch is not deployed; pushing is done by hand
 8. one person per workspace
 9. macOS or Linux, Node 22
@@ -231,6 +232,16 @@ the repository must exist in `product.json`, acceptance criteria must be
 non-empty, the id must be unique. Catching this before the first agent starts is
 the difference between a typo and three wasted attempts.
 
+`detent run` asks one more thing before it creates a branch: whether `doctor`
+already **fails** on the repositories the queued tasks name (§12). It is not a
+second opinion — a failure is by definition what would stop a run or make it
+skip a repository, so every one of them is something the run was going to hit
+anyway, and a declared agent nobody installed used to be found out when it was
+invoked, after the task branch existed and the workspace had been taken. What
+`doctor` calls worth a look is left out, a repository no queued task mentions
+is never asked about, and the refusal names the checks that failed and then
+`detent doctor` for the rest, rather than reprinting a report nobody asked for.
+
 ---
 
 ## 5. Lifecycle
@@ -314,6 +325,63 @@ turn and compared after it; a change pauses the task and names the file. They
 are the person's, so detent does not restore them — and the run goes on using
 the product it loaded before the agent started, so an edited gauge never judges
 the attempt that edited it.
+
+### What the agent is saying, while it says it
+
+The agent's output arrives **as a stream**, and every attempt's raw stdout is
+written to `runs/logs/<task>-attempt-<n>.jsonl` as it arrives, byte for byte
+([ADR 0021](docs/adr/0021-the-agents-output-is-a-stream-written-to-a-file-that-is-not-a-record.md)).
+A run used to print a line when a task started and a line when it ended, and
+between them — minutes, sometimes a quarter of an hour — nothing.
+
+**The name is the index.** Nothing records where a log is: a task id and an
+attempt number are enough to write the path, which is what makes `tail -f`
+possible without copying anything out of a terminal a run has occupied.
+`detent run` prints the path for attempt 1 when a task starts and shows nothing
+— several tasks may be running, and their output interleaved in one terminal is
+unreadable. The surface this is for is the dashboard (§12), which shows it
+inside the task's own detail view.
+
+**What is logged, and what is not.** One file per **implementing attempt**, and
+nothing else in a run writes one:
+
+| Part of a run | Log |
+|---|---|
+| each of the agent's implementing attempts | `<task>-attempt-<n>.jsonl` |
+| the gauge, either profile (§6) | none — its stages are commands, and their output is the feedback the next attempt is handed |
+| the link check (§4) | none — what it found is in the journal line and on the task |
+| the acceptance pass (§9) | none — its output is a verdict and its doubts, which the journal line carries and the task detail shows; a transcript of it would widen the privacy cost stated below for content already recorded |
+| the merge, the commit, the queue move (§5) | none — git's own work, and the journal says what came of it |
+
+So **a task can be running with nothing arriving here**, and a reader of this
+section must not take "what the agent is saying" for a record of the run: most
+of the wall clock of a run is the agent's turn, but the parts that are not are
+exactly the ones that print nothing. The journal line is the record of the whole
+run; a log is one attempt's output and no more. The dashboard therefore
+distinguishes three states rather than two, and §12 says how it tells them
+apart without a phase field anything would have to keep true.
+
+**A log is not a record.** Nothing reads one to decide an outcome, a cost, a
+verdict or a model. Every number in a journal line comes from the result object
+the agent prints last, exactly as it did when that object was the only thing it
+printed; a number taken from a transcript is a number nobody can check. The
+stream is parsed in one place, for display on the page, and a line that will
+not parse is shown as it arrived.
+
+**Losing it never costs the task.** A log that cannot be opened or written says
+so once, on stderr, and then does nothing. The run carries on and the journal
+is unaffected.
+
+**It goes no further than this machine.** A transcript holds whatever the agent
+read — file contents, values from the environment, whatever a tool returned —
+and the dashboard that serves it is on loopback.
+
+**It is kept until `detent prune`**, which deletes the attempt logs of tasks in
+`done/` and `failed/`, and of tasks whose file is in none of the four folders.
+A task in `todo/` or `hold/` keeps its last attempt, because that is what a
+person opens the task to read, and a task a run is holding is being written to
+right now. An artefact with no stated end is a disk leak with a feature request
+attached.
 
 ### The shared context
 
@@ -542,11 +610,10 @@ theatre.
 How it runs:
 
 - **After the green commit, before the merge.** The reviewer is `models.accept`,
-  run in its CLI's **read-only mode** — Claude Code in plan mode, Codex in a
-  read-only sandbox, Gemini CLI in plan mode — on the committed task branch. It
-  is given the task body and the diff against `agent/dev`, and told what it is
-  for: a criterion not met, something out of scope done anyway, a check
-  satisfied by gaming it.
+  run in its CLI's **read-only mode** — Claude Code in plan mode — on the
+  committed task branch. It is given the task body and the diff against
+  `agent/dev`, and told what it is for: a criterion not met, something out of
+  scope done anyway, a check satisfied by gaming it.
 - **Read-only is checked, not trusted.** If the tree, the branch, a ref or a
   file that judges the agent changed, what the reviewer wrote is discarded and
   the task is paused as `error`.
@@ -558,7 +625,11 @@ How it runs:
 - **No `models.accept`, no pass.** The journal records `"verdict": "absent"`
   and the merge commit says `Acceptance: none declared`.
 - **`implement` and `accept` must differ** — at least in model — or the
-  configuration is refused.
+  configuration is refused. With one agent offered, that means a different
+  model of the same agent: shared training, shared blind spots, and "may only
+  raise a doubt" carrying more weight than it was meant to. That is the price
+  of the one-agent version and it is written down rather than discovered
+  ([ADR 0018](docs/adr/0018-one-agent-in-the-first-version-and-what-readmits-another.md)).
 - A rejected task resumed hands the doubts to the implementer, who addresses
   each one or says why it is wrong.
 
@@ -577,7 +648,7 @@ feat(wallet): driver wallet balance in the app
 Task: 0042
 Gauge: lint ✓ typecheck ✓ test ✓ (2 attempts)
 Agent: claude (claude-sonnet-5)
-Acceptance: codex — accepted
+Acceptance: claude (claude-opus-5) — accepted
 
 Co-Authored-By: ...
 ```
@@ -628,6 +699,8 @@ concluded, and which tasks went into which batch.
   .detent/state.json         per repository: active task, attempt, started at
   tasks/{todo,hold,done,failed}/NNNN-<slug>.md      the queue, where `queue` puts it
   runs/journal.jsonl         append-only, one line per run
+  runs/logs/NNNN-attempt-N.jsonl   what the agent printed, as it printed it —
+                             not a record, and deleted by `prune` (§5)
   map.json  map.mmd          the relationship map; committed, diffed by a person
   acme-api/ acme-web/ …      the product's repositories
 ```
@@ -666,8 +739,9 @@ product.
   "notify": "notify-send detent \"$DETENT_MESSAGE\"",
   "models": {
     "implement": { "agent": "claude", "model": "claude-sonnet-5" },
-    "accept":    { "agent": "codex" }
+    "accept":    { "agent": "claude", "model": "claude-opus-5" }
   },
+  "modelSuggestions": ["opus", "sonnet", "haiku", "claude-opus-5"],
   "repos": [
     {
       "name": "acme-api",
@@ -676,7 +750,10 @@ product.
       "stack": ["node", "nestjs", "postgres"],
       "compare": "dev",
       "gauge": { "exit": [], "merge": [], "promote": [] },
-      "models": { "implement": { "agent": "claude", "model": "claude-opus-5" } },
+      "models": {
+        "implement": { "agent": "claude", "model": "claude-opus-5" },
+        "accept":    { "agent": "claude", "model": "claude-sonnet-5" }
+      },
       "neverCommit": ["shared-docs"]
     }
   ],
@@ -687,7 +764,7 @@ product.
 }
 ```
 
-Five things about this shape are deliberate:
+Six things about this shape are deliberate:
 
 - **`queue` is a path inside the product folder, and `tasks` when it is left
   out.** It is validated like `repos[].path`: a value that escapes the product
@@ -714,9 +791,32 @@ Five things about this shape are deliberate:
   nothing is worse than a field that does not exist.
 - **A repository overrides a *role*, never "the model"** — otherwise you could
   not say "expensive implementation in the backend, one reviewer everywhere".
-  A role names its **agent** — `claude`, `codex` or `gemini` — and optionally a
-  model; without one the CLI's default runs, and the journal records which
-  model that was when the CLI says ([ADR 0010](docs/adr/0010-three-agent-clis.md)).
+  Above, `acme-api` goes further and names its own reviewer, because the
+  product-wide one is the model that repository implements with and the two
+  roles must differ (§9).
+  A role names its **agent** — `claude`, Claude Code, the one this version
+  offers ([ADR 0018](docs/adr/0018-one-agent-in-the-first-version-and-what-readmits-another.md)) —
+  and optionally a model; without one the CLI's default runs, and the journal
+  records which model that was when the CLI says
+  ([ADR 0010](docs/adr/0010-three-agent-clis.md)). The field and the list are
+  the mechanism 0010 got right and 0018 kept: another agent arrives as a name
+  here and a row in the adapter table, once it has run a real task and its
+  adapter was written against what it printed.
+- **`modelSuggestions` is a suggestion and not a constraint.** It is the model
+  names offered where a model is typed — the dashboard's field beside the agent
+  select — and **nothing is ever checked against it**: a name that is not on the
+  list is accepted, written and run. detent ships a list, `init` writes it into
+  the file, and extending it is editing a file the product owns. Present means
+  exactly what it says, empty included: a file carrying the key is offered that
+  list and nothing else, and a file without it is offered the shipped one. The
+  names are ones detent has watched work rather than ones it read about, which
+  is also why the list is not a whitelist: nothing detent can reach knows which
+  models an account and an installed CLI can run between them — the CLI holds
+  no list, the API's needs a credential this product does not have
+  ([ADR 0013](docs/adr/0013-the-agent-gets-a-prompt-and-a-directory.md)), and a
+  name can be refused by the binary as well as by the plan, so a list that
+  refused a model would be wrong for somebody on the day it shipped
+  ([ADR 0019](docs/adr/0019-the-offered-model-names-are-a-suggestion-in-the-product-file.md)).
 - **Every edge carries its `source`.** Edges established by the deterministic
   scan are drawn plain; edges a model proposed are labelled with their kind, so
   a guess never looks like a fact.
@@ -737,7 +837,7 @@ Five things about this shape are deliberate:
   "gauge": { "profile": "exit", "failedStage": null },
   "models": {
     "implement": { "agent": "claude", "requested": "claude-opus-5", "actual": "claude-opus-5" },
-    "accept": { "agent": "codex", "requested": null, "actual": null }
+    "accept": { "agent": "claude", "requested": "claude-sonnet-5", "actual": "claude-sonnet-5" }
   },
   "acceptance": { "verdict": "accepted", "doubts": [], "cost": { "usd": 0.06, "tokens": { "input": 21004, "output": 312 } } },
   "links": { "checked": 3, "broken": ["shared-docs/adr/0003.md"] },
@@ -832,7 +932,12 @@ there is nobody to answer.
 `init` also creates the queue's four folders, `{todo,hold,done,failed}`, if they
 are not there: at the path the first question settled, before any of the three
 passes, and deterministically, so a folder that exists is left alone and
-`--no-agent` creates them too.
+`--no-agent` creates them too. When that path is somewhere other than the
+default, the line that says the queue was created says what it is: a plain
+directory nothing can be committed to, or a repository that pushes nowhere, or
+nothing at all when the queue is one the next machine can read. `init` reports
+it and goes no further — it clones nothing, creates no repository and adds no
+remote, because that division is what makes both it and `doctor` safe to run.
 
 `init --no-agent` stops after pass 1 and leaves the model's fields empty for a
 person to fill. The tool has to work for someone who has no agent installed,
@@ -908,16 +1013,29 @@ as green.
 `doctor` reports each finding as passed (✓), failed (✗), worth a look (!) or
 not checkable (·) — condition 8, one person per workspace, is a convention no
 scan can see, and is said to be one rather than skipped. A failure is anything
-that would stop a run or make it skip a repository; worth a look is anything
+that would stop a run or make it skip a repository, or that leaves the product
+in a shape its own `product.json` does not describe; worth a look is anything
 that lets a run go ahead with less than it could have: no gauge, no reviewer,
 an `agent/dev` that tracks a remote. It exits 1 on a failure and writes
 nothing; where there is a command that fixes a finding, it prints the command.
 
-### Five things `doctor` checks beyond the nine conditions
+### Six things `doctor` checks beyond the nine conditions
 
 - **the queue exists** — `tasks/{todo,hold,done,failed}` (§11); a product with
   nowhere to put a task is not ready, whatever else the report says. `init`
   creates it, and that is the command the finding prints
+- **a configured queue can be published** — a `queue` somewhere other than the
+  default was configured so that two machines could share it
+  ([ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md)),
+  and the four folders existing is not that. One that is **not in a git
+  repository** is a failure: a task's move is a file move with nothing to
+  commit it to, so the queue never leaves this machine and the run that
+  believed it published says nothing. One in a repository whose branch
+  **tracks no remote** is worth a look and nothing more — a queue nobody can
+  fetch has no next machine to be stale for — and it is a different sentence,
+  because which of the two a person has decides what they do about it. A queue
+  at the default location is asked nothing: that is ADR 0005's file move, and
+  the common case gains no line
 - **no branch named exactly `agent`** — it makes the whole namespace
   uncreatable, and the error arrives mid-run looking like something else (§2)
 - **every value in `branches` matches `^agent/`** — the guarantee that no
@@ -941,10 +1059,20 @@ lands, so what remains is mostly paused work, which prune keeps. It never
 touches a branch outside `refs/heads/agent/task-`, the branch that is checked
 out, or the branch of a task that is running.
 
+It also deletes the **attempt logs** of settled tasks — those in `done/` and
+`failed/`, and those whose task file is in none of the four folders — which is
+the stated end of the one artefact detent writes that nothing depends on (§5).
+Naming repositories narrows which branches are considered and not which logs: a
+log belongs to a task, and its name does not say which repository the task was
+for. A queue that will not read keeps every log and says why.
+
 ### Plan
 
-`detent plan [brief…] [--agent claude|codex|gemini]` opens the agent's own
-interactive session in the terminal, in the product folder, with an opening
+`detent plan [brief…] [--agent claude]` — `claude` being Claude Code, the one
+agent this version offers
+([ADR 0018](docs/adr/0018-one-agent-in-the-first-version-and-what-readmits-another.md)) —
+opens the agent's own interactive session in the terminal, in the product
+folder, with an opening
 that gives it the task format of §4, the repositories with their roles and
 relations, the next free numbers and the rules — one task per repository,
 `touches_contract` only for what others depend on, criteria someone can check —
@@ -959,19 +1087,176 @@ repository, to `product.json` or to a task outside `todo/` is named.
 ### The dashboard
 
 `detent dashboard [--port 4100]` serves one page on `127.0.0.1` that watches
-the product: whether a run is active and on what, where each repository's
-`agent/dev` stands against its `compare` branch (identical, behind — agents
-cannot see your work — or tasks ahead, waiting for your review), the queue,
-every paused task with why it was paused and the reviewer's doubts, and the
-numbers `summary` computes, from the same code. It answers GET and nothing
-else, the page loads nothing from outside and sets every value as text, and a
-status is always an icon and a word, never a colour alone.
+the product. **It is sections, one shown at a time, and the one shown is named
+in the fragment**, so a reload and a copied link both come back to where
+somebody was — no server route, and nothing fetched to change section
+([ADR 0020](docs/adr/0020-the-dashboard-is-sections-and-the-configuration-is-read-before-it-is-written.md)).
+The sections are:
 
-### The dashboard is read-only while a run is active
+- **Overview** — the figures `summary` computes, from the same code.
+- **Repositories** — where each repository's `agent/dev` stands against its
+  `compare` branch (identical, behind — agents cannot see your work — or tasks
+  ahead, waiting for your review), and the same numbers per repository. Not
+  which models it uses: that is read in **Configuration**, which is where it is
+  written, and two renderings of one fact are free to disagree.
+- **Queue** — all four folders: `todo/`, the paused tasks with why each was
+  paused and the reviewer's doubts, the `done/` detent has finished with, and
+  the `failed/` a person abandoned.
+- **Task** — one task, opened by its number, and under it what its agent is
+  saying while it says it.
+- **Agents** — runs, passes, attempts and cost per pass, per agent and model.
+- **Recent runs** — the last fifteen, newest first.
+- **Configuration** — what the file says, read as text, and beside it the keys
+  that are shown here and changed on disk. It is also the one thing the page
+  writes, on request.
 
-The queue cannot be edited during a run: detent has already read it and moves
-tasks by its own results. Two writers shuffling the same files is a bug that
-arrives later disguised as a mystery.
+**What is wrong is in none of them.** A run whose process is gone, a paused
+task, and a queue that would not parse are drawn above every section on every
+read, each naming the section that holds the detail. A single scroll had the
+property that everything was somewhere below you; sections mean a person can
+be looking at a page that does not contain the thing that is wrong, and
+noticing that is the one job the page has.
+
+An absent or unrecognised fragment lands on the first section rather than on
+nothing, and nothing rewrites it: a page that corrects the address bar loses
+the one thing the fragment was for.
+
+**A task can be opened**, from every table that lists one — `todo/`, the paused
+tasks, `done/`, `failed/` and the recent runs — and by a fragment of the shape
+`#task/0042`, so a link to one task is a link somebody can send and reload. It
+shows the task's frontmatter, which folder it is in, its goal, its acceptance
+criteria, its out-of-scope, and what its attempts did: each run's outcome,
+attempts and cost, the acceptance verdict with its doubts, and whether the
+task's links checked. The sections are the ones `parseTask` already finds
+because a run needs them, and the history is the journal's own lines for that
+number; nothing is computed here and nothing is checked again.
+
+**The body is shown as written.** A task body is markdown somebody wrote, and
+**detent renders no markdown**: every line of it reaches the page as text, so
+nothing in a task file can become markup, and the structure comes from the
+parsed sections rather than from a sanitiser this project would have to write
+([ADR 0020](docs/adr/0020-the-dashboard-is-sections-and-the-configuration-is-read-before-it-is-written.md),
+[ADR 0006](docs/adr/0006-zero-dependencies-node-22.md)).
+
+**What the agent is saying is under it, and is the one part of a task that is
+polled.** A person who ran `detent run` has that terminal occupied; this is
+where the output of a running task is read, a few seconds behind, which is what
+watching is
+([ADR 0021](docs/adr/0021-the-agents-output-is-a-stream-written-to-a-file-that-is-not-a-record.md)).
+It is the end of the newest attempt's log — read from the same file `tail -f`
+would read, on the timer the page already has — and three things keep it from
+growing with the run: the page asks to carry on from the byte its last answer
+ended at, so it never re-reads what it has; what arrives is kept as a bounded
+number of lines, oldest off the top; and each line is clipped, because a tool
+result the agent read in full is not a line somebody scans. Each event is read
+for display and for nothing else, and a line that will not parse is shown as it
+arrived. It lives here and nowhere else: a transcript with no task attached is a
+log viewer, which is not what this is for.
+
+**It says which of three states it is in, in a sentence above the lines.** Not
+running: what is shown is what the last attempt said, not something happening
+now — and a task nothing has ever run says *that* rather than showing an empty
+box that could be either. Running and printing: the end of the output, a few
+seconds behind. **Running and not printing:** what is running is the gauge, the
+acceptance pass or the merge, because none of the rest of a run writes a log
+(§5) — so "running" over a tail that has stopped moving is the one thing this
+surface must never show, because working and stuck look identical again.
+
+The third sentence is built from facts the page holds and **no phase field
+exists to be read**: a claim records a repository, a task, an attempt and a pid
+([ADR 0017](docs/adr/0017-a-claim-locks-the-configuration-only-while-its-run-is-alive.md)),
+and adding a phase would mean a writer keeping it true through
+every branch of a run, including the ones that end badly. What the page has
+instead is the claim's attempt against the attempt the log belongs to, whether
+the last line that arrived is the agent's result object — the event that says
+its turn is over — and how long the file has been quiet, which is its mtime
+against the clock. A log that has gone quiet while its attempt is claimed says
+so with the time; one that has ended, or belongs to an earlier attempt, or
+cannot be found at all while a run holds the task, says that instead.
+
+The task itself is fetched when it is opened and is never polled; `state.json`
+carries nothing about it. The number is matched as digits and resolved against the four
+folders by file name — it never becomes a path, and nothing outside the queue
+is reachable by asking for it. A file that will not parse opens anyway, showing
+what it says and naming what is wrong with it, because a task nobody can open
+is a task nobody can fix; this is the one place a task outside `todo/` is read
+and parsed at all. A number that is in none of the four folders is refused in a
+sentence that says so, and a queue that will not read says *that* instead, with
+its problems: the detail does not report a task missing from a queue it could
+not read. `readQueue` stays all-or-nothing (§4) — the one file is read
+directly.
+
+**Nothing in this view writes.** Not moving a task between folders, not editing
+a body, not retrying, not unpausing: detent moves tasks by its own results, and
+two writers shuffling the same files is a bug that arrives later disguised as a
+mystery.
+
+The page loads nothing from outside and sets every value as text, and a status
+is always an icon and a word, never a colour alone. Its source is several
+modules under `core/dashboard/`, composed at import time; what is served is one
+document, one request, and no second asset.
+
+### The dashboard reads a product and writes its configuration between runs
+
+It reads everything and writes one thing: the product's configuration, and
+only when no run is active
+([ADR 0015](docs/adr/0015-the-dashboard-may-write-the-configuration-between-runs.md)).
+`GET` and `HEAD` serve the page, the snapshot, the configuration, one task and
+the end of what that task's agent is printing; `POST /configuration.json` is
+the one write, and every other method gets `405`.
+
+**The page reads the configuration, and writes it on request.** Viewing is the
+default and shows what the file says as text — each model, each limit, and
+what a repository inherits with whose setting it is inheriting. The editor is
+entered deliberately and leaving it discards; nothing is written but by the
+one write above
+([ADR 0020](docs/adr/0020-the-dashboard-is-sections-and-the-configuration-is-read-before-it-is-written.md)).
+**Reading is not what a run stops.** A run refuses the editor and never the
+view: somebody who opens the page during a run to see which model is costing
+what finds the answer, which is the whole of the separation. **The view may
+refresh; an open editor never does** — opening it takes a read of its own, so
+what is edited is what the file currently says, and from then until it closes
+nothing moves under the person typing. A write the server refuses leaves the
+editor open with what was typed still in it and the problems against their
+paths.
+
+What may change is the models for each role — product-wide and per repository —
+`attempts`, `timeout`, `concurrency` and `notify`. Not `repos`, not `queue`,
+not `docs`, not `branches`: those name things on disk, and a page cannot create
+what it names, so they are shown with the reason they are not editable there.
+Not `modelSuggestions` either: the model field offers that list, accepts any
+name, and says where the list is — it is shown and used on the page and
+extended in the file (§11).
+
+Three things hold every write.
+
+- **A run is active, and the write is refused** — by the same `state.json`
+  `recover` reads, naming which repository is on which task. The page refuses
+  to open its editor as a courtesy, with that explanation beside the disabled
+  button, and the server refuses the write regardless: the files that judge an
+  agent are fingerprinted before each of its turns (§5), and that guard does
+  not ask who changed one, so a write during a run would pause the task
+  blaming the agent for a person's edit.
+- **The whole file validates, through `validateProduct`** — the same code
+  `loadProduct` uses, every problem at once, each naming its path, and nothing
+  written if any of them fails. A page cannot write a `product.json` that
+  `detent run` would refuse to load.
+- **The request came from the page** — `origin` naming this server and
+  `content-type: application/json`, neither of which a form on another site
+  can produce. Binding `127.0.0.1` stops meaning anything once a server
+  accepts a write, because any site open in the same browser can post to
+  localhost. It is not authentication and is not meant to be: one person per
+  workspace is condition 8.
+
+The file keeps the shape `init` writes it in, the keys the page does not touch
+keep their values and their order, and what the page shows after a write is
+read back off disk. There is no queue of changes applied later: a change
+accepted and not yet applied is a third state between what the file says and
+what the page shows, and the page exists to say what is true.
+
+The queue still cannot be edited during a run: detent has already read it and
+moves tasks by its own results. Two writers shuffling the same files is a bug
+that arrives later disguised as a mystery.
 
 ---
 

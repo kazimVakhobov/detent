@@ -17,11 +17,9 @@ import { FOLDERS, nextId, readQueue } from './task.mjs'
 
 // How each CLI is opened for a conversation that starts with our text. Edits
 // are accepted without asking, because writing task files is the whole job;
-// commands still ask.
+// commands still ask. One entry, like the adapter table it mirrors (ADR 0018).
 export const INTERACTIVE = {
   claude: ({ model, prompt }) => ['claude', ['--permission-mode', 'acceptEdits', ...(model ? ['--model', model] : []), prompt]],
-  codex: ({ model, prompt }) => ['codex', ['--sandbox', 'workspace-write', ...(model ? ['--model', model] : []), prompt]],
-  gemini: ({ model, prompt }) => ['gemini', ['--approval-mode', 'auto_edit', ...(model ? ['--model', model] : []), '--prompt-interactive', prompt]],
 }
 
 export function planPrompt(product, { next, brief }) {
