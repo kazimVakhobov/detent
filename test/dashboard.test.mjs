@@ -753,6 +753,175 @@ test('the journal history is the lines for that number, however many runs a task
   })
 })
 
+// ——— What its attempts did, which is what the panel leads with (§12).
+
+// The blocks the panel drew, in the order it drew them, named by the legend
+// over each one.
+const blocksOf = (page) => page.node('task-detail').children
+  .filter((child) => child.className === 'group')
+  .map((group) => group.children[0].textContent)
+const blockNamed = (page, legend) => page.node('task-detail').children
+  .find((child) => child.className === 'group' && child.children[0].textContent === legend)
+const recordsIn = (page) => page.node('task-detail').all((node) => node.className === 'run-record')
+const rowsOf = (record) => record.all((node) => node.tag === 'tr').map((row) => row.children.map((cell) => cell.textContent))
+
+// A run with everything a journal line carries, so the block can be read
+// against it: two passes with a cost and a model each, tokens, the two
+// instants, a gauge stage that failed on the way, and a resume. It is the
+// second run of 0001 — `setup` already wrote the first — so one task shows
+// both a line that reported everything and a line that reported little.
+function ranAgain(s) {
+  appendJournal(s.dir, {
+    kind: 'task',
+    task: '0001',
+    slug: 'first',
+    repo: 'acme-api',
+    started: '2026-10-07T09:00:00Z',
+    finished: '2026-10-07T09:07:30Z',
+    outcome: 'passed',
+    reason: null,
+    resumed: true,
+    attempts: 2,
+    lock: 'enforced',
+    gauge: { profile: 'exit', failedStage: 'test' },
+    models: {
+      implement: { agent: 'claude', requested: 'claude-opus-5', actual: 'claude-opus-5-20260101' },
+      accept: { agent: 'claude', requested: 'claude-sonnet-5', actual: null },
+    },
+    cost: { usd: 1.5, tokens: { input: 100000, output: 26000 } },
+    acceptance: { verdict: 'accepted', doubts: [], cost: { usd: 0.3, tokens: { input: 20000, output: 1000 } } },
+    links: { checked: 2, broken: [] },
+    commit: 'abc1234',
+    branch: 'agent/task-0001-first',
+    merged: true,
+  })
+  return s
+}
+
+test('what its attempts did is first, under a head that reads as a number and a name', async () => {
+  const s = ranAgain(queued(setup()))
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: `#${TASK_SECTION}/0001` })
+    await page.settle()
+
+    // Directly under the head, and before the body: the file is written goal
+    // first, and that is the opposite of the order it is read in.
+    const panel = page.node('task-detail')
+    assert.equal(panel.children[0].className, 'task-head')
+    assert.equal(panel.children[1].children[0].textContent, 'What its attempts did')
+
+    // And the body blocks keep their order among themselves, with nothing
+    // dropped on the way down.
+    assert.deepEqual(blocksOf(page), ['What its attempts did', 'Frontmatter', 'Goal', 'Acceptance criteria', 'Out of scope'])
+    assert.match(blockNamed(page, 'Goal').textContent, /Task 0001 must work\./)
+    assert.deepEqual(blockNamed(page, 'Acceptance criteria').all((n) => n.tag === 'li').map((n) => n.textContent),
+      ['the first one', 'the second one'])
+    assert.match(blockNamed(page, 'Out of scope').textContent, /Nothing else in 0001\./)
+    assert.match(blockNamed(page, 'Frontmatter').textContent, /acme-api/)
+
+    // The head is a number and a name, from the slug by the helper the queue's
+    // cards use — `0001 first` was a file name. The folder and the path are
+    // still there, small, because the path is what opens the file.
+    const head = panel.children[0]
+    assert.equal(head.all((n) => n.tag === 'strong')[0].textContent, '0001 · First')
+    assert.equal(head.all((n) => n.className === 'chip')[0].textContent, 'done')
+    assert.equal(head.all((n) => n.tag === 'code')[0].textContent, 'tasks/done/0001-first.md')
+    assert.match(STYLE, /\.task-head strong \{ font-size/)
+  })
+})
+
+test('the implementation cost and the acceptance pass are separated, and come out of the total', async () => {
+  const s = ranAgain(queued(setup()))
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: `#${TASK_SECTION}/0001` })
+    await page.settle()
+
+    const [, second] = recordsIn(page)
+    assert.equal(recordsIn(page).length, 2, 'both of its runs, in the order they happened')
+
+    // Two rows, each with its own cost, its own tokens and the model it ran
+    // on: one number for both would hide what reading the work cost against
+    // what doing it cost.
+    assert.deepEqual(rowsOf(second), [
+      ['Pass', 'Cost', 'Tokens', 'Model'],
+      ['Implementation', '$1.20', '105,000 tok (80,000 in, 25,000 out)', 'claude · claude-opus-5-20260101 (asked for claude-opus-5)'],
+      ['Acceptance', '$0.30', '21,000 tok (20,000 in, 1,000 out)', 'claude · claude-sonnet-5 (requested — the CLI reported no model)'],
+    ])
+
+    // And the total the line recorded, beside the two rather than instead of
+    // them: $1.20 + $0.30 is the $1.50 the journal has, and 105,000 + 21,000
+    // the 126,000 — so a line whose two numbers disagree shows that it does.
+    const lines = second.children.filter((child) => child.className === 'line').map((child) => child.textContent)
+    assert.equal(lines[0], 'The run: $1.50 · 126,000 tok (100,000 in, 26,000 out)'
+      + ' — the total the line recorded, which the two rows above come out of')
+
+    // Tokens, how long it ran — from `started` and `finished`, not from this
+    // machine's clock — how many attempts, and which gauge stage sent it back.
+    const facts = second.all((n) => n.className === 'facts')[0].children.map((child) => child.textContent)
+    assert.deepEqual(facts.slice(0, 5),
+      ['✓passed', 'acme-api', '2 attempts', 'took 7m 30s', 'finished ' + new Date('2026-10-07T09:07:30Z').toLocaleString()])
+    assert.match(second.textContent, /the exit gauge stopped on test/)
+
+    // Whether it landed, and on what.
+    assert.match(lines.join('\n'), /✓merged/)
+    assert.match(lines.join('\n'), /commit abc1234/)
+    assert.match(lines.join('\n'), /agent\/task-0001-first/)
+    assert.match(lines.join('\n'), /acceptance: accepted/)
+    assert.match(lines.join('\n'), /links: 2 checked/)
+  })
+})
+
+test('a cost, a model or an instant the journal has as null is shown as not reported, never as zero', async () => {
+  const s = ranAgain(queued(setup()))
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: `#${TASK_SECTION}/0001` })
+    await page.settle()
+
+    // `setup`'s line has dollars and no tokens, no acceptance cost, no
+    // acceptance model and no `started`. Every one of those says what it is: a
+    // zero there would be a number nobody recorded, which is the one thing the
+    // journal has always refused.
+    const [first] = recordsIn(page)
+    assert.deepEqual(rowsOf(first), [
+      ['Pass', 'Cost', 'Tokens', 'Model'],
+      ['Implementation', '$0.10', 'not reported', 'claude · claude-opus-5'],
+      ['Acceptance', 'not reported', 'not reported', 'not reported'],
+    ])
+    assert.match(first.textContent, /took not reported/)
+    assert.doesNotMatch(first.textContent, /\$0\.00|0 tok/)
+    // And it is not the resumed one: `resumed` is read off the line.
+    assert.doesNotMatch(first.textContent, /resumed/)
+  })
+})
+
+test('a run that was resumed says so, because coming back from hold/ is a different story', async () => {
+  const s = ranAgain(queued(setup()))
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: `#${TASK_SECTION}/0001` })
+    await page.settle()
+    const [, second] = recordsIn(page)
+    assert.match(second.textContent, /↻resumed — it carried on what an earlier run left behind/)
+    // An icon and a word, never a colour alone.
+    const resumed = second.all((n) => n.className === 'status info')[0]
+    assert.equal(resumed.children[0].getAttribute('aria-hidden'), 'true')
+  })
+})
+
+test('a task the journal has never seen says so, and grows no block of dashes', async () => {
+  const s = queued(setup())
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: `#${TASK_SECTION}/0003` })
+    await page.settle()
+
+    const block = blockNamed(page, 'What its attempts did')
+    assert.equal(blocksOf(page)[0], 'What its attempts did', 'still the first block')
+    assert.equal(recordsIn(page).length, 0, 'no run, and so no record of one')
+    assert.match(block.textContent, /this task has not run — the journal has no line for it/)
+    assert.equal(block.all((n) => n.tag === 'table').length, 0, 'no table, so no row of blanks to read as zeros')
+    assert.doesNotMatch(block.textContent, /not reported|\$|tok|merged/, 'and no figure it has not got')
+  })
+})
+
 test('a file that will not parse still opens: what it says, and what is wrong with it', async () => {
   const s = queued(setup())
   // In done/, which readQueue never opens, so the queue still reads whole.

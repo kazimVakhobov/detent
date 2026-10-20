@@ -1144,8 +1144,8 @@ The sections are:
   command, ready to copy. **It does not run or move tasks**: detent has
   already read this queue and moves these files by its own results, and a
   second writer of them is a bug that arrives later disguised as a mystery.
-- **Task** — one task, opened by its number, and under it what its agent is
-  saying while it says it.
+- **Task** — one task, opened by its number: what its attempts did first, the
+  body under it, and under that what its agent is saying while it says it.
 - **Agents** — runs, passes, attempts and cost per pass, per agent and model.
 - **Recent runs** — the last fifteen, newest first.
 - **Configuration** — what the file says, read as text, and beside it the keys
@@ -1165,13 +1165,44 @@ the one thing the fragment was for.
 
 **A task can be opened**, from every table that lists one — `todo/`, the paused
 tasks, `done/`, `failed/` and the recent runs — and by a fragment of the shape
-`#task/0042`, so a link to one task is a link somebody can send and reload. It
-shows the task's frontmatter, which folder it is in, its goal, its acceptance
-criteria, its out-of-scope, and what its attempts did: each run's outcome,
-attempts and cost, the acceptance verdict with its doubts, and whether the
-task's links checked. The sections are the ones `parseTask` already finds
-because a run needs them, and the history is the journal's own lines for that
-number; nothing is computed here and nothing is checked again.
+`#task/0042`, so a link to one task is a link somebody can send and reload. The
+head is **a number and a name** — `0043 · A task is something you can open`,
+off the slug by the helper the queue's cards use, with the folder and the path
+still beside it, small, because the path is what opens the file and the line
+above it is not a file name any more.
+
+**It leads with its runs.** What its attempts did is the first block, directly
+under the head and before the frontmatter and the body: a person opening a task
+that has run wants "what happened and what did it cost", and the body is what
+they scroll to when the answer raises a question rather than four blocks to
+scroll past before finding out whether it ran at all. Each run shows **what
+became of it** — the outcome, how many attempts, how long it ran from `started`
+against `finished`, when it stopped, and whether it was **resumed**, because a
+task that came back from `hold/` and finished is not the same story as one that
+passed first time and the attempt count alone does not tell them apart. Then
+**what the implementation cost and what the acceptance pass cost, kept apart**,
+each with its tokens and the model it ran on: the name that was requested and,
+when the CLI reported a different one, the name it reported — a request the CLI
+never confirmed says so rather than standing in for a confirmation. The run's
+own total is shown beside those two rather than instead of them, so a line
+whose numbers disagree with each other shows that it does; the implementation
+figure is the total less the acceptance figure and nothing else is added up to
+reach it. And then which gauge stage sent it back, whether it merged and as
+what commit, the acceptance verdict with its doubts, and whether the task's
+links checked.
+
+**Every number there is already in the journal line** (§11) — this reads it and
+records nothing — and **a field the line has as `null` is shown as not
+reported**, never as a zero and never as a dash among real figures, because
+both read as a number and an invented number is the one thing the journal has
+always refused. A task the journal has never seen says *that*, in a sentence,
+and grows no table of blanks. Nothing here is a rate, an average or a
+projection: `summary` and **Agents** are where runs are compared, and this is
+one task's record. Under the runs, the body: the frontmatter, the goal, the
+acceptance criteria and the out-of-scope, in that order. The sections are the
+ones `parseTask` already finds because a run needs them, and the history is the
+journal's own lines for that number; nothing is computed here and nothing is
+checked again.
 
 **The body is shown as written.** A task body is markdown somebody wrote, and
 **detent renders no markdown**: every line of it reaches the page as text, so
