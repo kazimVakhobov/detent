@@ -16,7 +16,7 @@ import { assertInvariant, gitProduct, sh, show } from './support/product.mjs'
 
 const BRANCH = 'agent/task-0042-wallet-endpoint'
 const GAUGE = { exit: [{ stage: 'test', command: 'test "$(cat value.txt 2>/dev/null)" = ok' }] }
-const MODELS = { implement: { agent: 'claude', model: 'claude-opus-5' }, accept: { agent: 'codex', model: 'gpt-5-codex' } }
+const MODELS = { implement: { agent: 'claude', model: 'claude-opus-5' }, accept: { agent: 'claude', model: 'claude-sonnet-5' } }
 
 function setup(repo = {}) {
   const s = gitProduct({ gauge: GAUGE, models: MODELS, ...repo })
@@ -58,13 +58,13 @@ test('no doubts: the machine-checked green stands, and the merge says who read i
   const result = await runTask(s.product, s.repo, s.task, { invoke: a.invoke, notify: notifier().notify })
   assert.equal(result.outcome, 'passed')
   assert.deepEqual(result.acceptance, { verdict: 'accepted', doubts: [], cost: { usd: 0.1, tokens: { input: 10, output: 1 } } })
-  assert.deepEqual(result.models.accept, { agent: 'codex', requested: 'gpt-5-codex', actual: null })
+  assert.deepEqual(result.models.accept, { agent: 'claude', requested: 'claude-sonnet-5', actual: null })
   assert.equal(result.cost.usd, 0.2, 'the review is part of what the pass cost')
-  assert.match(sh(s.repoDir, 'log', '-1', '--format=%B', 'agent/dev'), /^Acceptance: codex \(gpt-5-codex\) — no doubts$/m)
+  assert.match(sh(s.repoDir, 'log', '-1', '--format=%B', 'agent/dev'), /^Acceptance: claude \(claude-sonnet-5\) — no doubts$/m)
 
   const [review] = a.calls.review
   assert.equal(review.readOnly, true)
-  assert.equal(review.role.agent, 'codex')
+  assert.equal(review.role.agent, 'claude')
   assert.match(review.prompt, /You cannot approve it/)
   assert.match(review.prompt, /- \[ \] value.txt says ok/)
   assert.match(review.prompt, /Touching README\.md/)
@@ -94,7 +94,7 @@ test('a doubt demotes: rejected, paused with the doubts on the branch, nothing l
   assert.match(parked, /^wip\(wallet-endpoint\): rejected by the acceptance pass/)
   assert.match(parked, /^Outcome: rejected — the gauge is green and the task is not done$/m)
   assert.match(parked, /^Doubt: README\.md was changed, which the task puts out of scope$/m)
-  assert.match(parked, /^Acceptance: codex \(gpt-5-codex\) — rejected$/m)
+  assert.match(parked, /^Acceptance: claude \(claude-sonnet-5\) — rejected$/m)
   assert.equal(show(s.repoDir, BRANCH, 'value.txt'), 'ok', 'the green work is kept for a person to read')
   assertInvariant(s.repoDir, s.before, s.product)
 })

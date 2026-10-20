@@ -10,7 +10,9 @@ import process from 'node:process'
 import { isAgentBranch } from './refs.mjs'
 import { QUEUE } from './task.mjs'
 
-export const AGENT_COMMANDS = { claude: 'claude', codex: 'codex', gemini: 'gemini' }
+// Which command on PATH means which agent. One entry in this version (ADR
+// 0018); the scan looks for what the table names and reports what it found.
+export const AGENT_COMMANDS = { claude: 'claude' }
 
 // Human branches a repository is commonly reported against, in order of
 // preference: the integration branch before the released one.
@@ -113,13 +115,17 @@ export function proposeGauge(repo) {
   return gauge
 }
 
-// Agents for the two roles from the CLIs that are installed: a different agent
-// for the review when there is one, since the reviewer must differ (ADR 0004).
-// With one CLI only, the review is left out rather than given a guessed model.
+// The implementing agent, from the CLIs that are installed. Only `implement`
+// is proposed: this version offers one agent (ADR 0018), so a reviewer would
+// have to be the same agent on a different model — and the scan cannot see
+// which models an account has, so naming one would be inventing a reviewer.
+// ADR 0004 is unchanged, which is why the key is left out and `init` says so
+// rather than filling it: a pass by the model that implemented is worth
+// nothing, and so is a pass by a model name that does not resolve.
 export function proposeModels(agents) {
-  const [implement, accept] = agents
+  const [implement] = agents
   if (!implement) return undefined
-  return accept ? { implement: { agent: implement }, accept: { agent: accept } } : { implement: { agent: implement } }
+  return { implement: { agent: implement } }
 }
 
 // --- reading -------------------------------------------------------------------

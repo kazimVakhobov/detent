@@ -9,9 +9,14 @@ import { UsageError } from './usage.mjs'
 export const options = { agent: { type: 'string' } }
 
 export async function run(product, words, values, { spawnAgent = interactive } = {}) {
+  // The agents are listed from the table rather than written out here, so the
+  // one place a row is added stays the one place (ADR 0018).
+  const offered = Object.keys(AGENTS)
   const role = values.agent ? { agent: values.agent } : product.models.implement
-  if (!role) throw new UsageError('no agent to plan with — set models.implement in product.json, or pass --agent claude|codex|gemini')
-  if (!Object.hasOwn(AGENTS, role.agent)) throw new UsageError(`unknown agent "${role.agent}" — expected claude, codex or gemini`)
+  if (!role) throw new UsageError(`no agent to plan with — set models.implement in product.json, or pass --agent ${offered.join('|')}`)
+  if (!Object.hasOwn(AGENTS, role.agent)) {
+    throw new UsageError(`"${role.agent}" is not an agent this version offers — it offers ${offered.join(', ')}; another is added once it has run a real task (ADR 0018)`)
+  }
 
   const was = before(product)
   const prompt = planPrompt(product, { next: nextIds(product), brief: words.join(' ').trim() || null })

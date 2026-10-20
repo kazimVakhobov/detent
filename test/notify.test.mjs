@@ -31,16 +31,20 @@ test('without a command, a desktop notifier is tried, and its absence is reporte
   const env = process.env.PATH
   try {
     process.env.PATH = bin
-    assert.deepEqual(notify({ dir: tmpdir(), notify: null }, details), {
-      sent: false,
-      via: null,
-      error: 'no notify command in product.json, and no desktop notifier answered',
-    })
-
     const name = process.platform === 'darwin' ? 'osascript' : 'notify-send'
+    assert.deepEqual(
+      notify({ dir: tmpdir(), notify: null }, details),
+      {
+        sent: false,
+        via: null,
+        error: `no notify command in product.json, and no desktop notifier answered on ${process.platform} (tried ${name})`,
+      },
+      `the platform is named, and so is what it tried: ${process.platform}`,
+    )
+
     writeFileSync(join(bin, name), `#!/bin/sh\necho "$@" > ${JSON.stringify(join(bin, 'called'))}\n`)
     chmodSync(join(bin, name), 0o755)
-    assert.deepEqual(notify({ dir: tmpdir(), notify: null }, details), { sent: true, via: name })
+    assert.deepEqual(notify({ dir: tmpdir(), notify: null }, details), { sent: true, via: name }, `${process.platform} reaches for ${name}`)
     assert.match(readFileSync(join(bin, 'called'), 'utf8'), /3 identical failures on test/)
   } finally {
     process.env.PATH = env
