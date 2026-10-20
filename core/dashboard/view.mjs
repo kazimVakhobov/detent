@@ -68,9 +68,10 @@ function numbersFor(id, head, groups) {
 // table is still reachable by typing one (ADR 0020 part 3).
 const opens = (id, slug) => el('a', { href: '#' + TASK_SECTION + '/' + id }, id + (slug ? ' ' + slug : ''))
 
-// A task in the queue, and why it is where it is. The same two cells serve
-// hold/ and failed/: one is detent waiting for a person, the other is a person
-// who has stopped waiting for detent.
+// A paused task, and why it stopped: the two cells "Waiting for you" is made
+// of. Queue draws the same tasks as cards, because a folder there has a third
+// of the width and a row that narrow hides what does not fit (\`queue.mjs\`);
+// here the table is the width of the page and a row holds its two cells.
 function queued(t) {
   return el('div', {}, el('strong', {}, opens(t.id, t.slug)), el('div', { class: 'muted' }, t.branch ? el('code', {}, t.branch) : ''))
 }
@@ -223,12 +224,10 @@ function render(s) {
   ]), 'no repositories')
   numbersFor('by-repo', 'Repository', n.byRepo)
 
-  table(document.getElementById('todo'), [['Task'], ['Repository']], s.queue.todo.map((t) => [opens(t.id, t.slug), t.repo || '—']), s.product.queue + '/todo/ is empty')
-  table(document.getElementById('hold'), [['Task'], ['Why']], s.queue.hold.map((t) => [queued(t), because(t, 'parked by hand')]), 'nothing paused')
-  table(document.getElementById('done'), [['Task'], ['Repository'], ['Outcome']],
-    s.queue.done.map((t) => [opens(t.id, t.slug), t.repo || '—', t.outcome ? status(t.outcome) : el('span', { class: 'muted' }, '—')]), s.product.queue + '/done/ is empty')
-  table(document.getElementById('failed'), [['Task'], ['Repository'], ['Why']],
-    s.queue.failed.map((t) => [queued(t), t.repo || '—', because(t, 'abandoned by hand')]), s.product.queue + '/failed/ is empty')
+  // The four folders, each task a card — and what the order of todo/ means,
+  // and how to make a task and run one, because this page does neither
+  // (\`queue.mjs\`).
+  drawQueue(s)
 
   numbersFor('by-model', 'Agent and model', n.byModel)
 

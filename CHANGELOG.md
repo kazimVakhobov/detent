@@ -47,6 +47,52 @@ Notable changes, newest first. The format follows
 
 ### Changed
 
+- **The queue is a queue you can read.** It was four tables of two or three
+  columns, each in about a third of the page's width, and each one hid
+  something. `because(t, parked)` built a cell as a stacked `div`, so in
+  `failed/` the words **abandoned by hand** sat under the height of the row
+  they were in and were never seen at all. A task read `0043
+  a-task-is-something-you-can-open` — a file name, not a name. `done/` was in
+  ascending id order, so the oldest thing you had finished was at the top.
+  Every task is a **card** now: the number and its name on one line, the path
+  under it, small, and every fact on a line of its own. **A card's rows do not
+  wrap** — `flex-wrap: nowrap` on both of them, so what is laid out in a row
+  stays in one row and anything longer than a row is a line, which is what
+  keeps a word from falling through a fold a row has. The name is derived from
+  the slug where it is drawn (`0043 · A task is something you can open`) and
+  **no `title` field was added to the frontmatter**: the slug already is the
+  name, and a second place to keep it is a second place to get it wrong. The
+  card carries what `Recent runs` carries about the same journal line — how
+  many attempts, what it cost, when it finished, the acceptance verdict — and
+  a task the journal has never seen says *that*, rather than showing dashes
+  that read like zeros. `todo/` stays in ascending task id with the line above
+  it saying that is the order a run takes them; `done/` and `failed/` open
+  newest first, by what the journal says finished and by the number when it
+  says nothing. **Any column sorts on a click**, the arrow says which and
+  which way, and the choice survives the three-second read because it is held
+  in the page rather than in the markup the read replaces — a sort of `todo/`
+  says the run order is unchanged, because `schedule()` sorts by `Number(id)`
+  and nothing on this page changes that. The four folders are still four
+  folders: a person moves files between them by hand, and a view that hid
+  which one a file was in would make that harder.
+- **The Queue section says how to make a task and how to run one**, because
+  the page cannot do either: the next number — one past the highest across the
+  four folders, which is the counter detent reads on disk — the file in this
+  product's own `todo/` in the shape `DESIGN.md` §4 gives, `detent plan` to be
+  talked through one, and `detent run` or `detent run <id>` to start it, each
+  with this product's own `--product` path in it and ready to copy. And it says
+  plainly that **the page does not run or move tasks**: detent has already read
+  this queue and moves these files by its own results, and a second writer of
+  them is a bug that arrives later disguised as a mystery (§12). Nothing in
+  this change writes — ADR 0015 fixed what the page may write and the queue is
+  not on that list.
+- The snapshot's queue entries now carry `attempts`, `cost`, `finished` and the
+  acceptance `verdict`. `snapshot()` was already reading each task's last
+  journal line for its outcome, its reason and the reviewer's doubts, and
+  dropping the rest — so a card in the queue could not say how many attempts a
+  task took while a table two sections away said it about the same run. Four
+  fields out of a line already read; nothing new is read, and nothing was
+  added to `state.json`.
 - **Overview answers "what now" rather than "what on average".** The landing
   section held one thing — the lifetime figures — and both of the questions a
   person actually opens the page with were somewhere else: what is running was

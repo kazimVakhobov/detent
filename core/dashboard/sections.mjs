@@ -60,15 +60,21 @@ export const SECTIONS = [
   {
     id: 'queue',
     nav: 'Queue',
-    // All four folders the snapshot reads. Two of them were read and thrown
-    // away: `done/` is detent's own bookkeeping, and `failed/` is where a
-    // person puts a task they abandon — detent never moves anything there.
+    // All four folders the snapshot reads, each task a card rather than a row:
+    // a column a third of the width wide cannot hold what the journal knows
+    // about a task, and what did not fit was not shown at all (`queue.mjs`).
+    //
+    // And under them, how to make a task and how to run one — because this
+    // page does neither, and the one thing a read-only view of a queue owes
+    // somebody is the command they came looking for.
     markup: `<div class="grid2">
-  <div><h2>Queue</h2><div class="scroll"><table id="todo"></table></div></div>
-  <div><h2>Paused — waiting for you</h2><div class="scroll"><table id="hold"></table></div></div>
-  <div><h2>Done</h2><div class="scroll"><table id="done"></table></div></div>
-  <div><h2>Abandoned by hand</h2><div class="scroll"><table id="failed"></table></div></div>
-</div>`,
+  <div><h2>Queue</h2><p class="muted" id="todo-order"></p><div class="cards" id="todo"></div></div>
+  <div><h2>Paused — waiting for you</h2><div class="cards" id="hold"></div></div>
+  <div><h2>Done</h2><div class="cards" id="done"></div></div>
+  <div><h2>Abandoned by hand</h2><div class="cards" id="failed"></div></div>
+</div>
+<h2>Making a task, and running one</h2>
+<div class="panel" id="queue-how"></div>`,
   },
   {
     id: TASK_SECTION,

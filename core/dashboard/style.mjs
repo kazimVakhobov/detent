@@ -89,6 +89,41 @@ main > section > h2:first-child { margin-top: 8px; }
 .run-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
 #next-up-order { margin: 0 0 8px; }
 
+/* The queue, as cards: one card per task, the number and its name on the one
+   row that reads like a title, and every fact on a line under it.
+
+   **A card's rows do not wrap.** flex-wrap: nowrap on both of them, so what is
+   laid out in a row stays in one row rather than silently becoming a second
+   line inside it — which is what the rows this replaces did to "abandoned by
+   hand" in failed/, where it sat under the height of its own row and was never
+   seen. Anything longer than a row is a .line instead, full width, wrapping
+   normally. Nothing is hidden to achieve it: a long name is clipped visibly and
+   is also on the path line below it in full, and a row of facts scrolls. */
+.cards { display: grid; gap: 8px; margin-bottom: 8px; }
+.cards .empty { background: var(--raised); border: 1px solid var(--line); border-radius: 8px; }
+.card { background: var(--raised); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.card-head, .card-head a { display: flex; flex-wrap: nowrap; align-items: baseline; gap: 6px; min-width: 0; }
+.card-head a { color: var(--accent); text-decoration: none; }
+.card-head .number { font-variant-numeric: tabular-nums; }
+.card-head .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .facts { display: flex; flex-wrap: nowrap; align-items: baseline; gap: 4px 14px; overflow-x: auto; margin-top: 4px; }
+.card .facts > span { white-space: nowrap; }
+.card .line { white-space: normal; overflow-wrap: anywhere; margin-top: 4px; }
+.card .path code { color: var(--muted); }
+#todo-order { margin: 0 0 8px; }
+#todo-order .look { color: var(--warning); }
+
+/* The headings a click sorts by: the chosen one is bold and carries the arrow
+   as well as a coloured border, because a control told apart by colour alone is
+   the same mistake as a status told apart by colour alone. */
+.sort { display: flex; flex-wrap: wrap; gap: 4px; }
+.sort button { font-size: 12px; padding: 2px 8px; }
+.sort button.chosen { border-color: var(--accent); font-weight: 600; }
+
+#queue-how .group:first-child { margin-top: 0; }
+#queue-how pre.body { margin: 8px 0; }
+#queue-how p { margin: 0; }
+
 /* One task, opened from any table that lists it (ADR 0020 part 3). Its body is
    a text node in a <pre> — detent renders no markdown, so a task file looks
    like the text file it is, and wraps rather than scrolling sideways. */

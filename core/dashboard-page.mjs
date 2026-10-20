@@ -5,15 +5,17 @@
 //
 // The source is `core/dashboard/`: the sections and the fragment that names one
 // (ADR 0020 part 1), the strip of what is wrong that no section hides, the
-// stylesheet, the rendering, one task opened by its number, what its agent is
-// saying while it says it (ADR 0021), and the configuration — read until a
-// person says otherwise, and written on request (ADR 0020 part 2). They are
+// stylesheet, the rendering, the queue as cards, one task opened by its number,
+// what its agent is saying while it says it (ADR 0021), and the configuration —
+// read until a person says otherwise, and written on request (ADR 0020
+// part 2). They are
 // composed here at import time, so what is served stays one page, one request,
 // no second asset, and the content security policy is unchanged (ADR 0020
 // part 4).
 
 import { CONFIGURATION } from './dashboard/configuration.mjs'
 import { LOG } from './dashboard/log.mjs'
+import { QUEUE } from './dashboard/queue.mjs'
 import { BODY, SHOW } from './dashboard/sections.mjs'
 import { STYLE } from './dashboard/style.mjs'
 import { TASK } from './dashboard/task.mjs'
@@ -46,7 +48,7 @@ refresh()
 setInterval(${POLL.call}, ${POLL.every})
 `
 
-export const SCRIPT = [SHOW, WARNINGS, VIEW, TASK, LOG, CONFIGURATION, START].join('\n')
+export const SCRIPT = [SHOW, WARNINGS, VIEW, QUEUE, TASK, LOG, CONFIGURATION, START].join('\n')
 
 export const PAGE = `<!doctype html>
 <html lang="en">

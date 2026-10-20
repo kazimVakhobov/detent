@@ -7,7 +7,9 @@ import { EDITABLE, NOT_EDITABLE, readConfiguration } from '../core/configure.mjs
 import { PAGE, POLL, SCRIPT } from '../core/dashboard-page.mjs'
 import { LIMITS } from '../core/dashboard/configuration.mjs'
 import { LOG_CLIP, LOG_LINES, LOG_QUIET } from '../core/dashboard/log.mjs'
+import { nextNumber, taskName } from '../core/dashboard/queue.mjs'
 import { SECTIONS, SECTION_IDS, TASK_SECTION, sectionFor, taskFor } from '../core/dashboard/sections.mjs'
+import { STYLE } from '../core/dashboard/style.mjs'
 import { NEXT_UP } from '../core/dashboard/view.mjs'
 import { warnings } from '../core/dashboard/warnings.mjs'
 import { schedule } from '../core/scheduler.mjs'
@@ -16,7 +18,7 @@ import { snapshotRefs } from '../core/git.mjs'
 import { openAttemptLog } from '../core/log.mjs'
 import { MODEL_SUGGESTIONS, PRODUCT_FILE, loadProduct } from '../core/product.mjs'
 import { snapshot } from '../core/snapshot.mjs'
-import { FOLDERS } from '../core/task.mjs'
+import { FOLDERS, parseTask } from '../core/task.mjs'
 import { claim, setAttempt } from '../core/state.mjs'
 import { openPage } from './support/page.mjs'
 import { gitProduct, sh } from './support/product.mjs'
@@ -101,7 +103,7 @@ test('the page loads nothing from outside and sets every value as text', () => {
 const BLOCKS = {
   overview: ['now', 'next-up-order', 'next-up', 'waiting', 'figures'],
   repositories: ['repos', 'by-repo'],
-  queue: ['todo', 'hold', 'done', 'failed'],
+  queue: ['todo-order', 'todo', 'hold', 'done', 'failed', 'queue-how'],
   task: ['task-detail', 'task-log-panel', 'task-log-state', 'task-log'],
   agents: ['by-model'],
   runs: ['recent'],
@@ -187,11 +189,12 @@ test('the fragment carries the task number, and a fragment that names none still
   assert.equal(taskFor(`#${TASK_SECTION}`), null)
   assert.equal(taskFor('#queue/0001'), null, 'no other section opens a task')
 
-  // Every table that lists a task opens it, and the detail is what the page
-  // fetches when one is.
+  // Everything that lists a task opens it, and the detail is what the page
+  // fetches when one is: the tables by the cell they put a link in, and the
+  // queue's cards by the head of the card.
   assert.match(SCRIPT, /const opens = \(id, slug\) => el\('a', \{ href: '#' \+ TASK_SECTION \+ '\/' \+ id \}/)
-  for (const table of ['todo', 'done']) assert.match(SCRIPT, new RegExp(String.raw`s\.queue\.${table}\.map\(\(t\) => \[opens\(t\.id, t\.slug\)`), table)
-  for (const table of ['hold', 'failed']) assert.match(SCRIPT, new RegExp(String.raw`s\.queue\.${table}\.map\(\(t\) => \[queued\(t\)`), table)
+  assert.match(SCRIPT, /el\('a', \{ href: '#' \+ TASK_SECTION \+ '\/' \+ task\.id, title: task\.id \+ ' · ' \+ name \}/)
+  assert.match(SCRIPT, /s\.queue\.hold\.map\(\(t\) => \[queued\(t\)/)
   assert.match(SCRIPT, /function queued\(t\) \{\n\s*return el\('div', \{\}, el\('strong', \{\}, opens\(t\.id, t\.slug\)\)/)
   assert.match(SCRIPT, /s\.recent\.map\(\(r\) => \[when\(r\.finished\), opens\(r\.task, r\.slug\)/)
   assert.match(SCRIPT, new RegExp(String.raw`if \(current === TASK_SECTION\) \{\n\s*loadTask\(taskFor\(location\.hash\)\)\n\s*refreshLog\(\)\n\s*\}`))
@@ -284,14 +287,224 @@ test('all four folders are shown, and the per-repository numbers that were compu
   assert.deepEqual(snap.queue.failed.map((t) => t.id), ['0004'])
   assert.deepEqual(snap.numbers.byRepo.map((r) => [r.name, r.runs]), [['acme-api', 2]])
 
-  // Each of the four has a table of its own in the queue section, and the
-  // numbers by repository have one beside the repositories.
+  // Each of the four has a list of cards of its own in the queue section, and
+  // the numbers by repository have a table beside the repositories.
   for (const folder of FOLDERS) {
-    assert.ok(sectionOf('queue').includes(`<table id="${folder}">`), folder)
+    assert.ok(sectionOf('queue').includes(`<div class="cards" id="${folder}">`), folder)
   }
   assert.ok(sectionOf('repositories').includes('<table id="by-repo">'))
   assert.match(SCRIPT, /numbersFor\('by-repo', 'Repository', n\.byRepo\)/)
-  for (const folder of FOLDERS) assert.match(SCRIPT, new RegExp(String.raw`s\.queue\.${folder}\.map`), folder)
+  for (const folder of FOLDERS) assert.match(SCRIPT, new RegExp(String.raw`cards\('${folder}', shown\.queue\.${folder}`), folder)
+})
+
+// ——— The queue is four folders of cards, and the two commands the page does
+// not run (§12).
+
+// All four folders filled, and a journal that has a line for some of these
+// tasks and none for the others — which is the state a real queue is in.
+function filled() {
+  const s = setup()
+  for (const folder of FOLDERS) mkdirSync(join(s.dir, 'tasks', folder), { recursive: true })
+  const put = (folder, name) => writeFileSync(join(s.dir, 'tasks', folder, name), `---\nid: ${name.split('-')[0]}\nrepo: acme-api\n---\n\n# Acceptance criteria\n\n- [ ] x\n`)
+  put('done', '0001-first.md')
+  put('done', '0005-a-task-is-something-you-can-open.md')
+  put('failed', '0004-gone.md')
+  put('failed', '0006-abandoned-after-a-doubt.md')
+  appendJournal(s.dir, journalLine({
+    task: '0005', slug: 'a-task-is-something-you-can-open', outcome: 'passed',
+    attempts: 2, cost: { usd: 1.5, tokens: null }, finished: '2026-10-07T09:00:00Z',
+  }))
+  appendJournal(s.dir, journalLine({
+    task: '0006', slug: 'abandoned-after-a-doubt', outcome: 'rejected', attempts: 3,
+    reason: 'the acceptance pass raised a doubt: the rounding is still wrong',
+    branch: 'agent/task-0006-abandoned-after-a-doubt', finished: '2026-10-08T09:00:00Z',
+    acceptance: { verdict: 'rejected', doubts: ['the rounding is still wrong'] },
+  }))
+  return s
+}
+
+const journalLine = (o) => ({
+  kind: 'task', repo: 'acme-api', attempts: 1, lock: 'enforced',
+  models: { implement: { agent: 'claude', requested: null, actual: 'claude-opus-5' } },
+  cost: { usd: 0.1, tokens: null }, acceptance: { verdict: 'accepted', doubts: [] }, ...o,
+})
+
+const cardsIn = (page, folder) => page.node(folder).all((n) => n.className === 'card')
+const headOf = (card) => card.all((n) => n.className === 'card-head')[0]
+const numbersIn = (page, folder) => cardsIn(page, folder).map((card) => headOf(card).textContent.split(' ')[0])
+const cardFor = (page, folder, id) => cardsIn(page, folder).find((card) => headOf(card).textContent.startsWith(id + ' '))
+const linesOf = (card) => card.children.filter((child) => child.className.includes('line')).map((child) => child.textContent)
+
+test('a task in the queue is a card: the number and its name on one line, and the facts in a row under it', async () => {
+  const s = filled()
+  await dashboard(s, async (base) => {
+    const page = openPage(base)
+    await page.settle()
+
+    // The head is the one row that has to read like a title, and it is a link
+    // to the task, as every list of tasks on this page is.
+    const card = cardFor(page, 'done', '0005')
+    assert.equal(headOf(card).textContent, '0005 · A task is something you can open')
+    assert.equal(headOf(card).all((n) => n.tag === 'a')[0].getAttribute('href'), `#${TASK_SECTION}/0005`)
+    // The path stays visible, small, for whoever opens the file.
+    assert.deepEqual(linesOf(card).filter((text) => text.includes('.md')),
+      ['tasks/done/0005-a-task-is-something-you-can-open.md'])
+
+    // And what `Recent runs` says about the same journal line, all of it in
+    // one row of the card: the snapshot passes attempts, cost and finished out
+    // of the line it was already reading.
+    const facts = card.all((n) => n.className === 'facts')
+    assert.equal(facts.length, 1, 'the facts are one row and not several')
+    assert.deepEqual(facts[0].children.map((child) => child.textContent),
+      ['✓passed', 'acme-api', '2 attempts', '$1.50', 'finished ' + new Date('2026-10-07T09:00:00Z').toLocaleString(), 'acceptance: accepted'])
+
+    // Which is the same run `Recent runs` draws, from the same line.
+    assert.match(page.text('recent'), /2 attempts|0005/)
+  })
+})
+
+test('a card row does not wrap, so the reason a task is in failed/ is on the card and not under the height of a row', async () => {
+  const s = filled()
+  await dashboard(s, async (base) => {
+    const page = openPage(base)
+    await page.settle()
+
+    // The case this fixes: a task a person abandoned, which the journal has no
+    // line for. The words sat under the height of the row they were in and
+    // were never seen; they are a line of the card now.
+    const gone = cardFor(page, 'failed', '0004')
+    assert.deepEqual(linesOf(gone), [
+      'tasks/failed/0004-gone.md',
+      'abandoned by hand',
+      'the journal has not seen this task — nothing has run it',
+    ])
+
+    // And a task abandoned after the acceptance pass sent it back says what it
+    // said: the doubt, and the branch the work is still on.
+    const doubted = cardFor(page, 'failed', '0006')
+    assert.match(doubted.textContent, /the rounding is still wrong/)
+    assert.match(doubted.textContent, /agent\/task-0006-abandoned-after-a-doubt/)
+    assert.deepEqual(doubted.all((n) => n.tag === 'li').map((n) => n.textContent), ['the rounding is still wrong'])
+
+    // What keeps it there: a card's rows do not wrap, so nothing in one
+    // becomes a silent second line, and anything longer than a row is a line.
+    assert.match(STYLE, /\.card-head, \.card-head a \{[^}]*flex-wrap: nowrap/)
+    assert.match(STYLE, /\.card \.facts \{[^}]*flex-wrap: nowrap/)
+    assert.match(STYLE, /\.card \.line \{[^}]*white-space: normal/)
+  })
+})
+
+test('the readable name is the slug, and no field is added to the frontmatter to hold it', () => {
+  // The function the page runs, called here: it is serialised into the script.
+  assert.ok(SCRIPT.includes(String(taskName)), 'the page runs some other copy of it')
+  assert.equal(taskName('a-task-is-something-you-can-open'), 'A task is something you can open')
+  assert.equal(taskName('first'), 'First')
+  assert.equal(taskName(''), 'no name')
+
+  // The slug already is the name, so the frontmatter gains nothing: a second
+  // place to keep it is a second place to get it wrong.
+  const { problems } = parseTask('---\nid: 0001\nrepo: acme-api\ntitle: A task\n---\n\n# Acceptance criteria\n\n- [ ] x\n', { id: '0001', slug: 'a-task' })
+  assert.match(problems.join('\n'), /frontmatter key "title" is unknown/)
+  // And the page reads the name off the slug rather than out of a field: the
+  // first line of `# Goal` is not a name either.
+  assert.match(SCRIPT, /const name = taskName\(task\.slug\)/)
+})
+
+test('todo/ is in run order and says so; done/ and failed/ are newest first', async () => {
+  const s = filled()
+  writeFileSync(where(s, '00011-eleven.md'), todoTask('00011'))
+  writeFileSync(where(s, '0007-shared.md'), todoTask('0007', true))
+
+  await dashboard(s, async (base) => {
+    const page = openPage(base)
+    await page.settle()
+
+    // Ascending task id, which is what `schedule()` sorts by — and the line
+    // above the folder says that is the order a run takes them, because a list
+    // that looks arbitrary teaches the wrong thing about how the queue works.
+    assert.deepEqual(numbersIn(page, 'todo'), ['0003', '0007', '00011'])
+    assert.match(page.text('todo-order'), /^A run takes these in ascending task id, and a barrier alone\.$/)
+    assert.match(cardFor(page, 'todo', '0007').textContent, /barrier — runs alone, and nothing queued after it starts/)
+
+    // Newest first, by what the journal says finished: the oldest thing you
+    // finished is not what a list of finished work is for. A task the journal
+    // never dated has no date to sort by, so it falls back to its number.
+    assert.deepEqual(numbersIn(page, 'done'), ['0005', '0001'])
+    assert.deepEqual(numbersIn(page, 'failed'), ['0006', '0004'])
+  })
+})
+
+test('a column sorts on a click, the arrow says which and which way, and the choice survives the refresh', async () => {
+  const s = filled()
+  await dashboard(s, async (base) => {
+    const page = openPage(base)
+    await page.settle()
+    const heading = (folder, label) => page.node(folder).all((n) => n.tag === 'button').find((b) => b.textContent.startsWith(label))
+
+    // Which column and which way, on the heading that is in force.
+    assert.match(heading('done', 'Finished').textContent, /▼$/)
+    assert.equal(heading('done', 'Finished').getAttribute('aria-pressed'), 'true')
+    assert.equal(heading('done', 'Task').getAttribute('aria-pressed'), 'false')
+
+    // Another column takes the way it reads first; the same one again turns
+    // round.
+    await heading('done', 'Task').click()
+    assert.deepEqual(numbersIn(page, 'done'), ['0001', '0005'])
+    assert.match(heading('done', 'Task').textContent, /▲$/)
+    assert.equal(heading('done', 'Finished').getAttribute('aria-pressed'), 'false')
+    await heading('done', 'Task').click()
+    assert.deepEqual(numbersIn(page, 'done'), ['0005', '0001'])
+    assert.match(heading('done', 'Task').textContent, /▼$/)
+
+    // The page redraws every three seconds, and the choice is not redrawn
+    // away: a list that reordered itself under a reader would be worse than no
+    // sort at all. The click read nothing, either.
+    const read = page.reads.length
+    await page.refresh()
+    assert.deepEqual(numbersIn(page, 'done'), ['0005', '0001'])
+    assert.match(heading('done', 'Task').textContent, /▼$/)
+    assert.equal(page.reads.length - read, 2, 'the snapshot and the configuration — and nothing for a sort')
+
+    // A sort of todo/ never changes what a run does, and the line says so
+    // rather than letting the order on the screen imply it.
+    await heading('todo', 'Name').click()
+    assert.match(page.text('todo-order'), /^A run takes these in ascending task id, and a barrier alone\./)
+    assert.match(page.text('todo-order'), /Sorted here by name — the order a run takes them is unchanged\.$/)
+  })
+})
+
+test('the section says how to make a task and how to run one, in this product own paths', async () => {
+  // A queue that is not at `tasks/`: what the page says to type is read from
+  // the product, never from a literal (ADR 0012).
+  const s = gitProduct({}, { queue: 'agent-loop/tasks' })
+  mkdirSync(join(s.dir, 'agent-loop', 'tasks', 'todo'), { recursive: true })
+  writeFileSync(join(s.dir, 'agent-loop', 'tasks', 'todo', '0003-next.md'), todoTask('0003'))
+
+  assert.equal(nextNumber(snapshot(s.product).queue), '0004', 'one past the highest in all four folders')
+  assert.ok(SCRIPT.includes(String(nextNumber)), 'the page runs some other copy of it')
+
+  await dashboard(s, async (base) => {
+    const page = openPage(base)
+    await page.settle()
+    const how = page.text('queue-how')
+
+    // The number, the file in this product's own todo/, and the shape §4 gives.
+    assert.match(how, /The next number is 0004, one past the highest in all four folders/)
+    assert.match(how, /agent-loop\/tasks\/todo\/0004-<slug>\.md/)
+    assert.match(how, /id: 0004\nrepo: acme-api\ntouches_contract: false/)
+    assert.match(how, /# Acceptance criteria/)
+
+    // And the commands, for this product, ready to copy.
+    assert.ok(how.includes(`detent plan --product ${s.product.dir}`), how)
+    assert.ok(how.includes(`detent run --product ${s.product.dir}`))
+    assert.ok(how.includes(`detent run 0004 --product ${s.product.dir}`))
+
+    // Said plainly, because the page is not a second writer of these files
+    // (§12): it does not run or move a task, and nothing here writes.
+    assert.match(how, /This page does not run or move tasks\./)
+    assert.match(how, /moves these files between the four folders by its own results/)
+    assert.deepEqual(page.reads.filter((read) => !read.startsWith('GET ')), [])
+  })
 })
 
 // ——— Overview answers "what now": what is running, what is next, what is
@@ -598,11 +811,12 @@ test('the detail is a read: it is not polled, and state.json gains nothing', asy
   // opened, so no key of it is in the state the timer reads.
   const snap = snapshot(s.product)
   assert.deepEqual(Object.keys(snap).filter((key) => /task|detail|body|goal|criteria/i.test(key)), [])
-  // What a queue entry is: its identity, where it stands and whether it runs
-  // alone. Not its body, its goal or its criteria — those are the detail, and
-  // the detail is fetched when a task is opened.
+  // What a queue entry is: its identity, what the journal's last line for it
+  // says, and whether it runs alone. Not its body, its goal or its criteria —
+  // those are the detail, and the detail is fetched when a task is opened.
   for (const t of snap.queue.todo) {
-    assert.deepEqual(Object.keys(t), ['id', 'slug', 'repo', 'outcome', 'reason', 'doubts', 'branch', 'touchesContract'])
+    assert.deepEqual(Object.keys(t),
+      ['id', 'slug', 'repo', 'outcome', 'reason', 'doubts', 'verdict', 'branch', 'attempts', 'cost', 'finished', 'touchesContract'])
   }
   assert.doesNotMatch(SCRIPT, new RegExp(String.raw`setInterval\((?!${POLL.call})`))
 
