@@ -286,22 +286,49 @@ function hanging(name, script) {
   return { ...process.env, PATH: `${bin}:${process.env.PATH}` }
 }
 
-// The only test here that looks at what the fake CLI did rather than only at
-// what detent returned, so its limit has to clear process startup: `sh` can
-// take half a second to reach its first line from a temporary directory on
-// macOS, and a shorter limit kills the fixture before it records anything.
-// Two seconds is still a fifteenth of the sleep it stands in for.
-test('a call past its limit is stopped with everything it started, and says which limit', async () => {
-  const pidfile = join(mkdtempSync(join(tmpdir(), 'detent-pid-')), 'pid')
-  // The way an agent runs a command: a child that holds the output open. The
-  // pid is written first, so it is there however slowly the shell started.
-  const env = hanging('claude', `sleep 30 & echo $! > ${pidfile}; cat > /dev/null; wait`)
+// The limit and what it reaches are two tests rather than one, because they
+// want opposite things from the clock. A limit starts when detent spawns the
+// agent, so a test that also reads what the fixture recorded has to out-wait
+// process startup — and under the whole suite `sh` can take seconds to reach
+// its first line, which no limit short enough to keep this test quick will
+// clear. Nothing is lost by separating them: a limit and `stopAgents` differ
+// in what starts them, not in what they signal, and both go through
+// signalGroup. So the limit is checked on its own below, and what the signal
+// reaches is checked where the test can wait for the fixture to be ready
+// before anything is stopped.
+test('a call past its limit is stopped, and says which limit', async () => {
+  const env = hanging('claude', 'cat > /dev/null; sleep 30')
   const started = Date.now()
-  const result = await invoke({ agent: 'claude' }, { cwd, prompt: 'x', env, timeoutMs: 2000 })
+  const result = await invoke({ agent: 'claude' }, { cwd, prompt: 'x', env, timeoutMs: 500 })
   assert.ok(Date.now() - started < 5000, 'it did not wait for the agent')
   assert.equal(result.ok, false)
-  assert.equal(result.error, 'claude ran past the 2.0-second limit and was stopped')
-  const child = Number(readFileSync(pidfile, 'utf8'))
+  assert.equal(result.error, 'claude ran past the 0.5-second limit and was stopped')
+})
+
+test('stopping an agent stops what the agent started', async () => {
+  const pidfile = join(mkdtempSync(join(tmpdir(), 'detent-pid-')), 'pid')
+  // The way an agent runs a command: a child that holds the output open. The
+  // pid is written first, and nothing is stopped until the test has read it,
+  // so how long the shell took to start does not decide the outcome.
+  const env = hanging('claude', `sleep 30 & echo $! > ${pidfile}; cat > /dev/null; wait`)
+  const call = invoke({ agent: 'claude' }, { cwd, prompt: 'x', env })
+  // A file can exist before it has been written to, so the number is what is
+  // waited for, not the path.
+  const written = () => {
+    try {
+      return Number(readFileSync(pidfile, 'utf8').trim())
+    } catch {
+      return 0
+    }
+  }
+  for (let i = 0; i < 200 && !written(); i += 1) await new Promise((r) => setTimeout(r, 50))
+  const child = written()
+  assert.ok(child > 0, 'the fixture started, and said what it started')
+
+  stopAgents('SIGTERM')
+  const result = await call
+  assert.equal(result.ok, false)
+  assert.match(result.error, /SIGTERM/)
   // Signal 0 asks whether a pid can be signalled, and a process that has
   // exited and not been reaped still can. Its parent is the shell detent just
   // stopped, so nothing here can wait for it, and how long it lingers belongs
