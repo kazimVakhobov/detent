@@ -30,19 +30,6 @@ Notable changes, newest first. The format follows
   reason the page could not say that a task in the queue runs alone. Nothing
   new is read, and nothing was added to `state.json`.
 
-### Fixed
-
-- A test of the agent time limit failed about one run of the suite in three, on
-  nothing the product did. It asked one test for two things that want opposite
-  things from the clock: that a short limit bites, and that the signal reached
-  the command the agent had started — which meant reading a file the fixture
-  writes on its first line, and under a loaded suite a shell can take longer to
-  reach its first line than the limit allows it. They are two tests now. The
-  limit keeps its own, and what the signal reaches is checked through
-  `stopAgents`, after the test has waited for the fixture to say it is ready —
-  the same `signalGroup` either way, with nothing left for process startup to
-  decide.
-
 ## 0.6.0 — 2026-10-20
 
 The release where the product stopped claiming three agents and the dashboard
