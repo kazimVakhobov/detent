@@ -1144,8 +1144,6 @@ The sections are:
   command, ready to copy. **It does not run or move tasks**: detent has
   already read this queue and moves these files by its own results, and a
   second writer of them is a bug that arrives later disguised as a mystery.
-- **Task** — one task, opened by its number: what its attempts did first, the
-  body under it, and under that what its agent is saying while it says it.
 - **Agents** — runs, passes, attempts and cost per pass, per agent and model.
 - **Recent runs** — the last fifteen, newest first.
 - **Configuration** — what the file says, read as text, and beside it the keys
@@ -1164,12 +1162,47 @@ nothing, and nothing rewrites it: a page that corrects the address bar loses
 the one thing the fragment was for.
 
 **A task can be opened**, from every table that lists one — `todo/`, the paused
-tasks, `done/`, `failed/` and the recent runs — and by a fragment of the shape
-`#task/0042`, so a link to one task is a link somebody can send and reload. The
-head is **a number and a name** — `0043 · A task is something you can open`,
-off the slug by the helper the queue's cards use, with the folder and the path
-still beside it, small, because the path is what opens the file and the line
-above it is not a file name any more.
+tasks, `done/`, `failed/` and the recent runs — so a link to one task is a link
+somebody can send and reload. The head is **a number and a name** —
+`0043 · A task is something you can open`, off the slug by the helper the
+queue's cards use, with the folder and the path still beside it, small, because
+the path is what opens the file and the line above it is not a file name any
+more.
+
+**It opens over the section you were on.** The detail is a **drawer**, not a
+section of its own: a person is in Queue comparing four folders, opens a task,
+and the list has to still be there when they close it — including which row
+they were on and which ones they had already looked at
+([ADR 0022](docs/adr/0022-the-task-detail-is-a-drawer-over-the-section-you-were-on.md)).
+So the section behind it stays rendered and stays where it was, nothing about
+it is touched while the drawer is up, and closing returns to it with nothing to
+restore because nothing was torn down. It is a drawer and nothing else: the
+detail is not also reachable as a section, because two ways to see one task
+would be two code paths free to disagree about what a task is.
+
+**The fragment names both**: `#<section>/task/<number>`, which is where the
+grammar ADR 0020 established had to grow — a fragment names where you are, and
+where you are is now two things. A fragment with no task is the bare section,
+exactly as it was. The two parts are read apart and half a fragment opens
+nothing: an unknown section with a good number and a good section with a bad
+one both **land on a section** by the rule above, and neither is corrected.
+`#task/0043` — the shape the detail shipped with as a section — names nothing
+now and lands on a section, which is that rule working and is still a link that
+used to go somewhere.
+
+**Closing it rewrites the fragment to the bare section.** That is not the
+landing rule bending: landing is the page guessing at something somebody typed,
+and closing is a person acting on the page — leaving `#queue/task/0043` in the
+address bar after they closed it would be the page lying about where they are.
+**Escape closes it, and so does a control in its head** that says `Close`,
+because a panel covering content with no obvious way back is worse than the
+section that got replaced. **On a narrow screen the drawer is the screen** —
+the section replacement this exists to avoid, arriving through the viewport
+instead of through the navigation; it is the right behaviour there, which means
+the improvement is partly a desktop one, and the head it is closed from sticks
+to the top so the way out stays reachable. Nothing animates and nothing
+transitions. A drawer is a positioned element and a `hidden` attribute: no
+router, no second asset, and the same one request.
 
 **It leads with its runs.** What its attempts did is the first block, directly
 under the head and before the frontmatter and the body: a person opening a task
@@ -1224,7 +1257,10 @@ number of lines, oldest off the top; and each line is clipped, because a tool
 result the agent read in full is not a line somebody scans. Each event is read
 for display and for nothing else, and a line that will not parse is shown as it
 arrived. It lives here and nowhere else: a transcript with no task attached is a
-log viewer, which is not what this is for.
+log viewer, which is not what this is for. It **moved with the detail** into the
+drawer, and a drawer is where it is drawn rather than a change to how it is
+read: the same one timer, the same request, and the same ask to carry on from
+the byte the last answer ended at.
 
 **It says which of three states it is in, in a sentence above the lines.** Not
 running: what is shown is what the last attempt said, not something happening

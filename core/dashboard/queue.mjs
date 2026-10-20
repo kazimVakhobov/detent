@@ -121,7 +121,7 @@ function card(task, folder, s, parked) {
 
   return el('div', { class: 'card' },
     el('div', { class: 'card-head' },
-      el('a', { href: '#' + TASK_SECTION + '/' + task.id, title: task.id + ' · ' + name },
+      el('a', { href: taskHash('queue', task.id), title: task.id + ' · ' + name },
         el('strong', { class: 'number' }, task.id), ' · ', el('span', { class: 'name' }, name))),
     el('div', { class: 'line path' }, el('code', {}, s.product.queue + '/' + folder + '/' + task.id + '-' + task.slug + '.md')),
     facts.length ? el('div', { class: 'facts' }, facts) : null,

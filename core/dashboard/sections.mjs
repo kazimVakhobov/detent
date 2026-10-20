@@ -7,11 +7,19 @@
 // Every section is in the document from the start and all but one is `hidden`.
 // The page renders into all of them whether they are shown or not, so showing
 // one is an attribute and never a fetch.
+//
+// **One task is a drawer over the section, not a section of its own**
+// (ADR 0022). A person is in Queue working down a list, opens a task, and the
+// list has to still be there when they close it — so the detail is drawn over
+// whichever section is showing, the section behind it is not touched, and
+// closing it is nothing to restore. The fragment carries both: a section, and
+// the task open over it.
 
-// The one section a fragment may name with something after it: the task
-// detail, which is one task of many and so cannot be named by a section id
-// alone. `#task/0042`, and nothing else in the page has that shape.
-export const TASK_SECTION = 'task'
+// The word a fragment puts between the section a task was opened from and the
+// number it opens: `#queue/task/0043`. Not a section id — `SECTIONS` has no
+// entry for the detail, because two ways to see one task would be two code
+// paths free to disagree about what a task is (ADR 0022).
+export const TASK_PART = 'task'
 
 export const SECTIONS = [
   {
@@ -77,28 +85,6 @@ export const SECTIONS = [
 <div class="panel" id="queue-how"></div>`,
   },
   {
-    id: TASK_SECTION,
-    nav: 'Task',
-    // One task, opened from any table that lists it (ADR 0020 part 3): its
-    // frontmatter, its goal, its criteria, its out-of-scope and what its
-    // attempts did. The fragment carries the number — `#task/0042` — so a link
-    // to one task is a link somebody can send and reload. It is fetched when a
-    // task is opened and never polled; `state.json` gains nothing.
-    //
-    // And under it, what the agent is saying while it says it (ADR 0021) — the
-    // one thing in this section that *is* polled, because it is the one thing
-    // that changes under a reader. It lives here and nowhere else: a transcript
-    // with no task attached is a log viewer, which is not what this is for.
-    // Hidden until a task is open, for the same reason.
-    markup: `<h2>Task</h2>
-<div class="panel" id="task-detail"></div>
-<div class="panel log-panel" id="task-log-panel" hidden>
-  <div class="legend">What the agent is saying</div>
-  <div class="status" id="task-log-state"></div>
-  <pre class="body log" id="task-log"></pre>
-</div>`,
-  },
-  {
     id: 'agents',
     nav: 'Agents',
     markup: `<h2>Agents</h2>
@@ -139,33 +125,67 @@ export const SECTIONS = [
 
 export const SECTION_IDS = SECTIONS.map((s) => s.id)
 
-// Which section a fragment names.
+// One task, over whichever section is showing (ADR 0022): what its attempts
+// did, its frontmatter, its goal, its criteria and its out-of-scope. It is
+// fetched when a task is opened and never polled; `state.json` gains nothing.
+//
+// And under it, what the agent is saying while it says it (ADR 0021) — the one
+// part of a task that *is* polled, because it is the one part that changes
+// under a reader. It lives here and nowhere else: a transcript with no task
+// attached is a log viewer, which is not what this is for. **A drawer is where
+// it is drawn and not a change to how it is read**: the same one timer, the
+// same request, the same byte offset to carry on from.
+//
+// The head holds the way out, because a panel that covers content with no
+// obvious way back is worse than the section that got replaced. Escape is the
+// other way out, and the two are one function.
+export const DRAWER = `<aside id="task-drawer" class="drawer" aria-label="Task" hidden>
+  <div class="drawer-head">
+    <h2>Task</h2>
+    <button type="button" id="task-close" class="quiet">Close</button>
+  </div>
+  <div class="panel" id="task-detail"></div>
+  <div class="panel log-panel" id="task-log-panel" hidden>
+    <div class="legend">What the agent is saying</div>
+    <div class="status" id="task-log-state"></div>
+    <pre class="body log" id="task-log"></pre>
+  </div>
+</aside>`
+
+// Which section a fragment names: what is before the first slash, and the
+// first section when that is not one of them.
 //
 // An absent or unrecognised fragment is the first section rather than nothing,
-// and nothing rewrites `location.hash`: a link somebody typed stays as they
-// typed it even when it names no section here, because a page that corrects
-// the address bar loses the one thing the fragment was for.
-//
-// The detail section also answers to its name and a number. Which section is
-// shown and which task it shows are two questions, and this answers the first
-// — so `#task`, `#task/0042` and `#task/nope` all land on the detail, and only
-// the middle one opens anything.
+// and nothing rewrites `location.hash` on arrival: a link somebody typed stays
+// as they typed it even when it names no section here, because a page that
+// corrects the address bar loses the one thing the fragment was for. The
+// grammar grew a second part (ADR 0022) and that rule covers every new way of
+// getting it wrong — `#nope/task/0043` and `#queue/task/nope` both land on a
+// section, and neither is corrected.
 //
 // This is the function the page runs — it is serialised into the script below,
 // so what a test calls and what a browser calls are the same code.
-export function sectionFor(hash, ids, numbered = TASK_SECTION) {
-  const name = String(hash || '').replace(/^#/, '')
-  if (ids.includes(name)) return name
-  if (name.split('/')[0] === numbered && ids.includes(numbered)) return numbered
-  return ids[0]
+export function sectionFor(hash, ids) {
+  const name = String(hash || '').replace(/^#/, '').split('/')[0]
+  return ids.includes(name) ? name : ids[0]
 }
 
-// Which task a fragment opens, or null for a fragment that opens none. Digits
-// after the detail section's own name and nothing else: the number stays a
-// number here too, and `#task/../x` names no task.
-export function taskFor(hash, numbered = TASK_SECTION) {
-  const match = /^#?([a-z-]+)\/(\d+)$/.exec(String(hash || ''))
-  return match && match[1] === numbered ? match[2] : null
+// Which task a fragment opens over that section, or null for a fragment that
+// opens none. The whole of what follows the section has to be `task/<digits>`,
+// after a section this page has: half a fragment opens nothing rather than
+// something guessed from its readable half, and the number stays a number —
+// `#queue/task/../x` names no task.
+export function taskFor(hash, ids) {
+  const [name, part, number, ...rest] = String(hash || '').replace(/^#/, '').split('/')
+  if (!ids.includes(name) || part !== TASK_PART || rest.length > 0) return null
+  return /^\d+$/.test(number) ? number : null
+}
+
+// The fragment a row links to: the section it is being opened from, and the
+// number. One task is a link somebody can send and reload, as it was when the
+// detail was a section — what it now says is where it opens.
+export function taskHash(section, id) {
+  return '#' + section + '/' + TASK_PART + '/' + id
 }
 
 const indent = (text, by) => text.split('\n').map((line) => (line === '' ? line : by + line)).join('\n')
@@ -182,16 +202,19 @@ ${SECTIONS.map((s) => `    <a href="#${s.id}">${s.nav}</a>`).join('\n')}
   <div class="alerts" id="alerts"></div>
 ${SECTIONS.map((s) => `  <section id="${s.id}" hidden>\n${indent(s.markup, '    ')}\n  </section>`).join('\n')}
   <footer id="footer"></footer>
-</main>`
+</main>
+${DRAWER}`
 
-export const SHOW = `// The sections, and the fragment that names one.
+export const SHOW = `// The sections, the fragment that names one, and the drawer a task opens in.
 const SECTION_IDS = ${JSON.stringify(SECTION_IDS)}
 const SECTION_NAMES = ${JSON.stringify(Object.fromEntries(SECTIONS.map((s) => [s.id, s.nav])))}
-const TASK_SECTION = ${JSON.stringify(TASK_SECTION)}
+const TASK_PART = ${JSON.stringify(TASK_PART)}
 
 ${sectionFor}
 
 ${taskFor}
+
+${taskHash}
 
 function showSection() {
   const current = sectionFor(location.hash, SECTION_IDS)
@@ -200,15 +223,39 @@ function showSection() {
     if (link.hash === '#' + current) link.setAttribute('aria-current', 'page')
     else link.removeAttribute('aria-current')
   }
-  // The only things showing a section fetches, and only when it is the one
-  // being shown: a task is not in the snapshot (ADR 0020 part 3), and what its
-  // agent is saying is read here as well as on the timer, so that opening a
-  // task does not mean waiting for the next tick to see anything (ADR 0021).
-  if (current === TASK_SECTION) {
-    loadTask(taskFor(location.hash))
-    refreshLog()
-  }
+  showDrawer()
+}
+
+// The drawer over it. **Nothing here touches the section behind it** — it is
+// already drawn, it keeps its own scroll and its own sort, and that is the
+// whole of what a drawer is for (ADR 0022).
+//
+// The only things it fetches, and only when a task is open: the task, which is
+// not in the snapshot (ADR 0020 part 3), and what its agent is saying, which is
+// read here as well as on the timer so that opening one does not mean waiting
+// for the next tick to see anything (ADR 0021).
+function showDrawer() {
+  const number = taskFor(location.hash, SECTION_IDS)
+  document.getElementById('task-drawer').hidden = number === null
+  if (number === null) return
+  loadTask(number)
+  refreshLog()
+}
+
+// Closing it is a person acting on the page, so the fragment follows them to
+// the bare section: leaving \`#queue/task/0043\` in the address bar after they
+// closed it would be the page lying about where they are. **Landing is the
+// other way round and is untouched** — a page that corrects a fragment
+// somebody typed loses the one thing the fragment was for, and that is about
+// arriving rather than about acting (ADR 0022).
+function closeTask() {
+  if (taskFor(location.hash, SECTION_IDS) === null) return
+  location.hash = '#' + sectionFor(location.hash, SECTION_IDS)
+  showDrawer()
 }
 
 window.addEventListener('hashchange', showSection)
+// Escape closes it, like the control in its head: a panel covering content with
+// no obvious way back is worse than the section that got replaced.
+window.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeTask() })
 `

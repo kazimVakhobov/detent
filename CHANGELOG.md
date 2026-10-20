@@ -47,6 +47,55 @@ Notable changes, newest first. The format follows
 
 ### Changed
 
+- **A task opens over the section you were reading, not instead of it.** 0043
+  made the detail a seventh section, which is what "one section at a time"
+  implied and what it was wrong about: a person in Queue working down a list
+  clicked a task and the list was gone — along with which row they were on and
+  which ones they had already looked at. The first report of it said exactly
+  that: *the page jumps somewhere and the thread is lost.* The detail is a
+  **drawer** over whichever section is showing now
+  ([ADR 0022](docs/adr/0022-the-task-detail-is-a-drawer-over-the-section-you-were-on.md)).
+  The section behind it stays rendered, keeps its scroll and its sort, and is
+  not drawn again — opening a task reads `task.json` and `log.json` and nothing
+  else — so closing is nothing to restore. **The fragment names both**:
+  `#<section>/task/<number>`, and a fragment with no task is the bare section
+  exactly as before. `sectionFor` was `ids.includes(name) ? name : ids[0]`, an
+  exact match on a name, and is the part before the first slash against that
+  same list; `taskFor` takes the section list too and wants the whole of what
+  follows to be `task/<digits>` after a section this page has, so half a
+  fragment opens nothing rather than the half of it that parses —
+  `#nope/task/0043` and `#queue/task/nope` both **land on a section**, which is
+  0041's rule covering every new way of getting the longer shape wrong, and
+  neither is corrected. **Closing rewrites the fragment to the bare section**,
+  which is the one thing on this page that writes `location.hash`: landing is
+  the page guessing at something somebody typed and closing is a person acting
+  on the page, and leaving `#queue/task/0043` in the address bar after they
+  closed it would be the page lying about where they are. **Escape closes it**,
+  and so does a `Close` control in its head, because a panel covering content
+  with no obvious way back is worse than the section that got replaced. **The
+  detail is a drawer and nothing else**: `SECTIONS` has lost its `task` entry
+  and the nav its `Task` link, because two ways to see one task would be two
+  code paths free to disagree about what a task is — the problem ADR 0020
+  part 2 spent a task removing from the configuration. Every list that opens a
+  task names the section it is drawn in — Overview's three blocks, the four
+  queue folders, the recent runs — written at the call rather than read off the
+  fragment, so a row's link cannot depend on what was on the screen when the
+  page last drew it. The log panel moved with the detail and is read exactly as
+  it was: the same one timer, the same request, the same ask to carry on from
+  the byte its last answer ended at. **On a narrow screen the drawer is the
+  screen** — the section replacement this exists to avoid, arriving through the
+  viewport instead of the navigation, which is the right behaviour there and
+  means the improvement is partly a desktop one; it is a `@media` rule rather
+  than a width that happens to overlap, and the head the drawer is closed from
+  sticks to the top so the way out stays reachable. No animation, no
+  transition, no library, no centred modal, no expanded row and no second tab:
+  ADR 0022 rejected each by name. A drawer is a positioned element and a
+  `hidden` attribute, so the page still has one timer, one document, one
+  request, no second asset and the content security policy ADR 0015 wrote.
+  **`#task/0043` — the fragment 0043 shipped, and anything already linking to a
+  task that way — no longer names anything.** It lands on a section, which is
+  the landing rule working, and it is a link shape that used to go somewhere
+  and now does not.
 - **Opening a task leads with what its runs cost.** `renderTask` built the
   detail in the order the file is written — head, frontmatter, goal, acceptance
   criteria, out-of-scope, and **last** `What its attempts did` — which is the

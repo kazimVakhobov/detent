@@ -8,7 +8,7 @@ import { PAGE, POLL, SCRIPT } from '../core/dashboard-page.mjs'
 import { LIMITS } from '../core/dashboard/configuration.mjs'
 import { LOG_CLIP, LOG_LINES, LOG_QUIET } from '../core/dashboard/log.mjs'
 import { nextNumber, taskName } from '../core/dashboard/queue.mjs'
-import { SECTIONS, SECTION_IDS, TASK_SECTION, sectionFor, taskFor } from '../core/dashboard/sections.mjs'
+import { DRAWER, SECTIONS, SECTION_IDS, TASK_PART, sectionFor, taskFor, taskHash } from '../core/dashboard/sections.mjs'
 import { STYLE } from '../core/dashboard/style.mjs'
 import { NEXT_UP } from '../core/dashboard/view.mjs'
 import { warnings } from '../core/dashboard/warnings.mjs'
@@ -104,11 +104,14 @@ const BLOCKS = {
   overview: ['now', 'next-up-order', 'next-up', 'waiting', 'figures'],
   repositories: ['repos', 'by-repo'],
   queue: ['todo-order', 'todo', 'hold', 'done', 'failed', 'queue-how'],
-  task: ['task-detail', 'task-log-panel', 'task-log-state', 'task-log'],
   agents: ['by-model'],
   runs: ['recent'],
   configuration: ['config', 'fixed'],
 }
+
+// And what is in no section, because it is drawn over one: the drawer a task
+// opens in, and the way out it carries (ADR 0022).
+const DRAWN_OVER = ['task-close', 'task-detail', 'task-log-panel', 'task-log-state', 'task-log']
 
 // What the served document says is in each section: everything between its
 // opening tag and the next closing one.
@@ -132,10 +135,20 @@ test('the page is sections: the nav, one block in exactly one of them, and nothi
     }
   }
 
-  // Nothing the page renders into is outside the sections, and no two things
-  // share an id — a mistake the split invites and a single literal could not
-  // make, because every module now writes markup of its own.
-  const drawn = Object.values(BLOCKS).flat()
+  // The drawer is in none of them and holds everything a task is: it is drawn
+  // over whichever section is showing, so a section that contained it would be
+  // the section the detail used to be (ADR 0022).
+  for (const block of DRAWN_OVER) {
+    assert.deepEqual(SECTION_IDS.filter((s) => sectionOf(s).includes(`id="${block}"`)), [], `${block} is inside a section`)
+    assert.ok(DRAWER.includes(`id="${block}"`), `${block} is not in the drawer`)
+  }
+  assert.ok(PAGE.includes(DRAWER), 'the drawer is served as it is written')
+  assert.equal(PAGE.indexOf('</main>') < PAGE.indexOf('<aside id="task-drawer"'), true, 'and over the sections, not among them')
+
+  // Nothing the page renders into is outside the sections and the drawer, and
+  // no two things share an id — a mistake the split invites and a single
+  // literal could not make, because every module now writes markup of its own.
+  const drawn = [...Object.values(BLOCKS).flat(), ...DRAWN_OVER]
   for (const [, id] of PAGE.matchAll(/<table id="([\w-]+)"/g)) {
     assert.ok(drawn.includes(id), `the page draws a table into ${id}, which no section claims`)
   }
@@ -152,14 +165,17 @@ test('the fragment names the section, an unknown one still lands somewhere, and 
 
   for (const id of SECTION_IDS) assert.equal(sectionFor(`#${id}`, SECTION_IDS), id)
   // Absent, empty, or a name this page has not got: the first section, which is
-  // a section rather than nothing. A number after a section that takes none is
-  // not that section either — only the detail answers to the longer shape.
-  for (const hash of [undefined, '', '#', '#nope', '#configuration/0003']) {
+  // a section rather than nothing.
+  for (const hash of [undefined, '', '#', '#nope', '#nope/task/0003']) {
     assert.equal(sectionFor(hash, SECTION_IDS), 'overview', JSON.stringify(hash))
   }
   // And what somebody typed stays as they typed it: a page that corrects the
-  // address bar loses the one thing the fragment was for.
-  assert.doesNotMatch(SCRIPT, /location\.hash\s*=|location\.replace|(?:replace|push)State/)
+  // address bar loses the one thing the fragment was for. The one thing that
+  // writes a fragment is a person closing the drawer, which is them acting on
+  // the page rather than the page correcting their arrival (ADR 0022).
+  assert.deepEqual(SCRIPT.match(/location\.hash\s*=/g).length, 1)
+  assert.match(SCRIPT, /function closeTask\(\) \{\n[^}]*\n\s*location\.hash = '#' \+ sectionFor\(location\.hash, SECTION_IDS\)\n/)
+  assert.doesNotMatch(SCRIPT, /location\.replace|(?:replace|push)State/)
   // Changing section is an attribute on markup already served.
   assert.doesNotMatch(SCRIPT, /addEventListener\('hashchange', (?!showSection)/)
   // Nothing is fetched to change section, with two exceptions the fragment
@@ -169,35 +185,49 @@ test('the fragment names the section, an unknown one still lands somewhere, and 
     ['configuration.json', 'configuration.json', 'log.json?task=', 'state.json', 'task.json?task='])
 })
 
-test('the fragment carries the task number, and a fragment that names none still lands on the section', () => {
-  // Both functions the page runs, called here: they are serialised into it.
-  assert.ok(SCRIPT.includes(String(sectionFor)) && SCRIPT.includes(String(taskFor)), 'the page runs some other copy of them')
-  assert.ok(SECTION_IDS.includes(TASK_SECTION), 'the detail is a section')
+test('the fragment names a section and a task over it, and a fragment that is half wrong still lands on a section', () => {
+  // Every function the page runs, called here: they are serialised into it.
+  for (const fn of [sectionFor, taskFor, taskHash]) assert.ok(SCRIPT.includes(String(fn)), 'the page runs some other copy of it')
+  assert.ok(!SECTION_IDS.includes(TASK_PART), 'the detail is a section again')
+  assert.ok(!PAGE.includes('>Task</a>'), 'the detail has a link in the nav again')
 
-  // A link to one task: the section, and the number after it.
-  assert.equal(sectionFor(`#${TASK_SECTION}/0042`, SECTION_IDS), TASK_SECTION)
-  assert.equal(taskFor(`#${TASK_SECTION}/0042`), '0042')
-  assert.equal(taskFor(`${TASK_SECTION}/7`), '7', 'with or without the #')
+  // A link to one task: the section it opens over, and the number it opens.
+  assert.equal(taskHash('queue', '0042'), '#queue/task/0042')
+  assert.equal(sectionFor(taskHash('queue', '0042'), SECTION_IDS), 'queue')
+  assert.equal(taskFor(taskHash('queue', '0042'), SECTION_IDS), '0042')
+  assert.equal(taskFor('queue/task/7', SECTION_IDS), '7', 'with or without the #')
+  // Over any of them, because a task is opened from wherever it is listed.
+  for (const id of SECTION_IDS) assert.equal(taskFor(taskHash(id, '0042'), SECTION_IDS), '0042', id)
 
-  // The section named with no number, or with something that is not digits:
-  // still the detail section rather than nothing, and it opens no task. The
-  // number never becomes a path, here either.
-  for (const hash of [`#${TASK_SECTION}`, `#${TASK_SECTION}/`, `#${TASK_SECTION}/nope`, `#${TASK_SECTION}/../0001`, `#${TASK_SECTION}/0001/x`]) {
-    assert.equal(sectionFor(hash, SECTION_IDS), TASK_SECTION, hash)
-    if (hash !== `#${TASK_SECTION}`) assert.equal(taskFor(hash), null, hash)
+  // A fragment with no task is the bare section, exactly as it was.
+  for (const id of SECTION_IDS) {
+    assert.equal(sectionFor(`#${id}`, SECTION_IDS), id)
+    assert.equal(taskFor(`#${id}`, SECTION_IDS), null, id)
   }
-  assert.equal(taskFor(`#${TASK_SECTION}`), null)
-  assert.equal(taskFor('#queue/0001'), null, 'no other section opens a task')
 
-  // Everything that lists a task opens it, and the detail is what the page
-  // fetches when one is: the tables by the cell they put a link in, and the
-  // queue's cards by the head of the card.
-  assert.match(SCRIPT, /const opens = \(id, slug\) => el\('a', \{ href: '#' \+ TASK_SECTION \+ '\/' \+ id \}/)
-  assert.match(SCRIPT, /el\('a', \{ href: '#' \+ TASK_SECTION \+ '\/' \+ task\.id, title: task\.id \+ ' · ' \+ name \}/)
+  // An unknown section with a good number, and a good section with a bad one:
+  // both land on a section, and neither opens anything. Half a fragment is not
+  // read as the half of it that parses, and the number never becomes a path.
+  const wrong = ['#nope/task/0042', '#queue/task/', '#queue/task/nope', '#queue/task/../0001', '#queue/task/0001/x', '#queue/0001', '#queue/tasks/0001']
+  for (const hash of wrong) {
+    assert.ok(SECTION_IDS.includes(sectionFor(hash, SECTION_IDS)), hash)
+    assert.equal(taskFor(hash, SECTION_IDS), null, hash)
+  }
+  assert.equal(sectionFor('#queue/task/nope', SECTION_IDS), 'queue', 'a readable section is still read')
+  assert.equal(sectionFor('#nope/task/0042', SECTION_IDS), 'overview')
+
+  // Everything that lists a task opens it over the section the list is in, and
+  // the detail is what the page fetches when one is open: the tables by the
+  // cell they put a link in, and the queue's cards by the head of the card.
+  assert.match(SCRIPT, /const opens = \(section, id, slug\) => el\('a', \{ href: taskHash\(section, id\) \}/)
+  assert.match(SCRIPT, /el\('a', \{ href: taskHash\('queue', task\.id\), title: task\.id \+ ' · ' \+ name \}/)
   assert.match(SCRIPT, /s\.queue\.hold\.map\(\(t\) => \[queued\(t\)/)
-  assert.match(SCRIPT, /function queued\(t\) \{\n\s*return el\('div', \{\}, el\('strong', \{\}, opens\(t\.id, t\.slug\)\)/)
-  assert.match(SCRIPT, /s\.recent\.map\(\(r\) => \[when\(r\.finished\), opens\(r\.task, r\.slug\)/)
-  assert.match(SCRIPT, new RegExp(String.raw`if \(current === TASK_SECTION\) \{\n\s*loadTask\(taskFor\(location\.hash\)\)\n\s*refreshLog\(\)\n\s*\}`))
+  assert.match(SCRIPT, /function queued\(t\) \{\n\s*return el\('div', \{\}, el\('strong', \{\}, opens\('overview', t\.id, t\.slug\)\)/)
+  assert.match(SCRIPT, /shown\.map\(\(t, i\) => \[i \+ 1, opens\('overview', t\.id, t\.slug\)/)
+  assert.match(SCRIPT, /s\.recent\.map\(\(r\) => \[when\(r\.finished\), opens\('runs', r\.task, r\.slug\)/)
+  assert.match(SCRIPT, new RegExp(String.raw`function showDrawer\(\) \{\n\s*const number = taskFor\(location\.hash, SECTION_IDS\)\n`
+    + String.raw`\s*document\.getElementById\('task-drawer'\)\.hidden = number === null\n\s*if \(number === null\) return\n`
+    + String.raw`\s*loadTask\(number\)\n\s*refreshLog\(\)\n\s*\}`))
 
   // And the body is text: nothing renders markdown, and what a task file says
   // only ever reaches a text node (ADR 0020 part 3, ADR 0006).
@@ -345,7 +375,7 @@ test('a task in the queue is a card: the number and its name on one line, and th
     // to the task, as every list of tasks on this page is.
     const card = cardFor(page, 'done', '0005')
     assert.equal(headOf(card).textContent, '0005 · A task is something you can open')
-    assert.equal(headOf(card).all((n) => n.tag === 'a')[0].getAttribute('href'), `#${TASK_SECTION}/0005`)
+    assert.equal(headOf(card).all((n) => n.tag === 'a')[0].getAttribute('href'), taskHash('queue', '0005'))
     // The path stays visible, small, for whoever opens the file.
     assert.deepEqual(linesOf(card).filter((text) => text.includes('.md')),
       ['tasks/done/0005-a-task-is-something-you-can-open.md'])
@@ -558,9 +588,9 @@ test('Overview is the landing screen: what is running, what is next, what is wai
 
     // A task named here opens, the way one named in Queue or Recent runs does.
     assert.deepEqual(page.node('next-up').all((n) => n.tag === 'a').map((n) => n.getAttribute('href')),
-      [`#${TASK_SECTION}/0003`])
+      [taskHash('overview', '0003')])
     assert.deepEqual(page.node('waiting').all((n) => n.tag === 'a').map((n) => n.getAttribute('href')),
-      [`#${TASK_SECTION}/0002`])
+      [taskHash('overview', '0002')])
   })
 })
 
@@ -584,7 +614,7 @@ test('Overview says what is running: the repository, the task, the attempt and h
     assert.deepEqual(head.children.map((child) => child.textContent),
       ['acme-api', 'task', '0003', 'attempt 2', 'going for 1h 10m'])
     assert.match(page.text('now'), /agent\/task-0003-next/, 'and the branch it is on')
-    assert.equal(page.node('now').all((n) => n.tag === 'a')[0].getAttribute('href'), `#${TASK_SECTION}/0003`)
+    assert.equal(page.node('now').all((n) => n.tag === 'a')[0].getAttribute('href'), taskHash('overview', '0003'))
     // Nothing about how much longer it has or what it will cost: both are
     // predictions, and this page says what is true.
     assert.doesNotMatch(page.text('now'), /left|remaining|estimat|\$/)
@@ -801,7 +831,7 @@ function ranAgain(s) {
 test('what its attempts did is first, under a head that reads as a number and a name', async () => {
   const s = ranAgain(queued(setup()))
   await dashboard(s, async (base) => {
-    const page = openPage(base, { hash: `#${TASK_SECTION}/0001` })
+    const page = openPage(base, { hash: taskHash('queue', '0001') })
     await page.settle()
 
     // Directly under the head, and before the body: the file is written goal
@@ -833,7 +863,7 @@ test('what its attempts did is first, under a head that reads as a number and a 
 test('the implementation cost and the acceptance pass are separated, and come out of the total', async () => {
   const s = ranAgain(queued(setup()))
   await dashboard(s, async (base) => {
-    const page = openPage(base, { hash: `#${TASK_SECTION}/0001` })
+    const page = openPage(base, { hash: taskHash('queue', '0001') })
     await page.settle()
 
     const [, second] = recordsIn(page)
@@ -874,7 +904,7 @@ test('the implementation cost and the acceptance pass are separated, and come ou
 test('a cost, a model or an instant the journal has as null is shown as not reported, never as zero', async () => {
   const s = ranAgain(queued(setup()))
   await dashboard(s, async (base) => {
-    const page = openPage(base, { hash: `#${TASK_SECTION}/0001` })
+    const page = openPage(base, { hash: taskHash('queue', '0001') })
     await page.settle()
 
     // `setup`'s line has dollars and no tokens, no acceptance cost, no
@@ -897,7 +927,7 @@ test('a cost, a model or an instant the journal has as null is shown as not repo
 test('a run that was resumed says so, because coming back from hold/ is a different story', async () => {
   const s = ranAgain(queued(setup()))
   await dashboard(s, async (base) => {
-    const page = openPage(base, { hash: `#${TASK_SECTION}/0001` })
+    const page = openPage(base, { hash: taskHash('queue', '0001') })
     await page.settle()
     const [, second] = recordsIn(page)
     assert.match(second.textContent, /↻resumed — it carried on what an earlier run left behind/)
@@ -910,7 +940,7 @@ test('a run that was resumed says so, because coming back from hold/ is a differ
 test('a task the journal has never seen says so, and grows no block of dashes', async () => {
   const s = queued(setup())
   await dashboard(s, async (base) => {
-    const page = openPage(base, { hash: `#${TASK_SECTION}/0003` })
+    const page = openPage(base, { hash: taskHash('queue', '0003') })
     await page.settle()
 
     const block = blockNamed(page, 'What its attempts did')
@@ -1094,12 +1124,13 @@ test('the page shows it under the task, as it arrives, and asks only for what it
   const printed = printing(s, '0003', 1, [INIT, SAID])
 
   await dashboard(s, async (base) => {
-    const page = openPage(base, { hash: `#${TASK_SECTION}/0003` })
+    const page = openPage(base, { hash: taskHash('queue', '0003') })
     await page.settle()
 
-    // Under the task's own detail, in the section a task is opened in — and it
-    // is the task section that holds it, not a block of its own somewhere else.
-    assert.ok(sectionOf(TASK_SECTION).indexOf('id="task-log-panel"') > sectionOf(TASK_SECTION).indexOf('id="task-detail"'))
+    // Under the task's own detail, in the drawer that task is opened in — and
+    // it moved with the detail rather than becoming a block somewhere else: a
+    // drawer is where it is drawn and not a change to how it is read (ADR 0022).
+    assert.ok(DRAWER.indexOf('id="task-log-panel"') > DRAWER.indexOf('id="task-detail"'))
     assert.equal(page.node('task-log-panel').hidden, false)
     assert.match(page.text('task-log-state'), /running now in acme-api, attempt 1/)
     assert.match(page.text('task-log'), /started on claude-opus-5/)
@@ -1133,14 +1164,13 @@ test('the page says plainly when what it shows is not happening now', async () =
   const s = queued(setup())
   printing(s, '0001', 2, [INIT]).close()
   await dashboard(s, async (base) => {
-    const page = openPage(base, { hash: `#${TASK_SECTION}/0001` })
+    const page = openPage(base, { hash: taskHash('queue', '0001') })
     await page.settle()
     assert.match(page.text('task-log-state'), /not running — this is what attempt 2 said, not something happening now/)
 
     // And a task nothing has run says that, rather than showing an empty box
     // that could be either.
-    page.location.hash = `#${TASK_SECTION}/0004`
-    await page.refresh()
+    await page.go(taskHash('queue', '0004'))
     await page.settle()
     assert.match(page.text('task-log-state'), /nothing has run this task, or detent prune has cleared what it said/)
     assert.equal(page.text('task-log'), '')
@@ -1185,7 +1215,7 @@ test('the page distinguishes running and printing from running and not printing'
   // pass or the merge — and none of those write a log.
   const printed = printing(s, '0003', 1, [INIT, SAID, DONE])
   await dashboard(s, async (base) => {
-    const page = openPage(base, { hash: `#${TASK_SECTION}/0003` })
+    const page = openPage(base, { hash: taskHash('queue', '0003') })
     await page.settle()
     const said = page.text('task-log-state')
     assert.match(said, /running now in acme-api, attempt 1, and the agent has finished printing/)
@@ -1204,7 +1234,7 @@ test('the page distinguishes running and printing from running and not printing'
   setAttempt(s2.dir, 'acme-api', 1)
   const waiting = quietFor(printing(s2, '0003', 1, [INIT, SAID]), LOG_QUIET + 100_000)
   await dashboard(s2, async (base) => {
-    const page = openPage(base, { hash: `#${TASK_SECTION}/0003` })
+    const page = openPage(base, { hash: taskHash('queue', '0003') })
     await page.settle()
     const said = page.text('task-log-state')
     assert.match(said, /nothing has arrived for 2m \d+s/)
@@ -1218,7 +1248,7 @@ test('the page distinguishes running and printing from running and not printing'
   setAttempt(s3.dir, 'acme-api', 1)
   const live = printing(s3, '0003', 1, [INIT, SAID])
   await dashboard(s3, async (base) => {
-    const page = openPage(base, { hash: `#${TASK_SECTION}/0003` })
+    const page = openPage(base, { hash: taskHash('queue', '0003') })
     await page.settle()
     assert.match(page.text('task-log-state'), /running now in acme-api, attempt 1 — the end of what it has printed, a few seconds behind/)
   })
@@ -1234,7 +1264,7 @@ test('a running task whose log is not the attempt that is running says so', asyn
   // agent back, and what is below belongs to the attempt before it.
   const printed = printing(s, '0003', 1, [INIT, SAID])
   await dashboard(s, async (base) => {
-    const page = openPage(base, { hash: `#${TASK_SECTION}/0003` })
+    const page = openPage(base, { hash: taskHash('queue', '0003') })
     await page.settle()
     assert.match(page.text('task-log-state'), /running now in acme-api, attempt 2, and the lines below are attempt 1/)
     assert.match(page.text('task-log-state'), /writes no log/)
@@ -1246,7 +1276,7 @@ test('a running task whose log is not the attempt that is running says so', asyn
   const bare = queued(setup())
   claim(bare.dir, 'acme-api', { task: '0003', branch: 'agent/task-0003-next' })
   await dashboard(bare, async (base) => {
-    const page = openPage(base, { hash: `#${TASK_SECTION}/0003` })
+    const page = openPage(base, { hash: taskHash('queue', '0003') })
     await page.settle()
     assert.match(page.text('task-log-state'), /running now in acme-api, attempt 1 — nothing is being written here: the run could not open a log, or detent prune has cleared it/)
   })
@@ -1258,7 +1288,7 @@ test('the page shows the end of the output, and does not grow with the run', asy
   printing(s, '0003', 1, [...lines, { type: 'assistant', message: { content: [{ type: 'text', text: 'x'.repeat(LOG_CLIP * 3) }] } }]).close()
 
   await dashboard(s, async (base) => {
-    const page = openPage(base, { hash: `#${TASK_SECTION}/0003` })
+    const page = openPage(base, { hash: taskHash('queue', '0003') })
     await page.settle()
     const shown = page.text('task-log').split('\n')
     assert.equal(shown.length, LOG_LINES, 'the last of it, bounded')
@@ -1268,6 +1298,143 @@ test('the page shows the end of the output, and does not grow with the run', asy
     // agent read in full would otherwise be one line of several thousand.
     assert.equal(shown.at(-1), `${'x'.repeat(LOG_CLIP)}…`)
   })
+})
+
+// ——— The detail is a drawer over the section somebody was on (ADR 0022).
+
+test('a task opens in a drawer over the section, and closing it gives back the list that was being read', async () => {
+  const s = filled()
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: '#queue' })
+    await page.settle()
+
+    // Queue, before anything is opened, and the card a person is about to
+    // click: the drawer is in the document and showing nothing.
+    assert.equal(page.node('task-drawer').hidden, true)
+    assert.equal(page.node('queue').hidden, false)
+    const card = cardFor(page, 'done', '0005')
+    const cards = page.node('done').children
+    const read = page.reads.length
+
+    // Opened by the fragment the card's own link carries.
+    await page.go(card.all((n) => n.tag === 'a')[0].getAttribute('href'))
+    await page.settle()
+    assert.equal(page.node('task-drawer').hidden, false)
+    assert.match(page.text('task-detail'), /^0005 · A task is something you can open/)
+
+    // **And Queue is still Queue.** Not hidden, not drawn again, the same
+    // nodes in the same order — so there is nothing to restore when the drawer
+    // closes, which is the whole of what a drawer is for. Opening one read the
+    // task and its log and nothing else: the snapshot the section was drawn
+    // from was not asked for again.
+    assert.equal(page.node('queue').hidden, false)
+    assert.equal(page.node('done').children, cards, 'the folder was drawn again')
+    assert.equal(cardFor(page, 'done', '0005'), card, 'the card is a different card')
+    assert.deepEqual(page.reads.slice(read).map((r) => r.split('?')[0]), ['GET task.json', 'GET log.json'])
+
+    // Closing rewrites the fragment to the bare section — leaving
+    // #queue/task/0005 in the address bar after somebody closed it would be
+    // the page lying about where they are — and moves nothing else.
+    // By the control in its head, which says what it does: a panel covering
+    // content with no obvious way back is worse than the section it covers.
+    assert.match(DRAWER, /<button type="button" id="task-close"[^>]*>Close<\/button>/)
+    await page.click('task-close')
+    assert.equal(page.location.hash, '#queue')
+    assert.equal(page.node('task-drawer').hidden, true)
+    assert.equal(page.node('queue').hidden, false)
+    assert.equal(cardFor(page, 'done', '0005'), card)
+    assert.equal(page.node('done').children, cards)
+
+    // The timer is still the one timer, and the drawer asked for no asset of
+    // its own: it is a positioned element and a `hidden` attribute.
+    assert.deepEqual(page.timers.map((t) => t.every), [POLL.every])
+    assert.deepEqual([...new Set(page.reads.map((r) => r.split('?')[0]))].sort(),
+      ['GET configuration.json', 'GET log.json', 'GET state.json', 'GET task.json'])
+  })
+})
+
+test('Escape closes the drawer, and the way out is reachable on a screen the drawer fills', async () => {
+  const s = filled()
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: taskHash('runs', '0005') })
+    await page.settle()
+    assert.equal(page.node('task-drawer').hidden, false)
+    assert.equal(page.node('runs').hidden, false, 'Recent runs is behind it')
+
+    await page.press('Escape')
+    assert.equal(page.location.hash, '#runs')
+    assert.equal(page.node('task-drawer').hidden, true)
+
+    // A key that is not Escape is not a way out.
+    await page.go(taskHash('runs', '0005'))
+    await page.press('a')
+    assert.equal(page.node('task-drawer').hidden, false)
+
+    // And Escape with nothing open rewrites nothing: closing is the one thing
+    // on this page that writes the fragment, and there is nothing to close.
+    await page.press('Escape')
+    await page.press('Escape')
+    assert.equal(page.location.hash, '#runs')
+  })
+
+  // On a narrow screen the drawer is the screen — the section replacement this
+  // decision exists to avoid, arriving through the viewport instead of through
+  // the navigation. Said here rather than left to a width that happens to
+  // overlap, with the head it is closed from stuck to the top so it stays
+  // reachable however far down a task somebody has scrolled.
+  assert.match(STYLE, /@media \(max-width: 760px\) \{ \.drawer \{ width: 100%/)
+  assert.match(STYLE, /\.drawer-head \{ position: sticky; top: 0/)
+  // And nothing in it moves of its own accord (ADR 0006).
+  assert.doesNotMatch(STYLE, /\b(?:transition|animation)(?:-[a-z]+)?\s*:|@keyframes/)
+})
+
+test('a task opens from Overview, from any of the four folders and from Recent runs, each over its own section', async () => {
+  const s = filled()
+  claim(s.dir, 'acme-api', { task: '0003', branch: 'agent/task-0003-next' })
+  await dashboard(s, async (base) => {
+    const page = openPage(base)
+    await page.settle()
+
+    // Every list of tasks the page draws, and the section each is drawn in:
+    // what is running, what is next and what is waiting in Overview, the four
+    // folders in Queue, and the recent runs.
+    const WHERE = [
+      ['now', 'overview'], ['next-up', 'overview'], ['waiting', 'overview'],
+      ['todo', 'queue'], ['hold', 'queue'], ['done', 'queue'], ['failed', 'queue'],
+      ['recent', 'runs'],
+    ]
+    const opened = WHERE.map(([block, section]) => {
+      const links = page.node(block).all((n) => n.tag === 'a')
+        .map((n) => n.getAttribute('href')).filter((href) => href && href.includes('/' + TASK_PART + '/'))
+      assert.ok(links.length > 0, `${block} lists no task that opens`)
+      for (const href of links) assert.equal(sectionFor(href, SECTION_IDS), section, href)
+      return [block, links[0]]
+    })
+
+    // And each one opens over the section it was opened from, which is still
+    // the section showing — before the drawer and after it closes.
+    for (const [block, href] of opened) {
+      const section = sectionFor(href, SECTION_IDS)
+      await page.go(href)
+      await page.settle()
+      assert.equal(page.node('task-drawer').hidden, false, block)
+      assert.equal(page.node(section).hidden, false, block)
+      assert.match(page.text('task-detail'), new RegExp('^' + taskFor(href, SECTION_IDS) + ' · '), block)
+      await page.click('task-close')
+      assert.equal(page.location.hash, '#' + section, block)
+      assert.equal(page.node('task-drawer').hidden, true, block)
+      assert.equal(page.node(section).hidden, false, block)
+    }
+  })
+})
+
+test('the fragment the detail shipped as a section names nothing now, and lands on a section', () => {
+  // `#task/0043` went to the detail when it was the seventh section. It is a
+  // drawer now, `task` is no section id, and the landing rule has it: a
+  // section rather than nothing, and still not corrected (ADR 0022).
+  assert.equal(sectionFor('#task/0043', SECTION_IDS), 'overview')
+  assert.equal(taskFor('#task/0043', SECTION_IDS), null)
+  assert.equal(sectionFor('#task', SECTION_IDS), 'overview')
 })
 
 // ——— The one write: the configuration, between runs (ADR 0015).
