@@ -126,10 +126,26 @@ main > section > h2:first-child { margin-top: 8px; }
 
 /* One task, opened from any table that lists it (ADR 0020 part 3). Its body is
    a text node in a <pre> — detent renders no markdown, so a task file looks
-   like the text file it is, and wraps rather than scrolling sideways. */
+   like the text file it is, and wraps rather than scrolling sideways.
+
+   The head is a number and a name, which is why the name is the size of a
+   title and the folder and the path beside it are not: the path is what
+   somebody opens the file with, and it stays legible without competing. */
 table a { color: var(--accent); }
 .task-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-bottom: 12px; }
+.task-head strong { font-size: 17px; }
+.task-head .number { font-variant-numeric: tabular-nums; }
 pre.body { white-space: pre-wrap; overflow-wrap: break-word; margin: 0; font: inherit; color: var(--text-2); }
+
+/* What its attempts did, first in the panel (§12): one block per journal line,
+   the head a row of plain facts and anything longer than a row a line of its
+   own — the rule a queue card follows, for the same reason. This head wraps,
+   because the panel is the width of the page rather than a third of it. */
+.runs { display: grid; gap: 10px; }
+.run-record { background: var(--raised); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.run-record .facts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+.run-record > .line { margin-top: 6px; overflow-wrap: anywhere; }
+.run-record > .scroll { margin-top: 8px; }
 
 /* What the agent is saying, under the task it is saying it about (ADR 0021).
    Bounded in height as well as in lines: the end of the output is the part

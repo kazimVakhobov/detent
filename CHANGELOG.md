@@ -47,6 +47,41 @@ Notable changes, newest first. The format follows
 
 ### Changed
 
+- **Opening a task leads with what its runs cost.** `renderTask` built the
+  detail in the order the file is written — head, frontmatter, goal, acceptance
+  criteria, out-of-scope, and **last** `What its attempts did` — which is the
+  opposite of the order it is read in. A person opening a task that has run
+  scrolled past four blocks to find out whether it had run at all. The block is
+  **first** now, directly under the head, and the body keeps its own order
+  below it with nothing dropped. It was one table row per run — finished,
+  outcome, attempts, one cost, verdict, links — and is a block per run: the
+  outcome, how many attempts, **how long it ran** from `started` against
+  `finished`, when it stopped, and **`resumed`** said out loud, because a task
+  that came back from `hold/` and finished is not the same story as one that
+  passed first time and the attempt count alone does not tell them apart. Then
+  **what the implementation cost and what the acceptance pass cost, kept
+  apart** — one number for both hid what reading the work cost against what
+  doing it cost (ADR 0004) — each with its tokens in and out and **the model it
+  ran on**: the requested name and, when the CLI reported a different one, the
+  reported name beside it; a `requested` with no `actual` reads *requested —
+  the CLI reported no model* rather than standing in for a confirmation. The
+  run's own total is shown beside the two rather than instead of them, and the
+  implementation figure is that total less the acceptance figure and nothing
+  else, so a line whose two numbers disagree shows that it does rather than
+  having the disagreement resolved on the way to the screen. Under those: which
+  gauge stage sent it back, whether it merged and as what commit, the branch,
+  the verdict with its doubts, and whether the links checked. **A field the line
+  has as `null` now reads *not reported***, in the history block and in
+  `verdict` and `checked` too, where it had been an em dash — a dash among real
+  figures reads as a zero, and a zero nobody recorded is the one thing the
+  journal has always refused. A task the journal has never seen says so in a
+  sentence and grows no table of blanks. The head is **a number and a name** —
+  `0001 · First`, from the slug by the same `taskName` the queue's cards use —
+  with the folder and the path still beside it, small. **No field was added to
+  the journal line and nothing new is recorded:** every figure was already
+  there, and no rate, average or projection is computed, because `summary` and
+  **Agents** are where runs are compared and this is one task's record.
+
 - **The queue is a queue you can read.** It was four tables of two or three
   columns, each in about a third of the page's width, and each one hid
   something. `because(t, parked)` built a cell as a stacked `div`, so in
