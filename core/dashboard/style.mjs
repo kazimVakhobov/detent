@@ -124,9 +124,30 @@ main > section > h2:first-child { margin-top: 8px; }
 #queue-how pre.body { margin: 8px 0; }
 #queue-how p { margin: 0; }
 
-/* One task, opened from any table that lists it (ADR 0020 part 3). Its body is
-   a text node in a <pre> — detent renders no markdown, so a task file looks
-   like the text file it is, and wraps rather than scrolling sideways.
+/* One task, in a drawer over the section it was opened from (ADR 0022). Fixed
+   to the right, the width of a column of text and no wider, scrolling inside
+   itself: the section behind it keeps its own scroll and its own place, which
+   is the whole of why this is a drawer and not a modal — the list somebody came
+   from is beside what they opened rather than behind a dimmed overlay.
+
+   **Nothing here moves of its own accord**: no transition and no animation
+   (ADR 0006).
+
+   **On a narrow screen it is the screen.** That is the section replacement this
+   exists to avoid, arriving through the viewport instead of through the
+   navigation, and it is the right behaviour there (ADR 0022) — so it is said
+   here rather than left to a width that happens to overlap, and the head the
+   drawer is closed from sticks to the top, reachable however far down a task
+   somebody has scrolled. */
+.drawer { position: fixed; z-index: 10; inset: 0 0 0 auto; width: min(680px, 100%); overflow: auto; background: var(--surface); border-left: 1px solid var(--line); padding: 16px 16px 48px; }
+.drawer[hidden] { display: none; }
+.drawer-head { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; background: var(--surface); border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 12px; }
+.drawer-head h2 { margin: 0; }
+@media (max-width: 760px) { .drawer { width: 100%; border-left: 0; } }
+
+/* Its body is a text node in a <pre> — detent renders no markdown, so a task
+   file looks like the text file it is, and wraps rather than scrolling
+   sideways.
 
    The head is a number and a name, which is why the name is the size of a
    title and the folder and the path beside it are not: the path is what

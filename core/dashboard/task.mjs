@@ -1,4 +1,5 @@
-// One task, opened by its number (ADR 0020 part 3).
+// One task, opened by its number (ADR 0020 part 3), in a drawer over the
+// section it was opened from (ADR 0022).
 //
 // **What its attempts did comes first**, directly under the head. The file is
 // written head, frontmatter, goal, criteria, out-of-scope — and that is the
@@ -23,7 +24,7 @@
 // polls is the snapshot, and a task body does not change under a reader the way
 // a run's numbers do.
 
-export const TASK = `// One task, from task.json — fetched when it is opened, never polled.
+export const TASK = `// One task, from task.json — fetched when the drawer opens it, never polled.
 let opened = null
 
 const legend = (text, ...nodes) => el('div', { class: 'group' }, el('div', { class: 'legend' }, text), nodes)
@@ -234,14 +235,11 @@ function renderTask(d) {
   panel.replaceChildren(...parts)
 }
 
+// A number, always: the drawer is the only way in and it opens on a fragment
+// that named one (ADR 0022). Opening the same task twice — a hashchange that
+// changed the section under it, a close and a reopen — reads nothing again.
 async function loadTask(number) {
   const panel = document.getElementById('task-detail')
-  // The section named with no task after it — the nav's own link, or digits
-  // that are not digits. Whatever is open stays open rather than being emptied.
-  if (number === null) {
-    if (opened === null) panel.replaceChildren(el('div', { class: 'muted' }, 'no task open — open one from the queue or the recent runs'))
-    return
-  }
   if (number === opened) return
   opened = number
   panel.replaceChildren(el('div', { class: 'muted' }, 'reading task ' + number + '…'))

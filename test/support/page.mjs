@@ -28,6 +28,9 @@ class StubNode {
     this.selected = false
     this.placeholder = attrs.placeholder ?? ''
     this.className = attrs.class ?? ''
+    // A browser answers `.id` as well as `getAttribute('id')`, and
+    // `showSection` reads it to decide which section is the shown one.
+    this.id = attrs.id ?? ''
   }
 
   setAttribute(key, value) {
@@ -157,10 +160,12 @@ export function openPage(base, { hash = '' } = {}) {
     listeners: new Map(),
     addEventListener(type, handler) { this.listeners.set(type, handler) },
   }
+  // A fragment changing, and the browser telling the page about it: one is not
+  // the other in a browser either, so a test that wants both says both.
   const location = { hash }
 
   const start = new Function('document', 'window', 'location', 'fetch', 'setInterval', 'Node',
-    `${SCRIPT}\nreturn { refresh, loadConfig, refreshConfig, openEditor, save, discard, showSection, inside: () => ({ config, editing, fields }) }`)
+    `${SCRIPT}\nreturn { refresh, loadConfig, refreshConfig, openEditor, save, discard, showSection, closeTask, inside: () => ({ config, editing, fields }) }`)
 
   const page = start(document, window, location, traced, (call, every) => timers.push({ call, every }), StubNode)
 
@@ -173,6 +178,13 @@ export function openPage(base, { hash = '' } = {}) {
     node: (id) => document.getElementById(id),
     click: (id) => document.getElementById(id).click(),
     text: (id) => document.getElementById(id).textContent,
+    // A key, to whatever the page listens with — and the fragment changing,
+    // which is what a browser answers a clicked link or a typed address with.
+    press: (key) => window.listeners.get('keydown')({ key }),
+    go(to) {
+      location.hash = to
+      return window.listeners.get('hashchange')()
+    },
     editing: () => page.inside().editing,
     // Whatever the page started on its own — the read it does at load — has
     // finished. Nothing here waits on a clock: the timers are recorded, not

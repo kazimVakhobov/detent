@@ -63,17 +63,20 @@ function numbersFor(id, head, groups) {
     groups.map((r) => [r.name || '—', r.runs, r.passed, pct(r.passRate), r.attemptsPerRun.toFixed(1), cost(r.costPerPass)]), 'no runs yet')
 }
 
-// Every table that lists a task opens it: the fragment carries the number, so
-// a row is a link somebody can send and reload, and a task with no row in any
-// table is still reachable by typing one (ADR 0020 part 3).
-const opens = (id, slug) => el('a', { href: '#' + TASK_SECTION + '/' + id }, id + (slug ? ' ' + slug : ''))
+// Every table that lists a task opens it, **over the section the table is in**:
+// the fragment carries both (ADR 0022), so a row is a link somebody can send
+// and reload, and a task with no row in any table is still reachable by typing
+// one (ADR 0020 part 3). The section is written at the call rather than read
+// off the fragment — a row's link must not depend on what was on the screen
+// when the page last drew it.
+const opens = (section, id, slug) => el('a', { href: taskHash(section, id) }, id + (slug ? ' ' + slug : ''))
 
 // A paused task, and why it stopped: the two cells "Waiting for you" is made
 // of. Queue draws the same tasks as cards, because a folder there has a third
 // of the width and a row that narrow hides what does not fit (\`queue.mjs\`);
 // here the table is the width of the page and a row holds its two cells.
 function queued(t) {
-  return el('div', {}, el('strong', {}, opens(t.id, t.slug)), el('div', { class: 'muted' }, t.branch ? el('code', {}, t.branch) : ''))
+  return el('div', {}, el('strong', {}, opens('overview', t.id, t.slug)), el('div', { class: 'muted' }, t.branch ? el('code', {}, t.branch) : ''))
 }
 function because(t, parked) {
   return el('div', {}, t.outcome ? status(t.outcome) : el('span', { class: 'muted' }, parked),
@@ -116,7 +119,7 @@ function nowRunning(s, live) {
     el('div', { class: 'run-head' },
       el('strong', {}, a.repo),
       el('span', { class: 'muted' }, 'task'),
-      opens(a.task, null),
+      opens('overview', a.task, null),
       el('span', { class: 'muted' }, 'attempt ' + a.attempt),
       el('span', { class: 'muted' }, going(a.started, s.generated))),
     a.branch ? el('div', { class: 'muted' }, el('code', {}, a.branch)) : null))
@@ -146,7 +149,7 @@ function nextUp(s) {
       el('span', {}, '.'))
   }
   table(document.getElementById('next-up'), [['Order', 'num'], ['Task'], ['Repository'], ['Runs']],
-    shown.map((t, i) => [i + 1, opens(t.id, t.slug), t.repo || '—', runsWhen(t, i, barrier, shown)]),
+    shown.map((t, i) => [i + 1, opens('overview', t.id, t.slug), t.repo || '—', runsWhen(t, i, barrier, shown)]),
     s.product.queue + '/todo/ is empty')
 }
 
@@ -232,7 +235,7 @@ function render(s) {
   numbersFor('by-model', 'Agent and model', n.byModel)
 
   table(document.getElementById('recent'), [['Finished'], ['Task'], ['Repository'], ['Outcome'], ['Attempts', 'num'], ['Cost', 'num']],
-    s.recent.map((r) => [when(r.finished), opens(r.task, r.slug), r.repo, status(r.outcome), r.attempts, runCost(r.cost)]), 'no runs yet')
+    s.recent.map((r) => [when(r.finished), opens('runs', r.task, r.slug), r.repo, status(r.outcome), r.attempts, runCost(r.cost)]), 'no runs yet')
 
   const notes = ['read at ' + new Date(s.generated).toLocaleTimeString(), s.product.dir]
   if (n.skipped) notes.push(n.skipped + ' skipped runs not counted')
