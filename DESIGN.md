@@ -1115,7 +1115,35 @@ The sections are:
   written, and two renderings of one fact are free to disagree.
 - **Queue** — all four folders: `todo/`, the paused tasks with why each was
   paused and the reviewer's doubts, the `done/` detent has finished with, and
-  the `failed/` a person abandoned.
+  the `failed/` a person abandoned. **Each task is a card, not a row.** A
+  folder here has about a third of the width, and a row that narrow could not
+  hold what the journal already knew about a task — the words "abandoned by
+  hand" in `failed/` sat under the height of their own row and were never
+  seen. A card is the number and its name on one line, the path under it,
+  small, and every fact on a line of its own: the outcome, why it stopped, the
+  reviewer's doubts, the branch, and what `Recent runs` says about the same
+  journal line — how many attempts, what it cost, when it finished and the
+  acceptance verdict. **A card's rows do not wrap**: what is laid out in a row
+  stays in one row, and anything longer than a row is a line, so nothing is
+  pushed under a fold a row has. **The name is the slug** —
+  `0043 · A task is something you can open`, derived where it is drawn, because
+  the slug already *is* the name and a second place to keep it is a second
+  place to get it wrong; the frontmatter gains no `title`. A task the journal
+  has never seen says that, rather than showing dashes that read like zeros.
+  `todo/` is in ascending task id, which is the order a run takes it, and the
+  line above it says so; `done/` and `failed/` are newest first, by what the
+  journal says finished and by the number when it says nothing. **Any column
+  sorts on a click**, with the arrow showing which and which way, and the
+  choice survives the three-second read — but a sort of `todo/` never changes
+  what a run does, which is why that line says the run order whatever the
+  order on the screen is. And the section says **how to make a task and how to
+  run one**, because the page does neither: the next number, which is one past
+  the highest in the four folders, the file in this product's own `todo/` in
+  the shape §4 gives, `detent plan` to be talked through it, and `detent run`
+  or `detent run <id>` to start it — with this product's own path in the
+  command, ready to copy. **It does not run or move tasks**: detent has
+  already read this queue and moves these files by its own results, and a
+  second writer of them is a bug that arrives later disguised as a mystery.
 - **Task** — one task, opened by its number, and under it what its agent is
   saying while it says it.
 - **Agents** — runs, passes, attempts and cost per pass, per agent and model.
