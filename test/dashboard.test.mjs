@@ -8,7 +8,9 @@ import { PAGE, POLL, SCRIPT } from '../core/dashboard-page.mjs'
 import { LIMITS } from '../core/dashboard/configuration.mjs'
 import { LOG_CLIP, LOG_LINES, LOG_QUIET } from '../core/dashboard/log.mjs'
 import { SECTIONS, SECTION_IDS, TASK_SECTION, sectionFor, taskFor } from '../core/dashboard/sections.mjs'
+import { NEXT_UP } from '../core/dashboard/view.mjs'
 import { warnings } from '../core/dashboard/warnings.mjs'
+import { schedule } from '../core/scheduler.mjs'
 import { appendJournal } from '../core/journal.mjs'
 import { snapshotRefs } from '../core/git.mjs'
 import { openAttemptLog } from '../core/log.mjs'
@@ -93,8 +95,11 @@ test('the page loads nothing from outside and sets every value as text', () => {
 // and the section it has to be inside. Every block the page draws is here, and
 // the test below is that each is in exactly one section and that nothing the
 // page draws is missing from the list.
+// Overview's are listed in the order they are served, which the test below
+// asserts: what is running, what is next, what is waiting, and the figures
+// under those three (§12).
 const BLOCKS = {
-  overview: ['figures'],
+  overview: ['now', 'next-up-order', 'next-up', 'waiting', 'figures'],
   repositories: ['repos', 'by-repo'],
   queue: ['todo', 'hold', 'done', 'failed'],
   task: ['task-detail', 'task-log-panel', 'task-log-state', 'task-log'],
@@ -289,6 +294,148 @@ test('all four folders are shown, and the per-repository numbers that were compu
   for (const folder of FOLDERS) assert.match(SCRIPT, new RegExp(String.raw`s\.queue\.${folder}\.map`), folder)
 })
 
+// ——— Overview answers "what now": what is running, what is next, what is
+// waiting — and the figures under those three (§12).
+
+const todoTask = (id, barrier = false) =>
+  `---\nid: ${id}\nrepo: acme-api\ntouches_contract: ${barrier}\n---\n\n# Acceptance criteria\n\n- [ ] x\n`
+
+const where = (s, name) => join(s.dir, 'tasks', 'todo', name)
+
+test('Overview is the landing screen: what is running, what is next, what is waiting, and the figures under them', async () => {
+  // In the document in that order, and every block of it inside Overview and
+  // inside no other section — the figures included, which is where they were
+  // and where they stay.
+  const overview = sectionOf('overview')
+  const at = (block) => overview.indexOf(`id="${block}"`)
+  for (const block of BLOCKS.overview) assert.notEqual(at(block), -1, block)
+  assert.deepEqual([...BLOCKS.overview].sort((a, b) => at(a) - at(b)), BLOCKS.overview,
+    'what is running, what is next, what is waiting, then the figures')
+  for (const block of BLOCKS.overview) {
+    assert.deepEqual(SECTION_IDS.filter((id) => sectionOf(id).includes(`id="${block}"`)), ['overview'], block)
+  }
+  // And Repositories keeps its own: this adds a landing screen rather than
+  // moving anything into one.
+  assert.deepEqual(BLOCKS.repositories, ['repos', 'by-repo'])
+  assert.ok(sectionOf('repositories').includes('<h2>By repository</h2>'))
+
+  // Nothing running: a sentence, because an empty box reads the same whether
+  // nothing is running or the page failed to draw what is.
+  const s = setup()
+  await dashboard(s, async (base) => {
+    const page = openPage(base)
+    await page.settle()
+    assert.match(page.text('now'), /^Nothing is running\. One task is queued, and a run takes them in the order below\.$/)
+    assert.match(page.text('next-up-order'), /ascending task id, and a barrier alone/)
+    assert.match(page.text('next-up'), /0003 next/)
+
+    // What is waiting for a person, and why it stopped — the reviewer's doubt
+    // and not only the outcome.
+    assert.match(page.text('waiting'), /0002 float/)
+    assert.match(page.text('waiting'), /rejected/)
+    assert.match(page.text('waiting'), /add rounds/)
+
+    // The figures are still the figures, from the same numbers as before.
+    assert.match(page.text('figures'), /Pass rate/)
+    assert.match(page.text('figures'), /1 of 2 runs passed/)
+
+    // The strip is untouched: what is wrong is still outside every section,
+    // and this block repeating it is the list under the line.
+    assert.match(page.text('alerts'), /one task is paused, waiting for you/)
+
+    // A task named here opens, the way one named in Queue or Recent runs does.
+    assert.deepEqual(page.node('next-up').all((n) => n.tag === 'a').map((n) => n.getAttribute('href')),
+      [`#${TASK_SECTION}/0003`])
+    assert.deepEqual(page.node('waiting').all((n) => n.tag === 'a').map((n) => n.getAttribute('href')),
+      [`#${TASK_SECTION}/0002`])
+  })
+})
+
+test('Overview says what is running: the repository, the task, the attempt and how long it has been going', async () => {
+  const s = setup()
+  claim(s.dir, 'acme-api', { task: '0003', branch: 'agent/task-0003-next' })
+  setAttempt(s.dir, 'acme-api', 2)
+
+  // An hour and ten minutes ago, by the clock the claim wrote. The page reads
+  // it against the snapshot's own `generated` and never against the browser's,
+  // so a machine whose clock is out is not told a run started in the future.
+  const file = join(s.dir, '.detent', 'state.json')
+  const state = JSON.parse(readFileSync(file, 'utf8'))
+  state.repos['acme-api'].started = new Date(Date.now() - ((70 * 60) + 30) * 1000).toISOString()
+  writeFileSync(file, JSON.stringify(state))
+
+  await dashboard(s, async (base) => {
+    const page = openPage(base)
+    await page.settle()
+    const [head] = page.node('now').all((n) => n.className === 'run-head')
+    assert.deepEqual(head.children.map((child) => child.textContent),
+      ['acme-api', 'task', '0003', 'attempt 2', 'going for 1h 10m'])
+    assert.match(page.text('now'), /agent\/task-0003-next/, 'and the branch it is on')
+    assert.equal(page.node('now').all((n) => n.tag === 'a')[0].getAttribute('href'), `#${TASK_SECTION}/0003`)
+    // Nothing about how much longer it has or what it will cost: both are
+    // predictions, and this page says what is true.
+    assert.doesNotMatch(page.text('now'), /left|remaining|estimat|\$/)
+  })
+
+  // A run whose process is gone is not working on anything, so this block does
+  // not show it as running. Saying so stays the strip's job, above every
+  // section (ADR 0020's first consequence).
+  state.repos['acme-api'].pid = 2 ** 22 + 12345 // no such process
+  writeFileSync(file, JSON.stringify(state))
+  await dashboard(s, async (base) => {
+    const page = openPage(base)
+    await page.settle()
+    assert.match(page.text('now'), /^Nothing is running\./)
+    assert.match(page.text('alerts'), /the run on acme-api is gone — task 0003, attempt 2/)
+  })
+})
+
+test('Overview lists what is next in the order a run takes it — ascending task id, with the barrier marked', async () => {
+  const s = setup()
+  // Written so the file system's order is not the run's: 00011 sorts before
+  // 0003 by name and after it by number. The middle one is the barrier.
+  writeFileSync(where(s, '00011-eleven.md'), todoTask('00011'))
+  writeFileSync(where(s, '0007-shared.md'), todoTask('0007', true))
+
+  const snap = snapshot(s.product)
+  assert.deepEqual(snap.queue.todo.map((t) => [t.id, t.touchesContract]),
+    [['0003', false], ['0007', true], ['00011', false]], 'the snapshot carries which one runs alone')
+
+  // The order a run would take them, from the scheduler that would take them.
+  const started = []
+  await schedule(snap.queue.todo.map((t) => ({ id: t.id, repo: t.repo, touchesContract: t.touchesContract })), {
+    concurrency: 2,
+    runOne: async () => ({ outcome: 'passed' }),
+    onStart: (t) => started.push(t.id),
+  })
+  assert.deepEqual(started, ['0003', '0007', '00011'])
+
+  await dashboard(s, async (base) => {
+    const page = openPage(base)
+    await page.settle()
+    const rows = page.node('next-up').children.at(-1).children.map((row) => row.children.map((cell) => cell.textContent))
+    assert.deepEqual(rows.map((cells) => cells[0]), ['1', '2', '3'], 'numbered, so the order is not left to be inferred')
+    assert.deepEqual(rows.map((cells) => cells[1].split(' ')[0]), started)
+    assert.match(page.text('next-up-order'), /ascending task id/)
+
+    // The barrier is marked as one, and what is behind it says what it is
+    // behind: it runs alone, and nothing queued past it starts (§8).
+    assert.equal(rows[0][3], '—')
+    assert.match(rows[1][3], /barrier — alone, and nothing after it starts/)
+    assert.equal(rows[2][3], 'after task 0007')
+  })
+
+  // More than the few it lists: it says how many of how many and where the
+  // rest are, rather than growing into the table Queue already has.
+  for (let n = 20; n < 20 + NEXT_UP; n += 1) writeFileSync(where(s, `00${n}-more.md`), todoTask(`00${n}`))
+  await dashboard(s, async (base) => {
+    const page = openPage(base)
+    await page.settle()
+    assert.equal(page.node('next-up').children.at(-1).children.length, NEXT_UP)
+    assert.match(page.text('next-up-order'), new RegExp(`The next ${NEXT_UP} of ${NEXT_UP + 3} — the rest are in Queue`))
+  })
+})
+
 test('what is wrong is reachable from every section: a gone run, a paused task, a queue that will not parse', () => {
   const s = setup()
   claim(s.dir, 'acme-api', { task: '0003', branch: 'agent/task-0003-next' })
@@ -451,7 +598,12 @@ test('the detail is a read: it is not polled, and state.json gains nothing', asy
   // opened, so no key of it is in the state the timer reads.
   const snap = snapshot(s.product)
   assert.deepEqual(Object.keys(snap).filter((key) => /task|detail|body|goal|criteria/i.test(key)), [])
-  for (const t of snap.queue.todo) assert.deepEqual(Object.keys(t), ['id', 'slug', 'repo', 'outcome', 'reason', 'doubts', 'branch'])
+  // What a queue entry is: its identity, where it stands and whether it runs
+  // alone. Not its body, its goal or its criteria — those are the detail, and
+  // the detail is fetched when a task is opened.
+  for (const t of snap.queue.todo) {
+    assert.deepEqual(Object.keys(t), ['id', 'slug', 'repo', 'outcome', 'reason', 'doubts', 'branch', 'touchesContract'])
+  }
   assert.doesNotMatch(SCRIPT, new RegExp(String.raw`setInterval\((?!${POLL.call})`))
 
   await dashboard(s, async (base) => {

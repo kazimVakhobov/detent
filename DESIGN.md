@@ -1093,7 +1093,21 @@ somebody was — no server route, and nothing fetched to change section
 ([ADR 0020](docs/adr/0020-the-dashboard-is-sections-and-the-configuration-is-read-before-it-is-written.md)).
 The sections are:
 
-- **Overview** — the figures `summary` computes, from the same code.
+- **Overview** — what is happening and what is next, because that is what
+  somebody opens the page to find out. **Running now**: which repository, which
+  task, which attempt and how long it has been going, from the claim's
+  `started` against the read's own clock — or, when nothing is running, a
+  sentence saying so, since an empty box reads the same either way. **Next
+  up**: the next few of `todo/` in the order a run would take them, which is
+  ascending task id, and the line above the table says so; a barrier
+  (`touches_contract`) is marked as one, because it runs alone and nothing
+  queued past it starts until it has landed (§8). **Waiting for you**: the
+  paused tasks with why each stopped — the same rows Queue lists and the strip
+  counts, because the strip is a line saying how many and this is the list
+  saying which. Then the figures `summary` computes, from the same code: they
+  answer "was it worth it", which is a different question from "what now" and
+  so reads under those three rather than instead of them. Nothing here is a
+  prediction — no estimate of how long a run has left or what it will cost.
 - **Repositories** — where each repository's `agent/dev` stands against its
   `compare` branch (identical, behind — agents cannot see your work — or tasks
   ahead, waiting for your review), and the same numbers per repository. Not

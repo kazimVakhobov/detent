@@ -79,6 +79,16 @@ main > section > h2:first-child { margin-top: 8px; }
 .alert.error { border-left-color: var(--critical); }
 .alert a { color: var(--accent); }
 
+/* The landing section: what is running, what is next, what is waiting — and
+   the figures under them. A run is a line of plain facts; nothing here is
+   coloured to mean something the words do not already say, and the one status
+   in it is an icon and a word like every other. */
+#now p { margin: 0; }
+#now a, #next-up-order a { color: var(--accent); }
+#now > .run + .run { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.run-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+#next-up-order { margin: 0 0 8px; }
+
 /* One task, opened from any table that lists it (ADR 0020 part 3). Its body is
    a text node in a <pre> — detent renders no markdown, so a task file looks
    like the text file it is, and wraps rather than scrolling sideways. */

@@ -17,8 +17,29 @@ export const SECTIONS = [
   {
     id: 'overview',
     nav: 'Overview',
-    // The figures `summary` computes, from the same code (§12).
-    markup: `<div class="figures" id="figures"></div>`,
+    // The landing section, so it answers the question somebody opens the page
+    // with: **what is happening and what is next** (§12). Three blocks, in the
+    // order a person asks them in — what is running, what runs next, and what
+    // has stopped and is waiting for them — and the figures under those three.
+    // The figures are the answer to "was it worth it", which is a different
+    // question from "what now" and reads after it rather than instead of it.
+    //
+    // Every block is read from the snapshot the page already has: `active` for
+    // what is running, `queue.todo` for what is next, `queue.hold` for what is
+    // waiting. Nothing new is fetched.
+    //
+    // The paused tasks are listed here *and* in Queue, and named a third time
+    // in the strip above every section. That is not a mistake: the strip is a
+    // line saying how many, and this is the list saying which.
+    markup: `<h2>Running now</h2>
+<div class="panel" id="now"></div>
+<h2>Next up</h2>
+<p class="muted" id="next-up-order"></p>
+<div class="scroll"><table id="next-up"></table></div>
+<h2>Waiting for you</h2>
+<div class="scroll"><table id="waiting"></table></div>
+<h2>Was it worth it</h2>
+<div class="figures" id="figures"></div>`,
   },
   {
     id: 'repositories',
