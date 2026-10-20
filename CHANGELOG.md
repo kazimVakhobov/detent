@@ -6,6 +6,27 @@ Notable changes, newest first. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- **The timeout test no longer races the clock.** One test in
+  `test/agents.test.mjs` checked two things that want opposite things from the
+  clock: that a call past its limit is stopped and says which limit, and that
+  the signal reached the whole process group the agent started. The second half
+  reads a pidfile and so needs the fixture to have *started* — `sh` can take
+  half a second to reach its first line from a temporary directory on macOS,
+  which is why the limit had been raised to 2000ms — while the first half wants
+  a limit short enough to keep the suite quick. Under the whole suite in
+  parallel on a loaded machine it was seen to take 255 seconds and fail its own
+  `< 5000` wall-clock assertion. It is two tests now: the limit, with a 100ms
+  limit and nothing read from the fixture, where the error sentence itself is
+  the proof that the timer and not the agent ended the call; and the reach of
+  the signal, with no limit at all, which waits for a pid to arrive in the
+  pidfile — a number, not a path, since `echo $! >` creates the file before it
+  writes into it — and then calls `stopAgents`. Both assertions are kept, and
+  the waits that remain are bounds a broken fixture fails against rather than
+  budgets a slow machine is measured against. No change to `core/agents.mjs`:
+  the timeout worked, the test measured it with a stopwatch.
+
 ### Changed
 
 - **Overview answers "what now" rather than "what on average".** The landing
