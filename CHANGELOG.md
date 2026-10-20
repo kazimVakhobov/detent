@@ -18,14 +18,21 @@ Notable changes, newest first. The format follows
   a limit short enough to keep the suite quick. Under the whole suite in
   parallel on a loaded machine it was seen to take 255 seconds and fail its own
   `< 5000` wall-clock assertion. It is two tests now: the limit, with a 100ms
-  limit and nothing read from the fixture, where the error sentence itself is
-  the proof that the timer and not the agent ended the call; and the reach of
-  the signal, with no limit at all, which waits for a pid to arrive in the
-  pidfile — a number, not a path, since `echo $! >` creates the file before it
-  writes into it — and then calls `stopAgents`. Both assertions are kept, and
-  the waits that remain are bounds a broken fixture fails against rather than
-  budgets a slow machine is measured against. No change to `core/agents.mjs`:
-  the timeout worked, the test measured it with a stopwatch.
+  limit and nothing read from the fixture, which keeps both the error sentence
+  and `Date.now() - started < 5000` — the sentence proves only that the timer
+  fired, since `core/agents.mjs` composes it in `child.on('close')` and would
+  compose it just the same after a failed kill let `sleep 30` finish, so only
+  the clock proves the kill ended the call; and the reach of the signal, with
+  no limit at all, which waits for a pid to arrive in the pidfile — a number,
+  not a path, since `echo $! >` creates the file before it writes into it —
+  and then calls `stopAgents`. No assertion was dropped, and the waits that
+  remain are bounds a broken fixture fails against rather than budgets a slow
+  machine is measured against. Run against load to check that: five full
+  `npm run verify` runs against ten `yes > /dev/null` processes (one per core)
+  and a second `npm run verify` looping beside them — 329 passing every time,
+  the whole suite stretched from 22s to 47–57s, and these two tests unmoved at
+  0.10s and 1.1–1.7s, inside the 5s and 10s bounds they are checked against. No change to `core/agents.mjs`: the timeout worked, the test
+  measured it with a stopwatch.
 
 ### Changed
 

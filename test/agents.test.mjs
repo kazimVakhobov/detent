@@ -294,26 +294,37 @@ function hanging(name, script) {
 // to keep the suite quick. Held in one test those two were a race: the limit
 // was raised to 2000ms to clear startup, and under the whole suite in parallel
 // on a loaded machine the test was still seen to take 255 seconds and fail its
-// own `< 5000` assertion. Raising the budget again only moves the load at
-// which it breaks, because wall clock is not a property of the code.
+// own `< 5000` assertion. Raising either number again only moves the load at
+// which it breaks, because what made the test slow was waiting for a fixture
+// it then had to out-wait.
 //
 // Apart they are not a race at all. A limit and `stopAgents` differ in what
 // starts them, not in what they signal — both end in the same `signalGroup` —
 // so the limit can be checked with nothing read from the fixture, and the
 // reach of the signal can be checked by a test with no limit in it, which is
 // free to wait for the fixture before it stops anything. If you are about to
-// raise a number here, read which of the two tests it is in first.
+// raise a number here, read which of the two tests it is in first. The
+// `< 5000` assertion is not one of those numbers: see why beside it.
 
 // The limit. Nothing here looks at the fixture, so nothing here waits for it:
 // whether the shell had reached its first line when the signal arrived cannot
-// change the answer, and the limit is short again. The sentence is also the
-// proof that the call did not wait for the agent — `ran past the ... limit` is
-// only composed on the path the timer settles, and an agent that had finished
-// on its own would be reported by its exit code instead, so a pass here
-// cannot be a pass by having out-waited a 30-second sleep.
+// change the answer, and the limit is short again — the 2000ms that was there
+// to clear `sh`'s startup was only ever needed by the pidfile.
 test('a call past its limit is stopped, and says which limit', async () => {
   const env = hanging('claude', 'cat > /dev/null; sleep 30')
+  const started = Date.now()
   const result = await invoke({ agent: 'claude' }, { cwd, prompt: 'x', env, timeoutMs: 100 })
+  // Both assertions stay: the sentence below does not stand in for the clock,
+  // so do not delete this line for it. The timer in `core/agents.mjs` only
+  // sets `timedOut` and signals the group; it never settles the call. The
+  // promise resolves in `child.on('close')`, and it is there that
+  // `if (timedOut)` composes `ran past the ... limit and was stopped`. So a
+  // signal that failed to kill the group produces this exact string too —
+  // after `sleep 30` has run to the end. The sentence proves the timer fired;
+  // only the clock proves the kill ended the call. Thirty seconds of sleep
+  // against five of budget is the margin, not a guess at how fast this
+  // machine is.
+  assert.ok(Date.now() - started < 5000, 'it did not wait for the agent')
   assert.equal(result.ok, false)
   assert.equal(result.error, 'claude ran past the 0.1-second limit and was stopped', 'the limit ended the call, and the agent did not')
 })
