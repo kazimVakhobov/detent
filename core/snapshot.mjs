@@ -39,6 +39,12 @@ export function snapshot(product, { now = new Date() } = {}) {
       reason: previous?.reason ?? null,
       doubts: previous?.acceptance?.doubts ?? [],
       branch: previous?.branch ?? null,
+      // Whether it runs alone. `readQueue` has already parsed this for every
+      // task in todo/ — it is the one field the scheduler branches on (§8) —
+      // and it was dropped here, which left the page listing a barrier as one
+      // more row. The other three folders are never opened, so it is false
+      // there for the same reason their criteria are absent.
+      touchesContract: task.touchesContract === true,
     })
   }
 

@@ -4,6 +4,32 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
+## Unreleased
+
+### Changed
+
+- **Overview answers "what now" rather than "what on average".** The landing
+  section held one thing — the lifetime figures — and both of the questions a
+  person actually opens the page with were somewhere else: what is running was
+  a sentence in the header chip and a cell in Repositories, and what is next
+  was in Queue, behind a click, in a table that did not say it was in run
+  order. Overview now opens with **what is running now** — which repository,
+  which task, which attempt and how long it has been going, or a sentence when
+  nothing is — then **what is next**, the next five of `todo/` in the order a
+  run takes them, which is ascending task id and is now stated above the list
+  rather than left to look arbitrary, with a barrier marked as one and
+  everything behind it saying which task it is behind — then **what is waiting
+  for a person**, with why each stopped. The figures stay, under those three:
+  they answer "was it worth it", which is a different question. Repositories
+  keeps its own section unchanged, and the strip of what is wrong is untouched
+  — this adds a landing screen, it does not become the place things are
+  reported.
+- The snapshot's queue entries now carry `touchesContract`. `readQueue` had
+  already parsed it for every task in `todo/` — it is the one field the
+  scheduler branches on — and the snapshot dropped it, which is the single
+  reason the page could not say that a task in the queue runs alone. Nothing
+  new is read, and nothing was added to `state.json`.
+
 ## 0.6.0 — 2026-10-20
 
 The release where the product stopped claiming three agents and the dashboard
