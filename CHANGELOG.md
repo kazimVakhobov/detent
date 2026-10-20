@@ -6,6 +6,45 @@ Notable changes, newest first. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- **The timeout test no longer races the clock.** One test in
+  `test/agents.test.mjs` checked two things that want opposite things from the
+  clock: that a call past its limit is stopped and says which limit, and that
+  the signal reached the whole process group the agent started. The second half
+  reads a pidfile and so needs the fixture to have *started* — `sh` can take
+  half a second to reach its first line from a temporary directory on macOS,
+  which is why the limit had been raised to 2000ms — while the first half wants
+  a limit short enough to keep the suite quick. Under the whole suite in
+  parallel on a loaded machine it was seen to take 255 seconds and fail its own
+  `< 5000` wall-clock assertion. It is two tests now: the limit, with a 100ms
+  limit and nothing read from the fixture, which keeps both the error sentence
+  and `Date.now() - started < 5000` — the sentence proves only that the timer
+  fired, since `core/agents.mjs` composes it in `child.on('close')` and would
+  compose it just the same after a failed kill let `sleep 30` finish, so only
+  the clock proves the kill ended the call; and the reach of the signal, with
+  no limit at all, which waits for a pid to arrive in the pidfile — a number,
+  not a path, since `echo $! >` creates the file before it writes into it —
+  and then calls `stopAgents`. No assertion was dropped, and each one can be
+  named where it now lives. *a call past its limit is stopped, and says which
+  limit* keeps `assert.ok(Date.now() - started < 5000)`, `result.ok === false`
+  and `result.error === 'claude ran past the 0.1-second limit and was
+  stopped'`. *a stopped agent takes its whole process group with it,
+  grandchild included* takes the two that needed the fixture: `result.ok ===
+  false` after `stopAgents`, and `alive() === false` for the pid read out of
+  the pidfile — the grandchild — with the Linux `/proc/<pid>/stat` state `Z`
+  and macOS signal-0 branches of that check carried over untouched. The waits
+  that remain are bounds a broken fixture fails against rather than budgets a
+  slow machine is measured against. Run against load to check that: five full
+  `npm run verify` runs against ten `yes > /dev/null` processes (one per core)
+  and a second `npm run verify` looping beside them — 329 passing every time,
+  the whole suite stretched from 22s to 47–57s, and these two tests unmoved at
+  0.10s and 1.1–1.7s, inside the 5s and 10s bounds they are checked against.
+  Checked again against the same ten `yes > /dev/null`: two runs, 329 passing
+  both times, suite 34.0s and 34.7s against 22s idle, these two tests at 0.11s
+  and 0.79s. No change to `core/agents.mjs`: the timeout worked, the test
+  measured it with a stopwatch.
+
 ### Changed
 
 - **Overview answers "what now" rather than "what on average".** The landing
