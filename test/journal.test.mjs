@@ -88,6 +88,11 @@ test('dollars only where every run reported them; tokens otherwise', () => {
   assert.equal(none.costPerPass, null)
 })
 
+// The journal is a record, so it reports the agent each line names — including
+// `codex` and `gemini`, which this version no longer offers (ADR 0018) and
+// which a journal written before it still has in it. Grouping reads the line,
+// never the schema, so a run's history does not stop adding up when the list
+// of offered agents changes.
 test('grouped by agent and the model that actually ran', () => {
   const rows = summarise(
     [

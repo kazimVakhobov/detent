@@ -4,6 +4,459 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
+## 0.6.0 — 2026-10-20
+
+The release where the product stopped claiming three agents and the dashboard
+stopped being a thing you only read.
+
+**One agent, and the table it came out of.** Three adapters were offered and
+one had ever run: the header of `test/agents.test.mjs` had said so since they
+were written, and one of the unverified two pointed at a program its vendor had
+replaced for free accounts four months earlier. `codex` and `gemini` are gone
+and the mechanism they came in is untouched — a role still names its agent, and
+the adapter table is still a table with one row, because what makes adding one
+back a configuration rather than a rewrite is the shape
+([0018](docs/adr/0018-one-agent-in-the-first-version-and-what-readmits-another.md)).
+The cost is written down rather than discovered: with one vendor, an acceptance
+pass is a different model of the same family, so `0004`'s "a model's judgement
+may only raise a doubt" carries more weight than it was meant to.
+
+**The page you watch a run on.** It is sections now, one shown at a time and
+named in the fragment, so what was wrong with a single scroll — the densest
+block at the bottom, two of four queue folders drawn, numbers computed and
+displayed nowhere — is gone, and what is wrong with *sections* is answered in
+the same change: a dead run, a paused task and a queue that will not parse are
+drawn above every section, because a page that can hide the thing that is wrong
+has lost the one job it had. A task is something you can open, with its body as
+text and no markdown rendered. The configuration is read before it is written,
+which also narrows a rule: a view may refresh, an open editor never does
+([0020](docs/adr/0020-the-dashboard-is-sections-and-the-configuration-is-read-before-it-is-written.md)).
+And what the agent is saying arrives while it says it, in a file that is not a
+record — nothing reads one to decide an outcome, a cost or a verdict
+([0021](docs/adr/0021-the-agents-output-is-a-stream-written-to-a-file-that-is-not-a-record.md)).
+
+**Which model to type.** Nothing detent can reach knows: the CLI holds no
+list, the API's list needs a credential this product does not have, and
+availability turned out to depend on the installed CLI as well as the account.
+So the names it has watched work are a suggestion in `product.json`, editable
+there, and the validator never checks a model against them
+([0019](docs/adr/0019-the-offered-model-names-are-a-suggestion-in-the-product-file.md)).
+
+One thing in here cost two runs, and it is the part worth reporting. The
+logging change passed its gauge and was **demoted by the acceptance pass**,
+which found that the page said "running" over a tail that had stopped growing
+whenever the run was in a phase that writes no log — the exact symptom the
+change existed to remove. It went back and came out naming the third state. The
+reviewer could not approve and did not have to; `0004` earned its keep.
+
+### Added
+
+- **A model name you can pick, and a list you can extend.** A role names an
+  agent and optionally a model, the validator took any non-empty string for it,
+  and the dashboard offered a bare text box beside the agent select — correct,
+  and no help at all to somebody who said plainly that there were no keys
+  anywhere and no way to know what a model name looks like. detent now ships a
+  list of names it has watched work, `init` writes it into `product.json` as
+  `modelSuggestions`, and the dashboard's model field offers it while staying
+  free text
+  ([ADR 0019](docs/adr/0019-the-offered-model-names-are-a-suggestion-in-the-product-file.md)).
+  The aliases lead — `opus`, `sonnet`, `haiku` — because they are the entries
+  that do not go stale, and they cost the journal nothing: a run with an alias
+  came back naming the model it resolved to, so `requested` keeps the alias and
+  `actual` keeps the model. **Nothing is checked against the list**, not on
+  load, not in `doctor`, not on the page: a name that is not on it is accepted,
+  written and run. A file carrying the key is offered its own list and nothing
+  else, empty included; a file without it is offered the shipped one, so every
+  product that exists today gets the suggestions without being edited. The
+  reason it is a suggestion is that nothing detent can reach knows the answer —
+  the CLI holds no list, the API's needs a credential this product does not
+  have, and `--model claude-opus-5-5` turned out to be refused by the installed
+  binary rather than by the account, so a list that refused a model would be
+  wrong for somebody on the day it shipped.
+- **The page says where the names come from**, under the field: the list is
+  `modelSuggestions` in `product.json`, it can be extended there, and any name
+  may be typed. It does not claim the list is what an account can run, because
+  nothing the page can reach knows that.
+
+- **What the agent is doing, while it does it.** A run printed a line when a
+  task started and a line when it ended; between them — minutes, sometimes a
+  quarter of an hour — nothing, and the person who dispatched it had no way to
+  tell working from stuck without reaching for `ps`. The agent is now invoked
+  so that its output arrives **as a stream**, and every attempt's raw stdout is
+  written to `runs/logs/<task>-attempt-<n>.jsonl` as it arrives
+  ([ADR 0021](docs/adr/0021-the-agents-output-is-a-stream-written-to-a-file-that-is-not-a-record.md)).
+  Two facts made this cheap and both were checked rather than assumed: the last
+  line of `--output-format stream-json --verbose` is the same `type: "result"`
+  object the single-object format printed on its own, so every number the
+  journal records is read from the same place; and there is one agent now
+  ([ADR 0018](docs/adr/0018-one-agent-in-the-first-version-and-what-readmits-another.md)),
+  so streaming no longer means privileging one of three in the most
+  load-bearing code in the product.
+- **The dashboard shows the output of a running task**, inside the task's own
+  detail view, under its body and its history — the surface somebody watching
+  is already looking at, read from the same file `tail -f` would read, on the
+  timer the page already has. It does not grow with the run: the page asks to
+  carry on from the byte its last answer ended at rather than re-reading what
+  it has, keeps a bounded number of lines, and clips each one.
+- **It says which of three states it is in.** Not running: what is shown is what
+  the last attempt said, not something happening now — and a task nothing has
+  ever run says *that* rather than showing an empty box that could be either.
+  Running and printing: the end of the output, a few seconds behind. Running and
+  **not** printing: only the agent's own turn writes a log, so the gauge, the
+  link check, the acceptance pass and the merge print nothing there, and the
+  page says that rather than leaving a frozen tail under the word "running",
+  which is the symptom this change exists to remove. It is told from what the
+  page can check: the claim's attempt against the log's, whether the last line
+  to arrive is the agent's result object, and how long the file has been quiet.
+  No phase is recorded anywhere to drive it, and `DESIGN.md` §5 names every part
+  of a run that writes no log.
+- `detent run` prints the path when a task starts and shows nothing: several
+  tasks may be running and their output interleaved in one terminal would be
+  unreadable, so the path is the offer and `tail -f` is the choice. The name is
+  derivable from a task id and an attempt, so a second terminal needs nothing
+  copied out of the first.
+- **A log is not the journal.** Nothing reads one to decide an outcome, a cost,
+  a verdict or a model; the journal's numbers come from the result object as
+  they always have, and a number taken from a transcript is a number nobody can
+  check. A run that cannot write its log says so once and carries on — losing a
+  log must never cost the task — and the output goes no further than this
+  machine, because a transcript holds whatever the agent read.
+- **It has a stated end.** `detent prune` now also deletes the attempt logs of
+  settled tasks: `done/`, `failed/`, and tasks whose file is in none of the four
+  folders. A task in `todo/` or `hold/` keeps its last attempt, because that is
+  what a person opens it to read, and a task a run is holding is being written
+  to right now. An artefact with no stated lifetime is a disk leak with a
+  feature request attached.
+
+- **A task can be opened on the dashboard.** A task on the page was
+  `id + ' ' + slug`, and for a paused one its reason and the reviewer's doubts
+  — not the goal it was given, not the criteria it is judged against, not what
+  its attempts did. The one thing a person wants when deciding whether to run a
+  task, or working out why it stopped, is now a section of its own: the
+  frontmatter, the folder, the goal, the acceptance criteria, the out-of-scope,
+  and the journal's lines for that number with each run's outcome, attempts and
+  cost, the acceptance verdict with its doubts, and whether the task's links
+  checked
+  ([ADR 0020](docs/adr/0020-the-dashboard-is-sections-and-the-configuration-is-read-before-it-is-written.md)).
+  The parse already existed — `parseTask` splits a task into its frontmatter
+  and its three sections because `detent run` needs them — and the page had
+  never seen the result. It is read by `core/task-detail.mjs` and drawn by a
+  sixth module under `core/dashboard/`, composed into the same one document:
+  one request, no second asset, and the same content security policy.
+- Every table that lists a task opens it: `todo/`, the paused tasks, `done/`,
+  `failed/` and the recent runs. The fragment carries the number, `#task/0042`,
+  so a link to one task is a link somebody can send and reload, and a task with
+  no row in any table is still reachable by typing one. A fragment that names
+  the section with no number, or with a number that is not digits, still lands
+  on the section, and nothing rewrites the address bar.
+- **The body is shown as written.** detent renders no markdown: a task body is
+  markdown somebody wrote, every line of it reaches the page as text, and the
+  structure comes from the sections already parsed — so nothing in a task file
+  can become markup and there is no sanitiser here to be wrong about
+  ([ADR 0006](docs/adr/0006-zero-dependencies-node-22.md)). Somebody will ask
+  for headings.
+- A task in `hold/`, `done/` or `failed/` opens too, which means reading and
+  parsing a file nothing else in the process opens: `readQueue` holds `todo/`
+  to the full shape and pushes the other three folders by name alone, so a task
+  that has already run was a file nobody had read. **A file that will not parse
+  opens anyway**, showing what it says and naming the problem — a task nobody
+  can open is a task nobody can fix.
+- The number never becomes a path: it is matched as digits, compared as a
+  number, and resolved against the four folders by file name, so nothing
+  outside the queue is reachable by asking for it. A number that is in none of
+  them is refused in a sentence that says so, and a queue that will not read
+  says *that* instead, with its problems — the detail does not report a task
+  missing from a queue it could not read. `readQueue` stays all-or-nothing,
+  which is what keeps a typo from costing three attempts; the one file is read
+  directly. Nothing in the view writes, and the detail is fetched when a task
+  is opened rather than polled: `state.json` gains nothing.
+
+- **The dashboard writes the product's configuration, between runs.** The page
+  that knows which model implements, which reviews, how many attempts a task
+  gets and how long an agent may run could not change any of it: all twelve
+  keys are `product.json`, and changing one meant leaving the page, finding the
+  file and knowing a schema that two of those keys joined this month. The
+  models for each role — product-wide and per repository — `attempts`,
+  `timeout`, `concurrency` and `notify` are now inputs on the page, and
+  `POST /configuration.json` is the one thing it writes
+  ([ADR 0015](docs/adr/0015-the-dashboard-may-write-the-configuration-between-runs.md)).
+  `repos`, `queue`, `docs` and `branches` are shown beside them with the
+  reason each is not editable there: they name things on disk, and a page
+  cannot create what it names.
+- A write is refused **while a run is active**, by the server and not only by
+  the disabled inputs — a disabled input is a courtesy and the refusal is the
+  rule. The refusal says a run is active and which repository is on which task
+  and attempt, read from the same `state.json` `recover` reads. The reason is a
+  mechanism rather than a preference: the files that judge an agent are
+  fingerprinted before each of its turns, that guard does not ask who changed
+  one, and a page writing mid-run would pause the task blaming the agent for a
+  person's edit. A stale entry left by a killed run keeps the inputs shut until
+  `detent recover` is run, which is the right answer and an unobvious one.
+  There is no queue of changes applied later: a change accepted and not yet
+  applied is a third state between what the file says and what the page shows.
+- Every write goes through `validateProduct` whole — the same code
+  `detent run` loads the file with, every problem at once, each naming its
+  path, and nothing written if any of them fails — so the page cannot produce
+  a `product.json` a run would refuse to load. The file keeps the shape `init`
+  writes it in, the keys the page does not touch keep their values and their
+  order, a field left empty leaves its key out rather than writing the default
+  into it, and what the page shows afterwards is read back off disk.
+- A write must come from the page: `origin` naming this server and
+  `content-type: application/json`, neither of which a form on another site
+  can produce. Binding `127.0.0.1` stopped meaning anything the moment the
+  server accepted a write — any site open in the same browser can post to
+  localhost, and it never needs to read the reply. There is no login, session
+  or token, and there is not meant to be: one person per workspace is
+  condition 8, and what the check keeps out is a page they did not open rather
+  than a person who is not them.
+
+- The `docs` stage counts what the prose counts. Two shapes are read, and both
+  have been wrong in this repository more than once: a line that links to
+  [`docs/adr/`](docs/adr/) and says how many decisions are in it — it has said
+  eight, ten, eleven, twelve and thirteen while the directory held another
+  number — and a heading of the form `### <count> <things>` over the list of
+  those things, which said three when there were four and four when there were
+  five. A mismatch names both numbers, and the heading. Counts written as
+  English words are read, since that is how this repository writes them.
+  Nothing else is: "the nine conditions" and "three attempts" are claims about
+  behaviour that the code settles, and a word that is not a number ("a few
+  decisions") is not a count and is left alone rather than guessed at — a
+  false failure in a gauge stage costs more than a missed one. It found no
+  mismatch when it was written; the two claims standing here are both right,
+  which is the first time that has been measured rather than noticed.
+- A configured queue that cannot be published is said out loud, by the command
+  that created it and by `doctor`. `"queue": "agent-loop/tasks"` with no
+  `agent-loop` beside the other repositories used to get a plain directory, a
+  line saying the queue was created, and `ready`: everything worked except the
+  thing the configuration was for, since
+  [ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md)
+  has a task's move committed and pushed so the next machine reads a current
+  queue, and there was nothing to commit it to. `init` now says the queue
+  stays on this machine and why, and `doctor` reports it as a failure of its
+  own — a product whose queue cannot be published is not in the shape its own
+  `product.json` describes. Neither of them clones anything, creates a
+  repository or adds a remote: they report, and a person decides.
+- A queue in a repository whose branch tracks **no remote** is reported too,
+  as a different sentence and as worth a look rather than a failure: nothing is
+  wrong, nothing will be pushed, and which of the two a person has is what
+  decides whether there is anything to do about it. The push was already
+  skipped there, and rightly — a queue nobody can fetch has no next machine to
+  be stale for — but it was skipped silently.
+- A queue at the default location says nothing, as it always did. This is a
+  check about a `queue` somebody configured.
+
+### Changed
+
+- **The configuration is read until a person says otherwise.** Every value in
+  the panel was a live `input` or `select` whether or not anybody meant to
+  change one, so reading which model a repository uses meant reading the
+  contents of form controls — and while a run was active every control was
+  disabled, which was right for the writing and cost the reading with it:
+  somebody who opened the page during a run to see which model was costing what
+  found the answer greyed out. Viewing is now the default and shows what the
+  file says as text, with a repository's inherited role saying whose setting it
+  is inheriting; the editor is entered deliberately from one button and leaving
+  it discards
+  ([ADR 0020](docs/adr/0020-the-dashboard-is-sections-and-the-configuration-is-read-before-it-is-written.md)
+  part 2). **Entering edit mode is refused while a run is active and viewing is
+  not**, with the explanation
+  [ADR 0015](docs/adr/0015-the-dashboard-may-write-the-configuration-between-runs.md)
+  made part of the feature beside the disabled button: that a run is active,
+  what it is working on, and that the server refuses whatever the page allows.
+  Nothing about the write changed — it still refuses during a run, still
+  validates whole through `validateProduct`, still requires the origin and the
+  JSON content type, and still answers with what the file says afterwards.
+- **A view may refresh; an open editor never does.** This narrows a rule that
+  was written as a comment rather than as an ADR — the configuration is fetched
+  once and after a write and never polled, because a form whose values move
+  under the person filling it in would be a third state between what the file
+  says and what the page shows. That argument is about a form: the view is now
+  read on the page's one timer, and opening the editor takes a read of its own
+  so what is edited is what the file currently says. From then until it closes,
+  neither the timer nor anything else moves a value under the person typing. A
+  write the server refuses leaves the editor open with what was typed still in
+  it and the problems against their paths, because losing somebody's edits to a
+  validation error would make the mode worse than the one it replaced.
+- **Which model a repository uses is stated once.** The repositories table drew
+  it in a format of its own (`implement claude …`, `review …`) beside a
+  configuration panel that drew the same fact as form controls, and two
+  renderings of one fact are free to disagree. The configuration is where a
+  model is read, because it is where one is written; the table's column is gone,
+  the repositories section says where to look, and `snapshot()` no longer
+  carries a second copy of it.
+- The page's one script is now run by its tests, not only read by them:
+  `test/support/page.mjs` puts a document that is enough of one under the
+  string the server serves and that same server in front of it, so "the default
+  is a view", "the editor does not open during a run", "a refusal keeps what
+  was typed" and "discarding writes nothing" are asserted as behaviour rather
+  than as a regular expression over the source.
+- **The dashboard page is sections, one shown at a time, and the one shown is
+  named in the fragment.** Nine blocks down a single scroll put the densest of
+  them — the configuration, the only one with inputs — below everything else,
+  and the fragment means a reload and a copied link both come back to where
+  somebody was: no server route, nothing fetched to change section, and the
+  whole document still arrives in one request
+  ([ADR 0020](docs/adr/0020-the-dashboard-is-sections-and-the-configuration-is-read-before-it-is-written.md)).
+  The sections are Overview, Repositories, Queue, Agents, Recent runs and
+  Configuration. An absent or unrecognised fragment lands on the first of them
+  rather than on nothing, and nothing rewrites it — a page that corrects the
+  address bar loses the one thing the fragment was for. The configuration moved
+  into a section of its own, and what reading it became is the entry above.
+- **What is wrong is in no section.** A run whose process is gone, a paused
+  task, and a queue that would not parse are drawn above every section on every
+  read, each naming the section that holds the detail. A single scroll had the
+  property that everything was somewhere below you, and a page that can hide
+  the thing that is wrong has lost the one job it had: ADR 0020 names this as
+  how the split makes the page worse, and the strip is what keeps it from
+  happening.
+- **The page shows what it was already being sent.** `done/` and `failed/` were
+  read on every snapshot and drawn nowhere — the queue section now has all four
+  folders, `done/` with what the journal says became of each task and `failed/`
+  with why, which is a person abandoning a task rather than detent deciding
+  anything. `numbers.byRepo` was computed on every read and displayed nowhere;
+  it is a table beside the repositories, the same six columns the agents table
+  has. Nothing new is fetched and nothing was added to `state.json`.
+- The page's source is several modules under `core/dashboard/` — the sections
+  and the fragment that names one, the strip of what is wrong, the stylesheet,
+  the rendering, and the configuration panel — composed into one string at
+  import time. What is served is unchanged: one document, one request, no
+  second asset, and the same content security policy, which is now asserted
+  whole rather than by one of its directives. Serving the script as its own
+  asset would let `script-src 'unsafe-inline'` go and is worth doing on its own
+  merits; ADR 0020 declines to do it as a side effect of moving blocks around.
+- The tests that read the page's own source for what it does assert the
+  property instead, because splitting the file breaks a regular expression over
+  it by construction. `PAGE.matchAll(/^ {2}\['(\w+)', '/gm)` — which read the
+  offered configuration keys out of the source by their indentation — is now
+  `LIMITS` imported from the module that draws them, compared against
+  `EDITABLE` less `models` and checked to reach the document. The single
+  `setInterval` compared with `['refresh']` is now the exported `POLL` plus a
+  count of every timer in the document, so "one timer, and it reads the state"
+  survives the timer moving file. The assertion that the empty-queue line is
+  built from `s.product.queue` is now the rule it stood for: wherever the page
+  writes a folder name, the queue the snapshot carries is written immediately
+  before it, and no literal queue path appears anywhere. Three more properties
+  are checked that one file made true by accident — no two elements share an
+  id, every id the script reads exists in the document, and every block the
+  page draws is inside exactly one section.
+- `DESIGN.md` §12 and the README stop saying the dashboard is read-only. What
+  replaces it is narrower and less memorable: it reads a product and writes its
+  configuration between runs. `GET` and `HEAD` are unchanged — the page, the
+  snapshot, and now the configuration — and anything that is neither those nor
+  the one write still gets `405`.
+- `detent run` refuses, before any branch is created, on what `doctor` already
+  calls a failure in the repositories the queued tasks name. A declared agent
+  that is not installed is therefore caught before the workspace is taken,
+  with the sentence `doctor` has given since step 7, instead of when the agent
+  was invoked — which is after the task branch exists and the workspace has
+  been taken. Only failures, and only those repositories: what `doctor` calls
+  worth a look lets a run go ahead, and a repository no queued task mentions
+  is one a run would not have touched. The refusal names the checks that
+  failed and then `detent doctor` for the rest; it does not reprint the report
+  or run the advisory checks.
+
+- The gauge runs on Linux **and** macOS. `verify.yml` is one matrix over
+  `ubuntu-latest` and `macos-latest` — not two copies of a job — on the
+  triggers it already had, Node 22 and no install step on either, and each
+  check names the platform it ran on so a red one is readable from the list
+  without opening it. Condition 9 promises both platforms, and until now the
+  only one CI measured was Linux while the only one a developer measured was
+  macOS, with nothing comparing them: that is how a suite red on Linux stayed
+  red through six tasks and two releases while the local gauge said green the
+  whole time. No Windows and no second Node version —
+  [DESIGN.md §15](DESIGN.md#15-deliberately-not-here) refuses the first by
+  name, and the claim under test here is the platform, not the runtime.
+- `release.yml` keeps publishing from `ubuntu-latest` alone, deliberately. It
+  builds one artifact from a commit whose matrix has already run on both
+  platforms on the way to `main`, so a second runner there cannot change what
+  is published — it can only gate a release on a machine with no say in it.
+- A desktop notification nobody answered names the platform and the program it
+  tried: `no desktop notifier answered on linux (tried notify-send)`. Which
+  notifier exists at all is the platform's decision, so the same sentence on
+  both said nothing about which machine is missing which program.
+
+### Fixed
+
+- **A refused model no longer reads as a success.** An errored result from
+  Claude Code arrives as `is_error: true` with `subtype: "success"`, and the
+  adapter composed its error string from that subtype — so a model name the
+  installed CLI will not run produced `success (400): …`. The verdict was
+  always right, since `ok` requires both fields; the sentence now leads with
+  the status when the subtype is the one word the failure is not, so a 400
+  reads as a 400. What is recorded as the failure is otherwise unchanged.
+- The test that checks a timed-out agent is stopped along with what it started
+  read an exited-but-unreaped process as still running: signal 0 succeeds on a
+  zombie, and the process's parent is the shell detent had just stopped, so
+  nothing in the test could reap it. How long an orphan lingers belongs to
+  whatever adopts it — an init that reaps at once on a runner, a container's
+  shell that never does — and the test was measuring that rather than detent.
+  It now reads `/proc` on Linux, where an exited process says so, and keeps
+  signal 0 on macOS, where there is no `/proc` and nothing lingers. The
+  assertion is the same one: a stopped command has to be gone.
+- A multi-byte character split across two chunks of the agent's output was
+  decoded as two broken halves: `stdout += chunk` turns each buffer into text
+  on its own, wherever the pipe happened to fill. One object at the end
+  survived that by luck; a stream of lines would not, so the decoding moved
+  into the stream, which holds a partial sequence until the rest of it arrives.
+
+### Removed
+
+- **Two of the three agents.** `codex` and `gemini` are gone from
+  `core/agents.mjs`, from the schema, from `detent plan --agent`, from the
+  scan's search of `PATH` and from `DESIGN.md`. Only one of the three had ever
+  run: the header of `test/agents.test.mjs` had said so since the adapters
+  were written — Claude Code 2.1 run for real, Codex 0.160 and Gemini CLI 0.62
+  *read from their event and formatter code* — and every task detent has
+  worked ran on Claude Code. On top of that, Google stopped serving Gemini CLI
+  to free and individual accounts on 2026-06-18 and directs them to
+  Antigravity CLI, a different program with a different interface, so the
+  adapter targeted something its vendor had replaced for the people most
+  likely to try it. The product claimed three, had verified one, and the
+  README promised all of them
+  ([ADR 0018](docs/adr/0018-one-agent-in-the-first-version-and-what-readmits-another.md)).
+- **What was kept is the mechanism.** A role still names its agent,
+  `product.json` still carries that shape, and the adapter table is still a
+  table — with one row. Nothing hard-codes `claude` outside it: the schema,
+  `doctor`'s fix line, `plan`'s usage and the dashboard's choices all read the
+  list. 0018 rejected dropping the field by name, because the shape is what
+  makes adding an agent back a configuration rather than a rewrite, and the
+  cost of keeping it is one row.
+- **What brings one back:** it has run a real task in a real repository, and
+  its adapter was written against what it actually printed rather than against
+  its source. That is the condition both of these failed, and the reason they
+  left rather than waited. They are planned, not abandoned, and Antigravity
+  CLI is the first candidate — written today it would be a third adapter built
+  from documentation, which is the mistake being corrected.
+- A `product.json` naming `codex` or `gemini` stops loading, and the refusal
+  says so: `models.accept.agent: "codex" is not offered in this version —
+  detent offers claude. An agent is added once it has run a real task and its
+  adapter was written against what it printed: docs/adr/0018-…`. Nobody is
+  known to have one, and whoever does is owed the decision rather than
+  "unknown agent".
+- `init` no longer proposes two different agents for the two roles. It writes
+  `models.implement` and leaves `models.accept` out, and now says why: one
+  agent is offered, so a reviewer is that agent on a different model, and
+  which models an account has is not something a scan can see.
+  [ADR 0004](docs/adr/0004-acceptance-demotes-only.md)
+  is unchanged — an acceptance pass by the same model as the implementer is
+  worth nothing, and so is one by a model name that does not resolve — which
+  is why the key is left for a person rather than filled in.
+- The acceptance pass loses its only path to a reviewer from another vendor.
+  With one agent it is a different model of the same family — shared training,
+  shared blind spots — and 0004's "a model's judgement may only raise a doubt"
+  is carrying more weight than it was meant to. `DESIGN.md` §9 says so beside
+  the rule.
+- Four tests went with the adapters: `codex: exec with JSONL events…`,
+  `codex: a failed turn is not ok`, `gemini: headless JSON, yolo…` and
+  `gemini: an error object is not ok`. Each asserted one CLI's argv and one
+  CLI's output shape — the adapter, not the mechanism. Every test about the
+  mechanism stayed and now runs against `claude`: how it is called, how its
+  output is read, how a timeout stops it and everything it started, how a
+  missing binary and a failure are reported, and that an agent with no row is
+  a programming error. One test arrived — the refusal that names a withdrawn
+  agent — so `node --test` reports 272 where it reported 275: four gone, one
+  added, three fewer.
+
 ## 0.5.0 — 2026-10-18
 
 A methodology from outside this repository, and the first one detent's

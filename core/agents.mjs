@@ -6,16 +6,27 @@
 //
 // What a CLI does not report is null, never estimated: an invented model name
 // or cost would quietly corrupt every comparison built on the journal.
+//
+// The table has one row in this version, and stays a table: an agent is added
+// back as a row here and a name in the schema once it has run a real task and
+// its adapter was written against what it printed (ADR 0018).
 
 import { spawn } from 'node:child_process'
 import process from 'node:process'
 
 export const AGENTS = {
-  // Claude Code: one JSON object on stdout.
+  // Claude Code: JSONL on stdout, one object per thing that happened, and the
+  // result object last (ADR 0021).
   claude: {
     command: 'claude',
     // Plan mode is Claude Code's read-only mode: it reads and refuses to write.
-    args: ({ model, readOnly }) => ['-p', '--output-format', 'json', '--permission-mode', readOnly ? 'plan' : 'bypassPermissions', ...(model ? ['--model', model] : [])],
+    //
+    // `stream-json` prints as the work happens instead of once at the end, and
+    // needs `--verbose` to do it under `-p`. Its last line is the same result
+    // object `json` printed on its own, so every number below is read from the
+    // same place it was read from before: reading the last JSON object of a
+    // stream rather than the only one costs nothing and lets somebody watch.
+    args: ({ model, readOnly }) => ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', readOnly ? 'plan' : 'bypassPermissions', ...(model ? ['--model', model] : [])],
     parse(stdout) {
       const out = lastJson(stdout)
       if (!out) return null
@@ -31,94 +42,40 @@ export const AGENTS = {
           usage.output_tokens,
         ),
         session: out.session_id ?? null,
-        error: out.is_error ? `${out.subtype ?? 'error'}${out.api_error_status ? ` (${out.api_error_status})` : ''}: ${out.result ?? ''}`.trim() : null,
-      }
-    },
-  },
-
-  // Codex: `codex exec --json` prints one JSON event per line. The prompt is
-  // read from stdin when it is given as "-".
-  codex: {
-    command: 'codex',
-    args: ({ model, readOnly }) => ['exec', '--json', '--sandbox', readOnly ? 'read-only' : 'workspace-write', '--color', 'never', ...(model ? ['--model', model] : []), '-'],
-    parse(stdout) {
-      const events = stdout.split('\n').flatMap((line) => {
-        try {
-          const event = JSON.parse(line)
-          return event && typeof event === 'object' ? [event] : []
-        } catch {
-          return []
-        }
-      })
-      if (events.length === 0) return null
-      let message = ''
-      let input = 0
-      let output = 0
-      let counted = false
-      let session = null
-      let error = null
-      for (const event of events) {
-        if (event.type === 'thread.started') session = event.thread_id ?? null
-        if (event.type === 'item.completed' && event.item?.type === 'agent_message') message = event.item.text ?? ''
-        if (event.type === 'turn.completed' && event.usage) {
-          counted = true
-          input += sum(event.usage.input_tokens, event.usage.cached_input_tokens)
-          output += event.usage.output_tokens ?? 0
-        }
-        if (event.type === 'turn.failed') error = event.error?.message ?? 'turn failed'
-        if (event.type === 'error') error = event.message ?? 'error'
-      }
-      return {
-        ok: error === null,
-        message,
-        // codex exec does not name the model that ran in its events.
-        actual: null,
-        usd: null,
-        tokens: counted ? tokens(input, output) : null,
-        session,
-        error,
-      }
-    },
-  },
-
-  // Gemini CLI: one JSON object. --prompt is required for headless mode and is
-  // appended to stdin, so it carries only a pointer to the real prompt.
-  gemini: {
-    command: 'gemini',
-    args: ({ model, readOnly }) => [
-      '--output-format', 'json',
-      '--approval-mode', readOnly ? 'plan' : 'yolo',
-      '--skip-trust',
-      ...(model ? ['--model', model] : []),
-      '--prompt', 'The task is above. Work on it in this repository.',
-    ],
-    parse(stdout) {
-      const out = lastJson(stdout)
-      if (!out) return null
-      const models = Object.entries(out.stats?.models ?? {}).map(([name, m]) => [name, m?.tokens?.total ?? 0])
-      let input = 0
-      let output = 0
-      for (const [, m] of Object.entries(out.stats?.models ?? {})) {
-        input += m?.tokens?.prompt ?? 0
-        output += m?.tokens?.candidates ?? 0
-      }
-      return {
-        ok: !out.error,
-        message: typeof out.response === 'string' ? out.response : '',
-        actual: busiest(models),
-        usd: null,
-        tokens: models.length > 0 ? tokens(input, output) : null,
-        session: out.session_id ?? null,
-        error: out.error ? (out.error.message ?? JSON.stringify(out.error)) : null,
+        error: failure(out),
       }
     },
   },
 }
 
+// Why an errored result failed, in the CLI's own words with a word of detent's
+// in front of it to say what kind of failure it was.
+//
+// `subtype` says how the turn ended and not whether it worked: a model the
+// installed CLI cannot run comes back `is_error: true` with `subtype:
+// "success"` and `api_error_status: 400`. The verdict was always right — `ok`
+// requires both — but the sentence opened with the word `success`, and the
+// first person to mistype a model name is the person who reads it (ADR 0019).
+// So the subtype leads only when it is not that one word, and otherwise the
+// status does: a 400 reads as a 400.
+function failure(out) {
+  if (!out.is_error) return null
+  const status = out.api_error_status ?? null
+  const subtype = typeof out.subtype === 'string' && out.subtype !== 'success' ? out.subtype : null
+  const what = subtype ? `${subtype}${status ? ` (${status})` : ''}` : status ? String(status) : 'error'
+  return `${what}: ${out.result ?? ''}`.trim()
+}
+
 // `readOnly` runs the agent in its CLI's read-only mode — for a reviewer, which
 // has no business changing what it reviews. `timeoutMs` bounds the call: past
 // it the agent gets SIGTERM, then SIGKILL after `graceMs` if it is still there.
-export function invoke(role, { cwd, prompt, readOnly = false, timeoutMs = null, graceMs = 10_000, env = process.env }) {
+//
+// `log` is somewhere to put what the agent prints as it prints it — a sink from
+// `log.mjs`, or nothing. It is written to and never read: the result below is
+// parsed from the output in memory, exactly as it was before there was a file
+// (ADR 0021). A sink that fails is a sink that stops working, not a call that
+// fails, which is why nothing here looks at what writing returned.
+export function invoke(role, { cwd, prompt, readOnly = false, timeoutMs = null, graceMs = 10_000, env = process.env, log = null }) {
   const adapter = AGENTS[role.agent]
   if (!adapter) throw new Error(`unknown agent "${role.agent}"`)
   const requested = role.model ?? null
@@ -138,7 +95,18 @@ export function invoke(role, { cwd, prompt, readOnly = false, timeoutMs = null, 
       detached: true,
     })
     if (child.pid) live.add(child.pid)
-    child.stdout.on('data', (chunk) => (stdout += chunk))
+    // Decoded by the stream rather than by `+=`: a stream arrives in chunks cut
+    // wherever the pipe filled, and a multi-byte character split across two of
+    // them is two broken halves when each is turned into text on its own. One
+    // object at the end survived that by luck; many lines would not.
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk
+      // A log is not the work: a sink that throws loses the log, never the run.
+      try {
+        log?.write(chunk)
+      } catch {}
+    })
     child.stderr.on('data', (chunk) => (stderr += chunk))
     child.stdin.on('error', () => {}) // an agent that exits without reading is reported below
     child.stdin.end(prompt)
@@ -192,20 +160,30 @@ export function invoke(role, { cwd, prompt, readOnly = false, timeoutMs = null, 
   })
 }
 
+// The last JSON object the agent printed. With a stream that is the result
+// object on the last line; with one object on its own it is that object; with a
+// line of the CLI's own before either, it is still the last one that reads as
+// an object. A line that is half-printed, or output nobody can read, is null —
+// the caller says so and does not guess.
 function lastJson(text) {
-  const trimmed = text.trim()
-  if (!trimmed) return null
+  const lines = text.split('\n')
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index].trim()
+    if (line === '' || line[0] !== '{') continue
+    const parsed = object(line)
+    if (parsed) return parsed
+  }
+  // Pretty-printed, across lines, and therefore not a stream.
+  return object(text.trim())
+}
+
+function object(text) {
+  if (text === '' || text[0] !== '{') return null
   try {
-    return JSON.parse(trimmed)
+    const parsed = JSON.parse(text)
+    return parsed && typeof parsed === 'object' ? parsed : null
   } catch {
-    // Some CLIs print a line of their own before the result.
-    const start = trimmed.lastIndexOf('\n{')
-    if (start === -1) return null
-    try {
-      return JSON.parse(trimmed.slice(start + 1))
-    } catch {
-      return null
-    }
+    return null
   }
 }
 

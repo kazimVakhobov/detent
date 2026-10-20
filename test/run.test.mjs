@@ -9,7 +9,10 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { failures } from '../core/doctor.mjs'
 import { snapshotRefs } from '../core/git.mjs'
+import { attemptLogPath, openAttemptLog } from '../core/log.mjs'
+import { scanProduct } from '../core/scan.mjs'
 import { createQueue, readQueue } from '../core/task.mjs'
 import { readJournal } from '../core/journal.mjs'
 import { runTask } from '../core/run.mjs'
@@ -34,14 +37,16 @@ function answer(message = 'Done.\nCommit: feat(wallet): balance endpoint', extra
   return { agent: 'claude', ok: true, message, model: { requested: 'claude-opus-5', actual: 'claude-opus-5' }, cost: { usd: 0.25, tokens: { input: 1000, output: 100 } }, session: 's', error: null, ms: 10, ...extra }
 }
 
-// An agent that runs `steps` in order, one per attempt, and records its prompts.
+// An agent that runs `steps` in order, one per attempt, and records its
+// prompts. A step is given the working directory and the log it is printing
+// into, which is how an attempt that says something can be scripted.
 function agent(...steps) {
   const prompts = []
-  const invoke = async (role, { cwd, prompt }) => {
+  const invoke = async (role, { cwd, prompt, log }) => {
     prompts.push(prompt)
     const step = steps[prompts.length - 1]
     if (!step) throw new Error(`no step for attempt ${prompts.length}`)
-    return (await step(cwd)) ?? answer()
+    return (await step(cwd, log)) ?? answer()
   }
   return { invoke, prompts }
 }
@@ -294,6 +299,10 @@ printf '%s' '${JSON.stringify({ type: 'result', subtype: 'success', is_error: fa
   })
   assert.match(out, /^0042 {2}passed — merged into agent\/dev \([0-9a-f]{7}\), 1 attempt, \$0\.30$/m)
   assert.equal(sh(s.repoDir, 'log', '-1', '--format=%s', 'agent/dev^2'), 'feat(wallet): from the cli')
+  // The path is printed when the task starts, and what the agent printed is in
+  // it: a second terminal needs nothing copied out of this one (ADR 0021).
+  assert.match(out, new RegExp(`^ {6}tail -f ${attemptLogPath(s.dir, '0042', 1).replaceAll('.', '\\.')} {2}\\(one per attempt, up to -attempt-3\\)$`, 'm'))
+  assert.match(readFileSync(attemptLogPath(s.dir, '0042', 1), 'utf8'), /"result":"Commit: feat\(wallet\): from the cli"/)
   assertInvariant(s.repoDir, s.before, s.product)
 })
 
@@ -308,6 +317,74 @@ test('detent run refuses to start when a repository has no implementing agent', 
   assert.equal(error.status, 2)
   assert.match(error.stderr, /no implementing agent for acme-api — set models\.implement/)
   assert.deepEqual(snapshotRefs(s.repoDir), s.before)
+})
+
+// A declared agent that is not installed used to be found out when it was
+// invoked — after the task branch existed and the workspace had been taken.
+// doctor has asked that question since step 7, and this is a run asking it
+// before it starts anything (§12).
+test('detent run refuses on what doctor already fails, before any branch is created', () => {
+  const s = setup()
+  let refused
+  try {
+    execFileSync(process.execPath, [join(import.meta.dirname, '..', 'cli.mjs'), 'run', '--product', s.dir], {
+      encoding: 'utf8',
+      stdio: 'pipe',
+      // product.json declares claude, and nothing on this PATH is claude.
+      env: { ...process.env, PATH: '/usr/local/bin:/usr/bin:/bin' },
+    })
+  } catch (e) {
+    refused = e
+  }
+  assert.equal(refused.status, 2)
+  assert.match(refused.stderr, /^detent run: nothing was started — detent doctor fails a check on what this task needs:$/m)
+  assert.match(refused.stderr, /^ {2}claude is not on PATH \(implement\) — whether it is signed in shows only when it runs$/m, "doctor's own sentence, not a second one")
+  assert.match(refused.stderr, /^detent doctor for the rest\.$/m)
+  assert.doesNotMatch(refused.stderr, /one person per workspace|clean tree|full clone/, 'the report is a command away, and not reprinted here')
+  assert.deepEqual(snapshotRefs(s.repoDir), s.before, 'no branch was created')
+  assert.ok(existsSync(join(s.dir, 'tasks', 'todo', '0042-wallet-endpoint.md')), 'and the task is still queued')
+})
+
+test('a doctor failure in a repository no queued task mentions leaves the run alone', () => {
+  const s = setup()
+  // A second repository, declared and not in shape — no agent/dev, which
+  // doctor calls a failure — and nothing is queued for it.
+  const web = join(s.dir, 'acme-web')
+  mkdirSync(web)
+  sh(web, 'init', '--quiet', '--initial-branch=dev')
+  sh(web, 'config', 'user.name', 'P')
+  sh(web, 'config', 'user.email', 'p@x')
+  writeFileSync(join(web, 'README.md'), 'web\n')
+  sh(web, 'add', '.')
+  sh(web, 'commit', '--quiet', '-m', 'init')
+  const file = join(s.dir, '.detent', 'product.json')
+  const raw = JSON.parse(readFileSync(file, 'utf8'))
+  raw.repos.push({ name: 'acme-web', compare: 'dev' })
+  writeFileSync(file, JSON.stringify(raw))
+
+  const scan = scanProduct(s.dir, { queue: s.product.queue })
+  assert.ok(
+    failures(s.dir, scan, ['acme-web']).some((c) => c.repo === 'acme-web' && /agent\/dev does not exist/.test(c.text)),
+    'doctor does fail on it, when it is asked about',
+  )
+  assert.deepEqual(failures(s.dir, scan, ['acme-api']).filter((c) => c.repo === 'acme-web'), [], 'and is not asked about it for a task in another repository')
+
+  const bin = mkdtempSync(join(tmpdir(), 'detent-bin-'))
+  writeFileSync(
+    join(bin, 'claude'),
+    `#!/bin/sh
+cat > /dev/null
+echo ok > value.txt
+printf '%s' '${JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'Commit: feat(wallet): balance endpoint', total_cost_usd: 0.3, usage: { input_tokens: 5, output_tokens: 7 }, session_id: 'x' })}'
+`,
+  )
+  chmodSync(join(bin, 'claude'), 0o755)
+  const out = execFileSync(process.execPath, [join(import.meta.dirname, '..', 'cli.mjs'), 'run', '--product', s.dir], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+  })
+  assert.match(out, /^0042 {2}passed — merged into agent\/dev/m, 'a run would not have touched acme-web, so it was never asked about it')
+  assert.equal(sh(web, 'branch', '--list', 'agent/*'), '', 'and nothing was created there')
 })
 
 // --- build step 5: landing on agent/dev --------------------------------------
@@ -403,6 +480,50 @@ test('every run leaves exactly one journal line, skipped runs included', async (
   assert.deepEqual(lines.map((l) => l.outcome), ['skipped', 'passed'])
   assert.deepEqual(lines[1], JSON.parse(JSON.stringify(result)), 'the line is the result')
   assert.equal(lines[1].kind, 'task')
+})
+
+// --- what the agent is saying, while it says it (ADR 0021) -------------------
+
+test('every attempt writes what the agent printed into a log of its own', async () => {
+  const s = setup()
+  // Each attempt says something, and checks that it is in the file before the
+  // attempt is over: a transcript that arrives at the end is what this replaced.
+  const says = (text, then) => (cwd, log) => {
+    log.write(`${text}\n`)
+    assert.equal(readFileSync(log.path, 'utf8'), `${text}\n`, 'in the file during the attempt, not after it')
+    return then(cwd)
+  }
+  const a = agent(says('{"type":"system","subtype":"init"}', write('no')), says('{"type":"assistant"}', write('ok')))
+  const result = await runTask(s.product, s.repo, s.task, { invoke: a.invoke, notify: notifier().notify })
+
+  assert.equal(result.outcome, 'passed')
+  assert.equal(result.attempts, 2)
+  assert.equal(readFileSync(attemptLogPath(s.dir, '0042', 1), 'utf8'), '{"type":"system","subtype":"init"}\n')
+  assert.equal(readFileSync(attemptLogPath(s.dir, '0042', 2), 'utf8'), '{"type":"assistant"}\n')
+  // And logs are not the journal: nothing in the line it wrote points at one,
+  // and nothing read one to decide any of it.
+  const [line] = readJournal(s.dir).lines
+  assert.ok(!JSON.stringify(line).includes('runs/logs'), 'the journal does not mention a log')
+  assert.deepEqual(line.cost, { usd: 0.5, tokens: { input: 2000, output: 200 } })
+})
+
+test('a run that cannot write a log lands the task anyway, and says so once per attempt', async () => {
+  const s = setup()
+  // A product folder that is a file: nothing can be created under it.
+  const wall = join(s.dir, 'wall')
+  writeFileSync(wall, 'not a folder\n')
+  const said = []
+  const result = await runTask(s.product, s.repo, s.task, {
+    invoke: agent(write('ok')).invoke,
+    notify: notifier().notify,
+    openLog: (_dir, task, attempt) => openAttemptLog(wall, task, attempt, { warn: (text) => said.push(text) }),
+  })
+
+  assert.equal(result.outcome, 'passed', 'a log is not the work')
+  assert.equal(result.merged, true)
+  assert.equal(said.length, 1)
+  assert.match(said[0], /nothing is being written to .*0042-attempt-1\.jsonl/)
+  assertInvariant(s.repoDir, s.before, s.product)
 })
 
 // --- the files that judge the agent ------------------------------------------

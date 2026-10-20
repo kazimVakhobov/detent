@@ -6,16 +6,18 @@ A detent is the catch that holds a mechanism in a defined position until it is
 deliberately released. Here it is released by a green gauge — the project's own
 checks — and by nothing else.
 
-> **Status: 0.5.0 — all thirteen build steps are done.** `detent run` takes
-> tasks from a queue to `agent/dev` with Claude Code, Codex or Gemini CLI behind
-> the gauge, and `detent summary` reports what it cost; a second model reads
+> **Status: 0.6.0 — all thirteen build steps are done.** `detent run` takes
+> tasks from a queue to `agent/dev` with Claude Code behind the gauge, and `detent summary` reports what it cost; a second model reads
 > every green diff and may send it back, never wave it through; `init` asks
 > where the queue and the documents are and writes `product.json` from a scan,
 > `doctor` says what to change, and `dashboard` serves a page that watches it
-> all; tasks in different repositories run side by side, `promote` checks a
-> whole batch on `agent/staging`, `plan` talks a task through with an agent and
+> all, opens any task to show what it was asked and what its attempts did,
+> shows what a running agent is saying while it says it, and writes the
+> configuration back between runs; tasks in different
+> repositories run side by side, `promote` checks a whole batch on
+> `agent/staging`, `plan` talks a task through with an agent and
 > checks the files it writes, and `prune` clears the task branches whose work
-> has landed. The queue may be a repository of its own, and the documents an
+> has landed and the transcripts of the tasks that are finished with. The queue may be a repository of its own, and the documents an
 > agent reads are brought to their remote's tip before a task starts and
 > recorded at the revision it read. Every command in `detent --help` does
 > something. What 1.0.0 still wants is a real batch of tasks run against a real
@@ -49,8 +51,11 @@ judgement may only raise a doubt and send the task to a person. Otherwise
 npm i -g @kazimvakhobov/detent
 ```
 
-Node 22, and one of Claude Code, Codex or Gemini CLI installed and signed in.
-detent drives the agent you already pay for and ships none of its own.
+Node 22, and Claude Code installed and signed in. detent drives the agent you
+already pay for and ships none of its own. Codex and a Google agent are
+planned and not offered yet: an agent is added when it has run a real task,
+not when its adapter has been written
+([0018](docs/adr/0018-one-agent-in-the-first-version-and-what-readmits-another.md)).
 
 **A product folder is not the folder your repositories happen to sit in.**
 detent treats everything directly inside it as one product, so give it a folder
@@ -84,9 +89,15 @@ Read the two things it cannot decide for you before an agent is held to them:
 - **the gauge.** Stages are proposed only from scripts a repository declares, so
   what you get is what the repository advertises, not what you would have
   chosen. `detent gauge` runs them by hand.
-- **`models.accept`.** Left empty, there is no acceptance pass at all. It must
-  name a different model from `implement` — a different CLI if you have one, and
-  at minimum a different model of the same one.
+- **`models.accept`.** Left empty, there is no acceptance pass at all, and
+  `init` leaves it empty: it must name a different model from `implement`, and
+  with one agent offered that means a different model of Claude Code — which
+  models your account can run is not something a scan can see, so the line is
+  yours to write. The names to choose from are in the file `init` just wrote:
+  `modelSuggestions` is a list detent has watched work, offered on the
+  dashboard where a model is typed and yours to extend. It is a suggestion and
+  never a constraint — nothing checks a model against it
+  ([ADR 0019](docs/adr/0019-the-offered-model-names-are-a-suggestion-in-the-product-file.md)).
 
 `doctor` answers `ready` when the shape is right. Then write a task. The
 frontmatter is bookkeeping and **only the body reaches the agent** — the spec
@@ -121,7 +132,22 @@ detent run
 The agent works on `agent/task-0001-wallet-endpoint`, the gauge runs on its way
 out, and a green task lands on `agent/dev` as one merge commit carrying what it
 cost. `detent summary` reports the numbers, `detent dashboard` serves a page
-that watches them, and nothing has touched a branch of yours.
+that watches them — including what the agent is saying while a task runs, and,
+between runs, changes which model does what and how long it gets — and nothing
+has touched a branch of yours.
+
+A run also prints a path when each task starts, so the same output is a
+`tail -f` away in another terminal:
+
+```
+0001  acme-api  wallet-endpoint  …
+      tail -f /path/to/product/runs/logs/0001-attempt-1.jsonl  (one per attempt, up to -attempt-3)
+```
+
+One file per attempt, and only the agent's own turn writes one: the gauge, the
+link check, the acceptance pass and the merge print nothing there. So a task can
+be running with nothing arriving, and the dashboard says that rather than
+showing a line that has stopped moving under the word "running".
 
 ## The line agents do not cross
 
@@ -153,7 +179,12 @@ tasks on one machine for a run on another: there a task reaching `done/` or
 and the next machine has to read it as it is now
 ([ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md)).
 A product that says nothing about `queue` has no repository there and detent
-pushes nothing at all.
+pushes nothing at all. A `queue` that names a path with no repository at it, or
+one in a repository that pushes nowhere, is said by `init` as it creates the
+folders and reported by `doctor` — the first as a failure, since that queue
+never leaves the machine it was written on, and the second as worth a look,
+since a queue nobody can fetch has no next machine to be stale for. Neither
+command clones anything: they report, and you decide.
 
 `agent/staging` is optional and exists for one reason: the per-task gauge checks
 a task, and what actually breaks is the combination. The batch gauge runs there,
@@ -172,7 +203,8 @@ to everything:
 4. the gauge is declared as stages: a name and a command, runnable locally — the
    per-attempt profile in seconds
 5. a clean tree when a run starts
-6. an agent CLI installed and authenticated — Claude Code, Codex or Gemini CLI
+6. an agent CLI installed and authenticated — Claude Code, the only one offered
+   in this version ([0018](docs/adr/0018-one-agent-in-the-first-version-and-what-readmits-another.md))
 7. the integration branch is not deployed; pushing is done by hand
 8. one person per workspace
 9. macOS or Linux, Node 22
@@ -198,7 +230,7 @@ are recorded with the alternatives they displaced; and progress is a table the
 gauge refuses to let lie.
 
 - [CONTRIBUTING.md](CONTRIBUTING.md) — branches, commit format, how a release is cut
-- [docs/adr/](docs/adr/) — fourteen decisions, each with what it rejected and what that cost
+- [docs/adr/](docs/adr/) — twenty-one decisions, each with what it rejected and what that cost
 - [PROGRESS.md](PROGRESS.md) — where the build actually is, against the build order
 - [CHANGELOG.md](CHANGELOG.md)
 

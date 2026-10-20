@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { FAIL, INFO, LOOK, OK, diagnose, failed } from '../core/doctor.mjs'
+import { FAIL, INFO, LOOK, OK, diagnose, failed, failures } from '../core/doctor.mjs'
 import { scanProduct } from '../core/scan.mjs'
 import { FOLDERS } from '../core/task.mjs'
 
@@ -36,14 +36,14 @@ function product(raw, build, { queue = true } = {}) {
 }
 
 // A scan as if the given agents were installed, on this machine.
-function scan(dir, agents = ['claude', 'codex']) {
+function scan(dir, agents = ['claude']) {
   return { ...scanProduct(dir), agents }
 }
 
 const healthy = {
   version: 1,
   product: { name: 'acme' },
-  models: { implement: { agent: 'claude' }, accept: { agent: 'codex' } },
+  models: { implement: { agent: 'claude', model: 'claude-sonnet-5' }, accept: { agent: 'claude', model: 'claude-opus-5' } },
   repos: [{ name: 'api', compare: 'dev', gauge: { exit: [{ stage: 'test', command: 'true' }] } }],
 }
 
@@ -183,9 +183,11 @@ test('a submodule outside neverCommit is tracked, not a problem; one with unpush
 
 test('an agent that is not installed fails condition 6', () => {
   const dir = product(healthy, (d) => repo(d, 'api'))
-  const report = diagnose(dir, scan(dir, ['claude']))
-  const codex = report.product.find((c) => c.condition === 6 && /codex/.test(c.text))
-  assert.equal(codex.status, FAIL)
+  const report = diagnose(dir, scan(dir, []))
+  const found = report.product.find((c) => c.condition === 6 && /claude/.test(c.text))
+  assert.equal(found.status, FAIL)
+  assert.match(found.text, /claude is not on PATH/)
+  assert.equal(found.fix, 'install claude and sign in')
 })
 
 test('no product.json, or a broken one, is reported with the way out', () => {
@@ -201,7 +203,7 @@ test('no product.json, or a broken one, is reported with the way out', () => {
 test('detent doctor exits 1 on a failure, 0 when ready, and writes nothing', () => {
   const dir = product(healthy, (d) => repo(d, 'api', { branches: [] }))
   const bin = mkdtempSync(join(tmpdir(), 'detent-agents-'))
-  for (const agent of ['claude', 'codex']) {
+  for (const agent of ['claude']) {
     writeFileSync(join(bin, agent), '#!/bin/sh\n')
     chmodSync(join(bin, agent), 0o755)
   }
@@ -277,7 +279,7 @@ test('detent doctor does not take the folder the queue lives in for a repository
   }, { queue: false })
   for (const folder of FOLDERS) mkdirSync(join(dir, 'agent-loop', 'tasks', folder), { recursive: true })
   const bin = mkdtempSync(join(tmpdir(), 'detent-agents-'))
-  for (const agent of ['claude', 'codex']) {
+  for (const agent of ['claude']) {
     writeFileSync(join(bin, agent), '#!/bin/sh\n')
     chmodSync(join(bin, agent), 0o755)
   }
@@ -285,5 +287,56 @@ test('detent doctor does not take the folder the queue lives in for a repository
   const out = execFileSync(process.execPath, [cli, 'doctor', '--product', dir], { encoding: 'utf8', env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } })
   assert.match(out, /the queue is there: agent-loop\/tasks\//)
   assert.doesNotMatch(out, /agent-loop is a repository in this folder/)
-  assert.match(out, /^ready/m)
+  // That repository has no remote, which is the second of the two queue
+  // findings and the reason the summary is not a bare "ready".
+  assert.match(out, /^ {2}! {4}agent-loop\/tasks is in a repository whose branch tracks no remote/m)
+  assert.match(out, /^ready, 1 worth a look, 1 not checkable$/m)
+})
+
+// One idea, two sentences: a configured queue says the product expects a queue
+// two machines share, and there are two ways of not having one.
+test('a configured queue that cannot be published is a finding of its own, and says which of the two it is', () => {
+  const plain = product({ ...healthy, queue: 'agent-loop/tasks' }, (d) => repo(d, 'api'), { queue: false })
+  for (const folder of FOLDERS) mkdirSync(join(plain, 'agent-loop', 'tasks', folder), { recursive: true })
+  const local = diagnose(plain, scan(plain))
+  const nothing = find(local.product, /is not in a git repository/)
+  assert.equal(nothing.status, FAIL, 'the queue never leaves this machine, which is what configuring it was against')
+  assert.match(
+    nothing.text,
+    /^agent-loop\/tasks is not in a git repository — the queue stays on this machine: a task's move is a file move, with nothing to commit it to and nothing to push/,
+  )
+  assert.ok(failed(local) > 0, 'so the report does not answer ready')
+  assert.equal(existsSync(join(plain, 'agent-loop', '.git')), false, 'and doctor created nothing')
+
+  // Nothing a run does would fix this and the run reads the queue itself, so
+  // this failure is doctor's to report and never a refused run.
+  assert.deepEqual(failures(plain, scan(plain), ['api']).filter((c) => /queue|git repository/.test(c.text)), [])
+
+  // The queue in a repository: the same four folders, a different sentence,
+  // and nothing wrong — a queue nobody can fetch has no next machine to be
+  // stale for.
+  const alone = product({ ...healthy, queue: 'agent-loop/tasks' }, (d) => {
+    repo(d, 'api')
+    repo(d, 'agent-loop')
+  }, { queue: false })
+  for (const folder of FOLDERS) mkdirSync(join(alone, 'agent-loop', 'tasks', folder), { recursive: true })
+  const quiet = diagnose(alone, scan(alone))
+  const unpublished = find(quiet.product, /tracks no remote/)
+  assert.equal(unpublished.status, LOOK)
+  assert.match(unpublished.text, /^agent-loop\/tasks is in a repository whose branch tracks no remote — a task's move is committed there and pushed nowhere/)
+  assert.equal(failed(quiet), 0)
+
+  // A queue the next machine can fetch is the configuration working, and says
+  // nothing at all.
+  const loop = join(alone, 'agent-loop')
+  sh(loop, 'remote', 'add', 'origin', 'https://example.com/agent-loop.git')
+  sh(loop, 'config', 'branch.dev.remote', 'origin')
+  sh(loop, 'config', 'branch.dev.merge', 'refs/heads/dev')
+  assert.equal(find(diagnose(alone, scan(alone)).product, /not in a git repository|tracks no remote/), undefined)
+
+  // And so does the default location: this check asks nothing of a product
+  // that asked nothing of its queue (ADR 0005).
+  const dir = product(healthy, (d) => repo(d, 'api'))
+  assert.equal(find(diagnose(dir, scan(dir)).product, /not in a git repository|tracks no remote/), undefined)
+  assert.equal(failed(diagnose(dir, scan(dir))), 0)
 })

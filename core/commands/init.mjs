@@ -13,10 +13,11 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import process from 'node:process'
 import { ask as defaultAsk, askDocs, askQueue, NONE } from '../ask.mjs'
-import { ConfigError, PRODUCT_FILE, productPath, queueOf, readConfig, validateProduct } from '../product.mjs'
+import { AGENT_NAMES, ConfigError, PRODUCT_FILE, productPath, queueOf, readConfig, validateProduct } from '../product.mjs'
 import { diffLines, hunks, mergeProposal, proposeProduct } from '../propose.mjs'
 import { invoke as defaultInvoke } from '../agents.mjs'
 import { modelPass } from '../model-pass.mjs'
+import { publishing } from '../queue.mjs'
 import { scanProduct } from '../scan.mjs'
 import { createQueue, QUEUE } from '../task.mjs'
 import { UsageError } from './usage.mjs'
@@ -131,6 +132,16 @@ export async function run(dir, _positionals = [], values = {}, { invoke = defaul
     process.stdout.write(`created ${created.map((f) => `${queuePath}/${f}`).join(', ')} — the queue run reads and plan writes into\n`)
   }
 
+  // What creating those folders did not create (ADR 0012). A queue somewhere
+  // other than the default was configured so that two machines could share it,
+  // and four folders in a plain directory are not that: the sentence that says
+  // the queue was created has to say what it is, or the first thing that tells
+  // anybody is a run that published nothing. Said whether or not the folders
+  // were created a moment ago, because it is true either way — and said, not
+  // acted on: init clones nothing, creates no repository and adds no remote.
+  const publish = publishing(root, queuePath)
+  if (publish) process.stdout.write(`${publish.text}\n`)
+
   // Pass 1, the scan; then passes 2 and 3 unless asked not to, or unless there
   // is no agent to ask — the tool has to work for someone without one.
   let pass = proposeProduct(scan, { queue: queueAnswer, docs })
@@ -182,15 +193,31 @@ export async function run(dir, _positionals = [], values = {}, { invoke = defaul
   }
 
   const notes = [...passNotes]
-  if (!proposal.models?.implement) notes.push('no agent CLI found on PATH — set models.implement by hand (claude, codex or gemini)')
-  // What is installed comes from the scan, never from what the file declares:
-  // a product.json naming an agent nobody has would otherwise be reported as
-  // that agent being the only one installed.
-  else if (!proposal.models?.accept) {
-    notes.push(scan.agents.length === 1
-      ? `only ${scan.agents[0]} is installed — set models.accept to a different model, or there is no acceptance pass`
-      : 'models.accept is not set — without it there is no acceptance pass')
+  if (!proposal.models?.implement) {
+    notes.push(`no agent CLI found on PATH — set models.implement by hand: { "agent": ${AGENT_NAMES.map((a) => `"${a}"`).join(' | ')} }`)
   }
+  // The scan proposes no reviewer, and this is the sentence that says why
+  // rather than leaving the key to be found missing. One agent is offered (ADR
+  // 0018), so a reviewer is the same agent on a different model — and which
+  // models an account has is not something a scan can see, so the key is left
+  // for a person. ADR 0004 is why it is not simply filled in: a pass by the
+  // model that implemented agrees with itself and proves nothing.
+  else if (!proposal.models?.accept) {
+    // From `implement` when the file names one, since that is the agent the
+    // reviewer has to differ from; from the offered list when a person wrote
+    // something else there, whose own problem is printed just below.
+    const implementing = typeof proposal.models.implement?.agent === 'string' ? proposal.models.implement.agent : AGENT_NAMES[0]
+    notes.push(`models.accept is not set — no acceptance pass. This version offers one agent, so set it to ${implementing} with a different model; the scan cannot see which models you have`)
+  }
+  // The one key in the file that is an offer rather than a setting, so the
+  // sentence says both halves: where the names came from, and that nothing is
+  // ever checked against them (ADR 0019). This is the sentence that answers
+  // the question this key exists for — there was nowhere to learn what a model
+  // name looks like — so it is printed whether the file was written or
+  // proposed, and it names the list's length from the proposal rather than
+  // from detent, because a file that already carries its own list keeps it.
+  const offered = Array.isArray(proposal.modelSuggestions) ? proposal.modelSuggestions : []
+  notes.push(`modelSuggestions: ${offered.length} model names detent has watched run${offered.length ? ` (${offered.slice(0, 3).join(', ')}, …)` : ''}, offered wherever a model is typed — yours to extend in ${PRODUCT_FILE}, and any name may be used: nothing checks a model against the list`)
   for (const repo of proposal.repos) {
     if (!repo.gauge?.exit?.length) notes.push(`${repo.name}: no gauge stages — without them it has no lock`)
   }
