@@ -8,6 +8,7 @@
 // What detent adds is the opening — the format, the repositories, the numbers,
 // the rules — and the check afterwards of everything that changed.
 
+import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
@@ -61,6 +62,44 @@ Rules:
 - Write only files in ${product.queue}/todo/. Do not change the repositories, .detent/, runs/, or any other task.
 - Only the body below the frontmatter reaches the implementing agent, so the Goal must stand on its own.
 ${brief ? `\nWhat I want to start from:\n\n${brief}\n` : ''}`
+}
+
+// The other conversation: one task that is already written, is paused, and is
+// being changed before it runs again (ADR 0024). `run` opens this when a
+// person answers `plan` to a paused task, and what it must say that the
+// opening above does not is that the job is one existing file — not a new
+// task, and not code. The file stays in `hold/` while it is edited: a task
+// whose criteria are being rewritten is not ready to run.
+export function amendPrompt(product, task) {
+  const last = task.last
+  const doubts = last?.acceptance?.doubts ?? []
+  return `Task ${task.id} of the product "${product.name}"${product.summary ? ` — ${product.summary}` : ''} is paused, and we are changing the task itself before it runs again.
+
+The file is ${task.where}, relative to this folder. Read it first.
+
+What its last run did:
+${last ? `- it ended ${last.outcome}: ${last.reason}` : '- nothing about it is in the journal'}
+${last?.attempts ? `- ${last.attempts} ${last.attempts === 1 ? 'attempt' : 'attempts'} of ${product.attempts}\n` : ''}${doubts.length ? `- the acceptance pass raised ${doubts.length === 1 ? 'this doubt' : 'these doubts'}:\n${doubts.map((d) => `  - ${d}`).join('\n')}\n` : ''}${last?.branch ? `- the work it did is on the branch ${last.branch}, and a resume continues there\n` : ''}
+A task that was rejected is very often a task whose criteria were wrong: the gauge was green and a reviewer still said it was not done. So the question is what this task should have said.
+
+Your job is to change that one file, in place:
+- Talk it through with me first. Ask what you need to know about why it stopped, and propose the change before writing it.
+- Amend the Goal, the Acceptance criteria and the Out of scope so that what was wrong about it is right. Every criterion must be checkable by reading the diff or running the code.
+- Keep its number, its file name and its place: it stays in ${task.where} while we edit it. Moving a task between folders is detent's to do, not yours.
+- Write no code. Change nothing else — not the repositories, not .detent/, not runs/, and no other task.
+- The shape stays as it is: frontmatter with id, repo and touches_contract, then # Goal, # Acceptance criteria, # Out of scope. Only the body below the frontmatter reaches the implementing agent, so the Goal must stand on its own.
+`
+}
+
+// The agent's own interactive session, in this terminal. Resolves to its exit
+// code, or null if it could not be started. Both conversations open the same
+// way, so both open from here.
+export function openAgent(command, args, cwd) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { cwd, stdio: 'inherit' })
+    child.on('error', () => resolve(null))
+    child.on('exit', (code) => resolve(code ?? 1))
+  })
 }
 
 // Everything plan must not touch, and the queue it may write to, before the
