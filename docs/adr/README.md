@@ -26,6 +26,7 @@ that changed**.
 | [0019](0019-the-offered-model-names-are-a-suggestion-in-the-product-file.md) | The offered model names are a suggestion in the product file, never a constraint | accepted |
 | [0020](0020-the-dashboard-is-sections-and-the-configuration-is-read-before-it-is-written.md) | The dashboard is sections, and the configuration is read before it is written | accepted |
 | [0021](0021-the-agents-output-is-a-stream-written-to-a-file-that-is-not-a-record.md) | The agent's output is a stream, written to a file that is not a record | accepted |
+| [0022](0022-the-task-detail-is-a-drawer-over-the-section-you-were-on.md) | The task detail is a drawer over the section you were on | accepted; narrows 0020 part 1 |
 
 ## The rules
 

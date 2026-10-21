@@ -4,6 +4,248 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
+## 0.7.0 — 2026-10-21
+
+0.6.0 made the dashboard sections and gave it a task to open. This is the
+release where a person said the sections were not much use yet, and said why in
+eight specific ways. All of them are here.
+
+**The page answers questions instead of holding tables.** Overview opened with
+lifetime averages — pass rate, cost per pass — while the two things somebody
+actually opens a dashboard for were elsewhere: what is running was a sentence
+in the header, and what is next was behind a click, in a table that did not say
+it was in run order. It now leads with what is running, what is next in the
+order a run will take it, and what is waiting for a person; the averages are
+below, because *was it worth it* is a different question from *what now*. The
+queue is cards rather than four thin tables, with the reason a task stopped on
+the face of the card instead of under the height of a row — `abandoned by hand`
+had been invisible in `failed/` since the section existed. Columns sort, and
+sorting the view of `todo/` says in a sentence that the order a run takes them
+is unchanged. Opening a task leads with what its runs cost: attempts, the
+implementation against the acceptance pass in money and tokens, which model
+ran which, how long. Every number was already in the journal line; nothing new
+is recorded.
+
+**A task opens over what you were reading.** It was a seventh section, so
+clicking a row replaced the list you were working down
+([0022](docs/adr/0022-the-task-detail-is-a-drawer-over-the-section-you-were-on.md)).
+It is a drawer now, the section behind it stays where it was, and Escape or the
+close control brings you back to it. **The fragment grammar changed with it:**
+`#queue/task/0049` names both, and `#task/0049` — the shape 0.6.0 shipped —
+no longer names anything. It lands on a section, which is the landing rule
+working, and it is a link that used to go somewhere.
+
+**And the page says what it cannot do.** The question that prompted half of
+this was whether tasks could be started from the dashboard. They cannot, and
+the reason is not that nobody got to it: detent has already read the queue and
+moves tasks by its own results, the page writes the configuration and nothing
+else ([0015](docs/adr/0015-the-dashboard-may-write-the-configuration-between-runs.md)),
+and `detent run` is the most consequential thing this product does. So the
+Queue section explains how to make a task and how to run one, with this
+product's own paths and the next number worked out, and says plainly that it
+will not do either itself.
+
+Five tasks, and two of them cost four runs each. The acceptance pass demoted
+green work six times across the batch and was right six times — three findings
+in the code, and three in the tasks the work was judged against: a criterion
+that contradicted its own out-of-scope, a criterion asking for something in a
+commit body that `core/run.mjs` leaves no room for, and a miscounted field
+list. `0004` says a model's judgement may only raise a doubt and send the task
+to a person. It did, and the person was wrong half the time.
+
+### Fixed
+
+- **The timeout test no longer races the clock.** One test in
+  `test/agents.test.mjs` checked two things that want opposite things from the
+  clock: that a call past its limit is stopped and says which limit, and that
+  the signal reached the whole process group the agent started. The second half
+  reads a pidfile and so needs the fixture to have *started* — `sh` can take
+  half a second to reach its first line from a temporary directory on macOS,
+  which is why the limit had been raised to 2000ms — while the first half wants
+  a limit short enough to keep the suite quick. Under the whole suite in
+  parallel on a loaded machine it was seen to take 255 seconds and fail its own
+  `< 5000` wall-clock assertion. It is two tests now: the limit, with a 100ms
+  limit and nothing read from the fixture, which keeps both the error sentence
+  and `Date.now() - started < 5000` — the sentence proves only that the timer
+  fired, since `core/agents.mjs` composes it in `child.on('close')` and would
+  compose it just the same after a failed kill let `sleep 30` finish, so only
+  the clock proves the kill ended the call; and the reach of the signal, with
+  no limit at all, which waits for a pid to arrive in the pidfile — a number,
+  not a path, since `echo $! >` creates the file before it writes into it —
+  and then calls `stopAgents`. No assertion was dropped, and each one can be
+  named where it now lives. *a call past its limit is stopped, and says which
+  limit* keeps `assert.ok(Date.now() - started < 5000)`, `result.ok === false`
+  and `result.error === 'claude ran past the 0.1-second limit and was
+  stopped'`. *a stopped agent takes its whole process group with it,
+  grandchild included* takes the two that needed the fixture: `result.ok ===
+  false` after `stopAgents`, and `alive() === false` for the pid read out of
+  the pidfile — the grandchild — with the Linux `/proc/<pid>/stat` state `Z`
+  and macOS signal-0 branches of that check carried over untouched. The waits
+  that remain are bounds a broken fixture fails against rather than budgets a
+  slow machine is measured against. Run against load to check that: five full
+  `npm run verify` runs against ten `yes > /dev/null` processes (one per core)
+  and a second `npm run verify` looping beside them — 329 passing every time,
+  the whole suite stretched from 22s to 47–57s, and these two tests unmoved at
+  0.10s and 1.1–1.7s, inside the 5s and 10s bounds they are checked against.
+  Checked again against the same ten `yes > /dev/null`: two runs, 329 passing
+  both times, suite 34.0s and 34.7s against 22s idle, these two tests at 0.11s
+  and 0.79s. No change to `core/agents.mjs`: the timeout worked, the test
+  measured it with a stopwatch.
+
+### Changed
+
+- **A task opens over the section you were reading, not instead of it.** 0043
+  made the detail a seventh section, which is what "one section at a time"
+  implied and what it was wrong about: a person in Queue working down a list
+  clicked a task and the list was gone — along with which row they were on and
+  which ones they had already looked at. The first report of it said exactly
+  that: *the page jumps somewhere and the thread is lost.* The detail is a
+  **drawer** over whichever section is showing now
+  ([ADR 0022](docs/adr/0022-the-task-detail-is-a-drawer-over-the-section-you-were-on.md)).
+  The section behind it stays rendered, keeps its scroll and its sort, and is
+  not drawn again — opening a task reads `task.json` and `log.json` and nothing
+  else — so closing is nothing to restore. **The fragment names both**:
+  `#<section>/task/<number>`, and a fragment with no task is the bare section
+  exactly as before. `sectionFor` was `ids.includes(name) ? name : ids[0]`, an
+  exact match on a name, and is the part before the first slash against that
+  same list; `taskFor` takes the section list too and wants the whole of what
+  follows to be `task/<digits>` after a section this page has, so half a
+  fragment opens nothing rather than the half of it that parses —
+  `#nope/task/0043` and `#queue/task/nope` both **land on a section**, which is
+  0041's rule covering every new way of getting the longer shape wrong, and
+  neither is corrected. **Closing rewrites the fragment to the bare section**,
+  which is the one thing on this page that writes `location.hash`: landing is
+  the page guessing at something somebody typed and closing is a person acting
+  on the page, and leaving `#queue/task/0043` in the address bar after they
+  closed it would be the page lying about where they are. **Escape closes it**,
+  and so does a `Close` control in its head, because a panel covering content
+  with no obvious way back is worse than the section that got replaced. **The
+  detail is a drawer and nothing else**: `SECTIONS` has lost its `task` entry
+  and the nav its `Task` link, because two ways to see one task would be two
+  code paths free to disagree about what a task is — the problem ADR 0020
+  part 2 spent a task removing from the configuration. Every list that opens a
+  task names the section it is drawn in — Overview's three blocks, the four
+  queue folders, the recent runs — written at the call rather than read off the
+  fragment, so a row's link cannot depend on what was on the screen when the
+  page last drew it. The log panel moved with the detail and is read exactly as
+  it was: the same one timer, the same request, the same ask to carry on from
+  the byte its last answer ended at. **On a narrow screen the drawer is the
+  screen** — the section replacement this exists to avoid, arriving through the
+  viewport instead of the navigation, which is the right behaviour there and
+  means the improvement is partly a desktop one; it is a `@media` rule rather
+  than a width that happens to overlap, and the head the drawer is closed from
+  sticks to the top so the way out stays reachable. No animation, no
+  transition, no library, no centred modal, no expanded row and no second tab:
+  ADR 0022 rejected each by name. A drawer is a positioned element and a
+  `hidden` attribute, so the page still has one timer, one document, one
+  request, no second asset and the content security policy ADR 0015 wrote.
+  **`#task/0043` — the fragment 0043 shipped, and anything already linking to a
+  task that way — no longer names anything.** It lands on a section, which is
+  the landing rule working, and it is a link shape that used to go somewhere
+  and now does not.
+- **Opening a task leads with what its runs cost.** `renderTask` built the
+  detail in the order the file is written — head, frontmatter, goal, acceptance
+  criteria, out-of-scope, and **last** `What its attempts did` — which is the
+  opposite of the order it is read in. A person opening a task that has run
+  scrolled past four blocks to find out whether it had run at all. The block is
+  **first** now, directly under the head, and the body keeps its own order
+  below it with nothing dropped. It was one table row per run — finished,
+  outcome, attempts, one cost, verdict, links — and is a block per run: the
+  outcome, how many attempts, **how long it ran** from `started` against
+  `finished`, when it stopped, and **`resumed`** said out loud, because a task
+  that came back from `hold/` and finished is not the same story as one that
+  passed first time and the attempt count alone does not tell them apart. Then
+  **what the implementation cost and what the acceptance pass cost, kept
+  apart** — one number for both hid what reading the work cost against what
+  doing it cost (ADR 0004) — each with its tokens in and out and **the model it
+  ran on**: the requested name and, when the CLI reported a different one, the
+  reported name beside it; a `requested` with no `actual` reads *requested —
+  the CLI reported no model* rather than standing in for a confirmation. The
+  run's own total is shown beside the two rather than instead of them, and the
+  implementation figure is that total less the acceptance figure and nothing
+  else, so a line whose two numbers disagree shows that it does rather than
+  having the disagreement resolved on the way to the screen. Under those: which
+  gauge stage sent it back, whether it merged and as what commit, the branch,
+  the verdict with its doubts, and whether the links checked. **A field the line
+  has as `null` now reads *not reported***, in the history block and in
+  `verdict` and `checked` too, where it had been an em dash — a dash among real
+  figures reads as a zero, and a zero nobody recorded is the one thing the
+  journal has always refused. A task the journal has never seen says so in a
+  sentence and grows no table of blanks. The head is **a number and a name** —
+  `0001 · First`, from the slug by the same `taskName` the queue's cards use —
+  with the folder and the path still beside it, small. **No field was added to
+  the journal line and nothing new is recorded:** every figure was already
+  there, and no rate, average or projection is computed, because `summary` and
+  **Agents** are where runs are compared and this is one task's record.
+
+- **The queue is a queue you can read.** It was four tables of two or three
+  columns, each in about a third of the page's width, and each one hid
+  something. `because(t, parked)` built a cell as a stacked `div`, so in
+  `failed/` the words **abandoned by hand** sat under the height of the row
+  they were in and were never seen at all. A task read `0043
+  a-task-is-something-you-can-open` — a file name, not a name. `done/` was in
+  ascending id order, so the oldest thing you had finished was at the top.
+  Every task is a **card** now: the number and its name on one line, the path
+  under it, small, and every fact on a line of its own. **A card's rows do not
+  wrap** — `flex-wrap: nowrap` on both of them, so what is laid out in a row
+  stays in one row and anything longer than a row is a line, which is what
+  keeps a word from falling through a fold a row has. The name is derived from
+  the slug where it is drawn (`0043 · A task is something you can open`) and
+  **no `title` field was added to the frontmatter**: the slug already is the
+  name, and a second place to keep it is a second place to get it wrong. The
+  card carries what `Recent runs` carries about the same journal line — how
+  many attempts, what it cost, when it finished, the acceptance verdict — and
+  a task the journal has never seen says *that*, rather than showing dashes
+  that read like zeros. `todo/` stays in ascending task id with the line above
+  it saying that is the order a run takes them; `done/` and `failed/` open
+  newest first, by what the journal says finished and by the number when it
+  says nothing. **Any column sorts on a click**, the arrow says which and
+  which way, and the choice survives the three-second read because it is held
+  in the page rather than in the markup the read replaces — a sort of `todo/`
+  says the run order is unchanged, because `schedule()` sorts by `Number(id)`
+  and nothing on this page changes that. The four folders are still four
+  folders: a person moves files between them by hand, and a view that hid
+  which one a file was in would make that harder.
+- **The Queue section says how to make a task and how to run one**, because
+  the page cannot do either: the next number — one past the highest across the
+  four folders, which is the counter detent reads on disk — the file in this
+  product's own `todo/` in the shape `DESIGN.md` §4 gives, `detent plan` to be
+  talked through one, and `detent run` or `detent run <id>` to start it, each
+  with this product's own `--product` path in it and ready to copy. And it says
+  plainly that **the page does not run or move tasks**: detent has already read
+  this queue and moves these files by its own results, and a second writer of
+  them is a bug that arrives later disguised as a mystery (§12). Nothing in
+  this change writes — ADR 0015 fixed what the page may write and the queue is
+  not on that list.
+- The snapshot's queue entries now carry `attempts`, `cost`, `finished` and the
+  acceptance `verdict`. `snapshot()` was already reading each task's last
+  journal line for its outcome, its reason and the reviewer's doubts, and
+  dropping the rest — so a card in the queue could not say how many attempts a
+  task took while a table two sections away said it about the same run. Four
+  fields out of a line already read; nothing new is read, and nothing was
+  added to `state.json`.
+- **Overview answers "what now" rather than "what on average".** The landing
+  section held one thing — the lifetime figures — and both of the questions a
+  person actually opens the page with were somewhere else: what is running was
+  a sentence in the header chip and a cell in Repositories, and what is next
+  was in Queue, behind a click, in a table that did not say it was in run
+  order. Overview now opens with **what is running now** — which repository,
+  which task, which attempt and how long it has been going, or a sentence when
+  nothing is — then **what is next**, the next five of `todo/` in the order a
+  run takes them, which is ascending task id and is now stated above the list
+  rather than left to look arbitrary, with a barrier marked as one and
+  everything behind it saying which task it is behind — then **what is waiting
+  for a person**, with why each stopped. The figures stay, under those three:
+  they answer "was it worth it", which is a different question. Repositories
+  keeps its own section unchanged, and the strip of what is wrong is untouched
+  — this adds a landing screen, it does not become the place things are
+  reported.
+- The snapshot's queue entries now carry `touchesContract`. `readQueue` had
+  already parsed it for every task in `todo/` — it is the one field the
+  scheduler branches on — and the snapshot dropped it, which is the single
+  reason the page could not say that a task in the queue runs alone. Nothing
+  new is read, and nothing was added to `state.json`.
+
 ## 0.6.0 — 2026-10-20
 
 The release where the product stopped claiming three agents and the dashboard

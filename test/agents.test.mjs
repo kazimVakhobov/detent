@@ -286,22 +286,85 @@ function hanging(name, script) {
   return { ...process.env, PATH: `${bin}:${process.env.PATH}` }
 }
 
-// The only test here that looks at what the fake CLI did rather than only at
-// what detent returned, so its limit has to clear process startup: `sh` can
-// take half a second to reach its first line from a temporary directory on
-// macOS, and a shorter limit kills the fixture before it records anything.
-// Two seconds is still a fifteenth of the sleep it stands in for.
-test('a call past its limit is stopped with everything it started, and says which limit', async () => {
+// Two tests below, not one, because the limit and the reach of the signal want
+// opposite things from the clock. Checking where a signal got to means reading
+// the pidfile the fixture writes, which means waiting for the fixture to have
+// started — and `sh` can take half a second to reach its first line from a
+// temporary directory on macOS. Checking the limit means a limit short enough
+// to keep the suite quick. Held in one test those two were a race: the limit
+// was raised to 2000ms to clear startup, and under the whole suite in parallel
+// on a loaded machine the test was still seen to take 255 seconds and fail its
+// own `< 5000` assertion. Raising either number again only moves the load at
+// which it breaks, because what made the test slow was waiting for a fixture
+// it then had to out-wait.
+//
+// Apart they are not a race at all. A limit and `stopAgents` differ in what
+// starts them, not in what they signal — both end in the same `signalGroup` —
+// so the limit can be checked with nothing read from the fixture, and the
+// reach of the signal can be checked by a test with no limit in it, which is
+// free to wait for the fixture before it stops anything. If you are about to
+// raise a number here, read which of the two tests it is in first. The
+// `< 5000` assertion is not one of those numbers: see why beside it.
+
+// The limit. Nothing here looks at the fixture, so nothing here waits for it:
+// whether the shell had reached its first line when the signal arrived cannot
+// change the answer, and the limit is short again — the 2000ms that was there
+// to clear `sh`'s startup was only ever needed by the pidfile.
+test('a call past its limit is stopped, and says which limit', async () => {
+  const env = hanging('claude', 'cat > /dev/null; sleep 30')
+  const started = Date.now()
+  const result = await invoke({ agent: 'claude' }, { cwd, prompt: 'x', env, timeoutMs: 100 })
+  // Both assertions stay: the sentence below does not stand in for the clock,
+  // so do not delete this line for it. The timer in `core/agents.mjs` only
+  // sets `timedOut` and signals the group; it never settles the call. The
+  // promise resolves in `child.on('close')`, and it is there that
+  // `if (timedOut)` composes `ran past the ... limit and was stopped`. So a
+  // signal that failed to kill the group produces this exact string too —
+  // after `sleep 30` has run to the end. The sentence proves the timer fired;
+  // only the clock proves the kill ended the call. Thirty seconds of sleep
+  // against five of budget is the margin, not a guess at how fast this
+  // machine is.
+  assert.ok(Date.now() - started < 5000, 'it did not wait for the agent')
+  assert.equal(result.ok, false)
+  assert.equal(result.error, 'claude ran past the 0.1-second limit and was stopped', 'the limit ended the call, and the agent did not')
+})
+
+// The pid the fixture recorded, waited for as a number rather than as a path:
+// `echo $! >` creates the file before the shell has written into it, so a file
+// that exists can still read as empty, and `Number('')` is 0 — which as a
+// process group would be detent's own. The bound is not something the fixture
+// is measured against; it is there so a fixture that never starts fails with a
+// sentence instead of hanging, and a machine slow enough to need all of it
+// costs a quick machine nothing. That is the difference between this wait and
+// the limit above, and the reason the two are not in the same test.
+async function recordedPid(path) {
+  for (let i = 0; i < 1200; i += 1) {
+    let written = ''
+    try {
+      written = readFileSync(path, 'utf8').trim()
+    } catch {} // the shell has not got there yet
+    const pid = Number(written)
+    if (written !== '' && Number.isInteger(pid) && pid > 1) return pid
+    await new Promise((r) => setTimeout(r, 50))
+  }
+  return assert.fail(`the fixture never recorded its grandchild in ${path}: it never started`)
+}
+
+// What the signal reaches, with no limit at all — `stopAgents` is what stops
+// this one. The claim is the process group: an agent's own shell commands
+// outlive a signal to the agent alone and keep its output open, so a run that
+// is stopped has to take them with it.
+test('a stopped agent takes its whole process group with it, grandchild included', async () => {
   const pidfile = join(mkdtempSync(join(tmpdir(), 'detent-pid-')), 'pid')
   // The way an agent runs a command: a child that holds the output open. The
   // pid is written first, so it is there however slowly the shell started.
   const env = hanging('claude', `sleep 30 & echo $! > ${pidfile}; cat > /dev/null; wait`)
-  const started = Date.now()
-  const result = await invoke({ agent: 'claude' }, { cwd, prompt: 'x', env, timeoutMs: 2000 })
-  assert.ok(Date.now() - started < 5000, 'it did not wait for the agent')
-  assert.equal(result.ok, false)
-  assert.equal(result.error, 'claude ran past the 2.0-second limit and was stopped')
-  const child = Number(readFileSync(pidfile, 'utf8'))
+  const call = invoke({ agent: 'claude' }, { cwd, prompt: 'x', env })
+
+  const child = await recordedPid(pidfile)
+  stopAgents('SIGKILL')
+  const result = await call
+  assert.equal(result.ok, false, 'the agent itself was stopped')
   // Signal 0 asks whether a pid can be signalled, and a process that has
   // exited and not been reaped still can. Its parent is the shell detent just
   // stopped, so nothing here can wait for it, and how long it lingers belongs
@@ -322,8 +385,11 @@ test('a call past its limit is stopped with everything it started, and says whic
       return true
     }
   }
-  // A signal is delivered, not executed on the spot: give it a moment.
-  for (let i = 0; i < 40 && alive(); i += 1) await new Promise((r) => setTimeout(r, 50))
+  // A signal is delivered, not executed on the spot: give it a moment. As
+  // generously as above, and for the same reason — a gone process answers on
+  // the first look, so the bound is only how long a real failure takes to say
+  // so.
+  for (let i = 0; i < 200 && alive(); i += 1) await new Promise((r) => setTimeout(r, 50))
   assert.equal(alive(), false, `the command the agent started is gone too (on ${process.platform})`)
 })
 
