@@ -5,15 +5,18 @@
 //
 // The source is `core/dashboard/`: the sections and the fragment that names one
 // (ADR 0020 part 1), the strip of what is wrong that no section hides, the
-// stylesheet, the rendering, one task opened by its number, what its agent is
-// saying while it says it (ADR 0021), and the configuration — read until a
-// person says otherwise, and written on request (ADR 0020 part 2). They are
+// stylesheet, the rendering, the queue as cards, one task opened by its number
+// in a drawer over the section it was opened from (ADR 0022),
+// what its agent is saying while it says it (ADR 0021), and the configuration —
+// read until a person says otherwise, and written on request (ADR 0020
+// part 2). They are
 // composed here at import time, so what is served stays one page, one request,
 // no second asset, and the content security policy is unchanged (ADR 0020
 // part 4).
 
 import { CONFIGURATION } from './dashboard/configuration.mjs'
 import { LOG } from './dashboard/log.mjs'
+import { QUEUE } from './dashboard/queue.mjs'
 import { BODY, SHOW } from './dashboard/sections.mjs'
 import { STYLE } from './dashboard/style.mjs'
 import { TASK } from './dashboard/task.mjs'
@@ -32,13 +35,19 @@ import { WARNINGS } from './dashboard/warnings.mjs'
 export const POLL = { call: 'refresh', every: 3000 }
 
 // Wiring, and the only code that runs at load. `showSection` first: the
-// fragment decides what is visible before anything is fetched. Then one read
-// and one timer — the read draws the configuration view with everything else,
-// and the editor is built only when somebody asks for it.
+// fragment decides what is visible — which section, and whether a task is open
+// over it — before anything is fetched. Then one read and one timer: the read
+// draws the configuration view with everything else, and the editor is built
+// only when somebody asks for it.
 //
-// The three buttons the configuration has: the one that asks for the editor,
-// the write, and the way out that is not a write.
-const BUTTONS = [['config-edit', 'openEditor'], ['config-save', 'save'], ['config-discard', 'discard']]
+// The buttons on the page. Three are the configuration's: the one that asks for
+// the editor, the write, and the way out that is not a write. The fourth is the
+// drawer's way out, beside Escape, because a panel covering content needs one
+// that is visibly a close control (ADR 0022).
+const BUTTONS = [
+  ['config-edit', 'openEditor'], ['config-save', 'save'], ['config-discard', 'discard'],
+  ['task-close', 'closeTask'],
+]
 
 const START = `${BUTTONS.map(([id, handler]) => `document.getElementById('${id}').addEventListener('click', ${handler})`).join('\n')}
 showSection()
@@ -46,7 +55,7 @@ refresh()
 setInterval(${POLL.call}, ${POLL.every})
 `
 
-export const SCRIPT = [SHOW, WARNINGS, VIEW, TASK, LOG, CONFIGURATION, START].join('\n')
+export const SCRIPT = [SHOW, WARNINGS, VIEW, QUEUE, TASK, LOG, CONFIGURATION, START].join('\n')
 
 export const PAGE = `<!doctype html>
 <html lang="en">

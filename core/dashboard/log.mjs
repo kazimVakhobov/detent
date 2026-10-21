@@ -1,4 +1,8 @@
-// What the agent is saying, under the task it is saying it about (ADR 0021).
+// What the agent is saying, under the task it is saying it about (ADR 0021),
+// which is now inside the drawer that task opens in (ADR 0022). **A drawer is
+// where it is drawn and not a change to how it is read**: the same one timer,
+// the same request, and the same ask to carry on from the byte the last answer
+// ended at.
 //
 // A run showed a line when a task started and a line when it ended, and
 // between them — minutes, sometimes a quarter of an hour — nothing. This is the
@@ -168,19 +172,14 @@ function logState(d) {
 }
 
 async function refreshLog() {
-  const panel = document.getElementById('task-log-panel')
-  if (sectionFor(location.hash, SECTION_IDS) !== TASK_SECTION) return
-  const number = taskFor(location.hash)
-  // The section named with no task after it — the nav's own link, or digits
-  // that are not digits. Whatever is open stays open, exactly as the detail
-  // above it does: the two halves of one task must not disagree about which
-  // task that is.
-  if (number === null) {
-    if (logTask === null) panel.hidden = true
-    return
-  }
-  if (logReading) return
+  // No task open: the drawer is closed, the one timer still runs, and there is
+  // nothing here for it to read. Whatever the panel last read stays in it
+  // rather than being emptied — the drawer being closed is the reason nobody
+  // is looking at it, and reopening the same task shows what it already had.
+  const number = taskFor(location.hash, SECTION_IDS)
+  if (number === null || logReading) return
   logReading = true
+  const panel = document.getElementById('task-log-panel')
   // Where this page got to, and only when the lines on it are this task's: a
   // byte offset into another task's log is an offset into nothing.
   const asked = number === logTask ? logFrom : null

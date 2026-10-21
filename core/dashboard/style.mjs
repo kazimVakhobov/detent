@@ -79,12 +79,94 @@ main > section > h2:first-child { margin-top: 8px; }
 .alert.error { border-left-color: var(--critical); }
 .alert a { color: var(--accent); }
 
-/* One task, opened from any table that lists it (ADR 0020 part 3). Its body is
-   a text node in a <pre> — detent renders no markdown, so a task file looks
-   like the text file it is, and wraps rather than scrolling sideways. */
+/* The landing section: what is running, what is next, what is waiting — and
+   the figures under them. A run is a line of plain facts; nothing here is
+   coloured to mean something the words do not already say, and the one status
+   in it is an icon and a word like every other. */
+#now p { margin: 0; }
+#now a, #next-up-order a { color: var(--accent); }
+#now > .run + .run { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.run-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+#next-up-order { margin: 0 0 8px; }
+
+/* The queue, as cards: one card per task, the number and its name on the one
+   row that reads like a title, and every fact on a line under it.
+
+   **A card's rows do not wrap.** flex-wrap: nowrap on both of them, so what is
+   laid out in a row stays in one row rather than silently becoming a second
+   line inside it — which is what the rows this replaces did to "abandoned by
+   hand" in failed/, where it sat under the height of its own row and was never
+   seen. Anything longer than a row is a .line instead, full width, wrapping
+   normally. Nothing is hidden to achieve it: a long name is clipped visibly and
+   is also on the path line below it in full, and a row of facts scrolls. */
+.cards { display: grid; gap: 8px; margin-bottom: 8px; }
+.cards .empty { background: var(--raised); border: 1px solid var(--line); border-radius: 8px; }
+.card { background: var(--raised); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.card-head, .card-head a { display: flex; flex-wrap: nowrap; align-items: baseline; gap: 6px; min-width: 0; }
+.card-head a { color: var(--accent); text-decoration: none; }
+.card-head .number { font-variant-numeric: tabular-nums; }
+.card-head .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .facts { display: flex; flex-wrap: nowrap; align-items: baseline; gap: 4px 14px; overflow-x: auto; margin-top: 4px; }
+.card .facts > span { white-space: nowrap; }
+.card .line { white-space: normal; overflow-wrap: anywhere; margin-top: 4px; }
+.card .path code { color: var(--muted); }
+#todo-order { margin: 0 0 8px; }
+#todo-order .look { color: var(--warning); }
+
+/* The headings a click sorts by: the chosen one is bold and carries the arrow
+   as well as a coloured border, because a control told apart by colour alone is
+   the same mistake as a status told apart by colour alone. */
+.sort { display: flex; flex-wrap: wrap; gap: 4px; }
+.sort button { font-size: 12px; padding: 2px 8px; }
+.sort button.chosen { border-color: var(--accent); font-weight: 600; }
+
+#queue-how .group:first-child { margin-top: 0; }
+#queue-how pre.body { margin: 8px 0; }
+#queue-how p { margin: 0; }
+
+/* One task, in a drawer over the section it was opened from (ADR 0022). Fixed
+   to the right, the width of a column of text and no wider, scrolling inside
+   itself: the section behind it keeps its own scroll and its own place, which
+   is the whole of why this is a drawer and not a modal — the list somebody came
+   from is beside what they opened rather than behind a dimmed overlay.
+
+   **Nothing here moves of its own accord**: no transition and no animation
+   (ADR 0006).
+
+   **On a narrow screen it is the screen.** That is the section replacement this
+   exists to avoid, arriving through the viewport instead of through the
+   navigation, and it is the right behaviour there (ADR 0022) — so it is said
+   here rather than left to a width that happens to overlap, and the head the
+   drawer is closed from sticks to the top, reachable however far down a task
+   somebody has scrolled. */
+.drawer { position: fixed; z-index: 10; inset: 0 0 0 auto; width: min(680px, 100%); overflow: auto; background: var(--surface); border-left: 1px solid var(--line); padding: 16px 16px 48px; }
+.drawer[hidden] { display: none; }
+.drawer-head { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; background: var(--surface); border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 12px; }
+.drawer-head h2 { margin: 0; }
+@media (max-width: 760px) { .drawer { width: 100%; border-left: 0; } }
+
+/* Its body is a text node in a <pre> — detent renders no markdown, so a task
+   file looks like the text file it is, and wraps rather than scrolling
+   sideways.
+
+   The head is a number and a name, which is why the name is the size of a
+   title and the folder and the path beside it are not: the path is what
+   somebody opens the file with, and it stays legible without competing. */
 table a { color: var(--accent); }
 .task-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-bottom: 12px; }
+.task-head strong { font-size: 17px; }
+.task-head .number { font-variant-numeric: tabular-nums; }
 pre.body { white-space: pre-wrap; overflow-wrap: break-word; margin: 0; font: inherit; color: var(--text-2); }
+
+/* What its attempts did, first in the panel (§12): one block per journal line,
+   the head a row of plain facts and anything longer than a row a line of its
+   own — the rule a queue card follows, for the same reason. This head wraps,
+   because the panel is the width of the page rather than a third of it. */
+.runs { display: grid; gap: 10px; }
+.run-record { background: var(--raised); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.run-record .facts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+.run-record > .line { margin-top: 6px; overflow-wrap: anywhere; }
+.run-record > .scroll { margin-top: 8px; }
 
 /* What the agent is saying, under the task it is saying it about (ADR 0021).
    Bounded in height as well as in lines: the end of the output is the part

@@ -38,7 +38,22 @@ export function snapshot(product, { now = new Date() } = {}) {
       outcome: previous?.outcome ?? null,
       reason: previous?.reason ?? null,
       doubts: previous?.acceptance?.doubts ?? [],
+      verdict: previous?.acceptance?.verdict ?? null,
       branch: previous?.branch ?? null,
+      // What `Recent runs` says about the same line, out of the same line. The
+      // queue read it, took the outcome and the doubts, and dropped these —
+      // so a card in the queue could not say how many attempts a task took,
+      // what it cost or when it finished, while a table two sections away said
+      // all three about the same run. Three fields, and no new read.
+      attempts: previous?.attempts ?? null,
+      cost: previous?.cost ?? null,
+      finished: previous?.finished ?? null,
+      // Whether it runs alone. `readQueue` has already parsed this for every
+      // task in todo/ — it is the one field the scheduler branches on (§8) —
+      // and it was dropped here, which left the page listing a barrier as one
+      // more row. The other three folders are never opened, so it is false
+      // there for the same reason their criteria are absent.
+      touchesContract: task.touchesContract === true,
     })
   }
 

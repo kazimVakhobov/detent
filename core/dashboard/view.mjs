@@ -3,7 +3,14 @@
 // title, a reviewer's doubt or a repository's name can never become an element.
 // A status is an icon and a word; the colour only repeats them.
 
-export const VIEW = `const OUTCOME = {
+// How many of `todo/` the landing section lists before it sends somebody to
+// Queue for the rest. "The next few" is what a person wants to see above the
+// fold; the whole queue is a table, and there is already a section for it.
+export const NEXT_UP = 5
+
+export const VIEW = `const NEXT_UP = ${NEXT_UP}
+
+const OUTCOME = {
   passed: ['✓', 'passed'], rejected: ['⚑', 'rejected'], escalated: ['▲', 'escalated'],
   error: ['✕', 'error'], skipped: ['–', 'skipped'],
 }
@@ -56,21 +63,103 @@ function numbersFor(id, head, groups) {
     groups.map((r) => [r.name || '—', r.runs, r.passed, pct(r.passRate), r.attemptsPerRun.toFixed(1), cost(r.costPerPass)]), 'no runs yet')
 }
 
-// Every table that lists a task opens it: the fragment carries the number, so
-// a row is a link somebody can send and reload, and a task with no row in any
-// table is still reachable by typing one (ADR 0020 part 3).
-const opens = (id, slug) => el('a', { href: '#' + TASK_SECTION + '/' + id }, id + (slug ? ' ' + slug : ''))
+// Every table that lists a task opens it, **over the section the table is in**:
+// the fragment carries both (ADR 0022), so a row is a link somebody can send
+// and reload, and a task with no row in any table is still reachable by typing
+// one (ADR 0020 part 3). The section is written at the call rather than read
+// off the fragment — a row's link must not depend on what was on the screen
+// when the page last drew it.
+const opens = (section, id, slug) => el('a', { href: taskHash(section, id) }, id + (slug ? ' ' + slug : ''))
 
-// A task in the queue, and why it is where it is. The same two cells serve
-// hold/ and failed/: one is detent waiting for a person, the other is a person
-// who has stopped waiting for detent.
+// A paused task, and why it stopped: the two cells "Waiting for you" is made
+// of. Queue draws the same tasks as cards, because a folder there has a third
+// of the width and a row that narrow hides what does not fit (\`queue.mjs\`);
+// here the table is the width of the page and a row holds its two cells.
 function queued(t) {
-  return el('div', {}, el('strong', {}, opens(t.id, t.slug)), el('div', { class: 'muted' }, t.branch ? el('code', {}, t.branch) : ''))
+  return el('div', {}, el('strong', {}, opens('overview', t.id, t.slug)), el('div', { class: 'muted' }, t.branch ? el('code', {}, t.branch) : ''))
 }
 function because(t, parked) {
   return el('div', {}, t.outcome ? status(t.outcome) : el('span', { class: 'muted' }, parked),
     t.reason && !t.doubts.length ? el('div', { class: 'muted' }, t.reason) : null,
     t.doubts.length ? el('ul', { class: 'doubts' }, t.doubts.map((d) => el('li', {}, d))) : null)
+}
+
+// ——— What is happening and what is next: the landing section (§12).
+
+// How long a run has been going, from two instants the snapshot already
+// carries: the claim's \`started\` and the read's own \`generated\`. The browser's
+// clock is never asked — a machine a minute out would otherwise be told a run
+// started in the future — and nothing here says how much longer it has, or
+// what it will cost, because both are predictions and this page says what is
+// true.
+function going(from, to) {
+  if (!from) return 'started at an unknown time'
+  const seconds = Math.max(0, Math.round((new Date(to) - new Date(from)) / 1000))
+  if (seconds < 60) return 'going for ' + seconds + 's'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return 'going for ' + minutes + 'm'
+  return 'going for ' + Math.floor(minutes / 60) + 'h ' + (minutes % 60) + 'm'
+}
+
+// Which repository, which task, which attempt, and how long. When nothing is
+// running it is a sentence: an empty box reads the same whether nothing is
+// running or the page failed to draw what is.
+//
+// Alive runs only. A run whose process is gone is not working on anything, and
+// saying so is the strip's job above every section rather than this block's.
+function nowRunning(s, live) {
+  if (!live.length) {
+    const waiting = s.queue.todo.length
+    return [el('p', { class: 'muted' }, waiting
+      ? 'Nothing is running. ' + (waiting === 1 ? 'One task is' : waiting + ' tasks are')
+        + ' queued, and a run takes them in the order below.'
+      : 'Nothing is running, and nothing is queued.')]
+  }
+  return live.map((a) => el('div', { class: 'run' },
+    el('div', { class: 'run-head' },
+      el('strong', {}, a.repo),
+      el('span', { class: 'muted' }, 'task'),
+      opens('overview', a.task, null),
+      el('span', { class: 'muted' }, 'attempt ' + a.attempt),
+      el('span', { class: 'muted' }, going(a.started, s.generated))),
+    a.branch ? el('div', { class: 'muted' }, el('code', {}, a.branch)) : null))
+}
+
+// The next few, in the order a run would take them. \`schedule()\` sorts by
+// Number(id), so this sorts the same way rather than trusting the order the
+// snapshot happened to arrive in — and the line above the table says the order
+// out loud, because a list that looks arbitrary teaches the wrong thing about
+// how the queue works.
+//
+// A barrier is marked as one: it runs alone, and nothing queued past it starts
+// until it has landed (§8). Everything behind it says which task it is behind.
+function nextUp(s) {
+  const todo = [...s.queue.todo].sort((a, b) => Number(a.id) - Number(b.id))
+  const shown = todo.slice(0, NEXT_UP)
+  const barrier = shown.findIndex((t) => t.touchesContract)
+  // \`replaceChildren\` takes nodes or strings, and a null among them would be
+  // drawn as the word — so the rest of the sentence is appended rather than
+  // passed as an argument that may not be there.
+  const order = document.getElementById('next-up-order')
+  order.replaceChildren(el('span', {}, 'The order a run takes them: ascending task id, and a barrier alone.'))
+  if (todo.length > shown.length) {
+    order.append(
+      el('span', {}, ' The next ' + shown.length + ' of ' + todo.length + ' — the rest are in '),
+      el('a', { href: '#queue' }, SECTION_NAMES.queue),
+      el('span', {}, '.'))
+  }
+  table(document.getElementById('next-up'), [['Order', 'num'], ['Task'], ['Repository'], ['Runs']],
+    shown.map((t, i) => [i + 1, opens('overview', t.id, t.slug), t.repo || '—', runsWhen(t, i, barrier, shown)]),
+    s.product.queue + '/todo/ is empty')
+}
+
+function runsWhen(task, index, barrier, shown) {
+  if (task.touchesContract) {
+    return el('span', { class: 'status look' }, el('span', { class: 'icon', 'aria-hidden': 'true' }, '!'),
+      'barrier — alone, and nothing after it starts')
+  }
+  if (barrier !== -1 && index > barrier) return el('span', { class: 'muted' }, 'after task ' + shown[barrier].id)
+  return el('span', { class: 'muted' }, '—')
 }
 
 function standing(r) {
@@ -104,6 +193,15 @@ function render(s) {
 
   renderWarnings(s)
 
+  // What is happening, what is next, and what is waiting for a person — the
+  // three questions somebody opens this page with, in that order (§12).
+  document.getElementById('now').replaceChildren(...nowRunning(s, running))
+  nextUp(s)
+  table(document.getElementById('waiting'), [['Task'], ['Repository'], ['Why']],
+    s.queue.hold.map((t) => [queued(t), t.repo || '—', because(t, 'parked by hand')]), 'nothing is waiting for you')
+
+  // And under those three, the figures: they answer "was it worth it", which
+  // is a different question from "what now".
   const n = s.numbers
   const all = n.all
   const figures = document.getElementById('figures')
@@ -129,17 +227,15 @@ function render(s) {
   ]), 'no repositories')
   numbersFor('by-repo', 'Repository', n.byRepo)
 
-  table(document.getElementById('todo'), [['Task'], ['Repository']], s.queue.todo.map((t) => [opens(t.id, t.slug), t.repo || '—']), s.product.queue + '/todo/ is empty')
-  table(document.getElementById('hold'), [['Task'], ['Why']], s.queue.hold.map((t) => [queued(t), because(t, 'parked by hand')]), 'nothing paused')
-  table(document.getElementById('done'), [['Task'], ['Repository'], ['Outcome']],
-    s.queue.done.map((t) => [opens(t.id, t.slug), t.repo || '—', t.outcome ? status(t.outcome) : el('span', { class: 'muted' }, '—')]), s.product.queue + '/done/ is empty')
-  table(document.getElementById('failed'), [['Task'], ['Repository'], ['Why']],
-    s.queue.failed.map((t) => [queued(t), t.repo || '—', because(t, 'abandoned by hand')]), s.product.queue + '/failed/ is empty')
+  // The four folders, each task a card — and what the order of todo/ means,
+  // and how to make a task and run one, because this page does neither
+  // (\`queue.mjs\`).
+  drawQueue(s)
 
   numbersFor('by-model', 'Agent and model', n.byModel)
 
   table(document.getElementById('recent'), [['Finished'], ['Task'], ['Repository'], ['Outcome'], ['Attempts', 'num'], ['Cost', 'num']],
-    s.recent.map((r) => [when(r.finished), opens(r.task, r.slug), r.repo, status(r.outcome), r.attempts, runCost(r.cost)]), 'no runs yet')
+    s.recent.map((r) => [when(r.finished), opens('runs', r.task, r.slug), r.repo, status(r.outcome), r.attempts, runCost(r.cost)]), 'no runs yet')
 
   const notes = ['read at ' + new Date(s.generated).toLocaleTimeString(), s.product.dir]
   if (n.skipped) notes.push(n.skipped + ' skipped runs not counted')
