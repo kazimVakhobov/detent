@@ -1,8 +1,9 @@
 // What the implementing agent is told. The task body is the spec, written
 // before the work, and it is the prompt (DESIGN.md §4); around it go only the
-// rules of the territory and, on a retry, what the gauge said.
+// rules of the territory and, on a retry, what the gauge said or what the
+// reviewer doubted.
 
-export function implementPrompt({ task, repo, branch, attempt, limit, resumed, feedback, previous = null, tracked = [], brokenLinks = [] }) {
+export function implementPrompt({ task, repo, branch, attempt, limit, resumed, feedback, doubts = [], previous = null, tracked = [], brokenLinks = [] }) {
   const parts = []
 
   parts.push(
@@ -61,11 +62,28 @@ export function implementPrompt({ task, repo, branch, attempt, limit, resumed, f
     )
     if (previous?.outcome === 'rejected' && previous.acceptance?.doubts?.length) {
       parts.push(
-        `It was paused because a reviewer read the change and doubted the task was done, although the gauge was green. Address each doubt; where one is wrong, leave the work as it is and say why in your last message:\n${previous.acceptance.doubts.map((d) => `- ${d}`).join('\n')}`,
+        raisedDoubts(
+          'It was paused because a reviewer read the change and doubted the task was done, although the gauge was green.',
+          previous.acceptance.doubts,
+        ),
       )
     } else if (previous?.reason) {
       parts.push(`It was paused because: ${previous.reason}.`)
     }
+  }
+
+  // A doubt inside this run (ADR 0023). The gauge was green, so the sentence
+  // the retry below writes would be a lie here — and it is the sentence a
+  // reader trusts. What this one has to say instead is that passing the gauge
+  // was not the problem: doing the same thing again, more carefully, ends in
+  // the same place.
+  if (doubts.length > 0) {
+    parts.push(
+      raisedDoubts(
+        `Attempt ${attempt} of ${limit}. Your previous attempt left the gauge green and a reviewer read it and still did not accept the work: it doubted the task was done. Turning the gauge green again is not what is missing — take a different approach rather than repairing the same one.`,
+        doubts,
+      ),
+    )
   }
 
   if (feedback) {
@@ -73,6 +91,17 @@ export function implementPrompt({ task, repo, branch, attempt, limit, resumed, f
   }
 
   return `${parts.join('\n\n')}\n`
+}
+
+// The reviewer's doubts, handed to the implementer. Two callers want this: a
+// task a person moved back from hold/, and the attempt that follows a doubt
+// inside a run. What came before differs, so each writes its own first
+// sentence; the instruction and the list are the same either way, and getting
+// that instruction right is most of what makes a doubt addressable — a doubt
+// can be wrong, and an agent told to satisfy every one of them would rewrite
+// working code to agree with a mistake.
+function raisedDoubts(opening, doubts) {
+  return `${opening} Address each doubt; where one is wrong, leave the work as it is and say why in your last message:\n${doubts.map((d) => `- ${d}`).join('\n')}`
 }
 
 const SUBJECT = /^[a-z]+(?:\([^()\s]+\))?!?: \S.{0,98}$/

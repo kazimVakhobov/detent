@@ -4,6 +4,50 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
+## Unreleased
+
+**A doubt is an attempt.** `attempts` was a budget for the gauge and for
+nothing else: a task whose gauge went red was handed the failure and asked
+again, and a task whose gauge went *green* and was then doubted by the
+acceptance pass was paused on the spot, after one attempt, to wait for a person
+— even though the agent could have addressed the doubt and the budget was
+untouched. The feedback it needed was already written and only a resume could
+reach it. Now a doubt costs an attempt exactly as a red gauge does: the doubts
+go to the implementer with the one sentence the gauge's retry cannot say — the
+previous attempt passed the gauge and was still not accepted, so turning it
+green again is not what is missing — and the loop goes round. `rejected` is
+what a doubt on the *last* attempt produces, unchanged: the same reason, the
+same empty commit carrying each doubt as a `Doubt:` trailer, `hold/`, the
+notification. The reviewer still never approves; what the budget buys is how
+many times it gets to speak before a person is called
+([ADR 0023](docs/adr/0023-a-doubt-is-an-attempt-and-every-round-is-recorded.md),
+narrowing [0009](docs/adr/0009-three-attempts-then-pause.md) and leaving
+[0004](docs/adr/0004-acceptance-demotes-only.md) where it was).
+
+**A merge conflict, a boundary breach, a verdict nothing can read, an agent
+that failed, and green with nothing changed still pause immediately,** with no
+attempt spent. detent does not resolve conflicts and the agent is not let into
+a merge, so a budget spent on either would be a budget spent on nothing it can
+change. The acceptance pass now answers with one of three named outcomes —
+merge, doubts, stop — rather than a boolean that had to smuggle the third in as
+a second meaning for `false`.
+
+**The journal line gains `rounds`,** one entry per attempt: that attempt's
+gauge result and failed stage, its acceptance verdict and doubts if it reached
+the pass, and what it cost. A run that is red, then green-and-doubted, then
+green-and-doubted again has three stories, and the same doubt three times
+("the criteria are wrong") is different news from a new doubt each time ("the
+reviewer is wandering"). `attempts`, `gauge` and `acceptance` stay as they are,
+holding the last round, because the journal is appended and never rewritten;
+the task detail shows every round and builds one from the flat fields for the
+lines that have none. The rejected rounds are on the task branch too, a commit
+each, so `git log` says what was said when.
+
+**`summary` reports what the retry has to earn:** of the runs that passed, how
+many were accepted on a round after the first, having been doubted on an
+earlier one. Near zero and the feature is not paying for itself, which is a
+thing the journal should be able to say without anyone reading lines by hand.
+
 ## 0.7.0 — 2026-10-21
 
 0.6.0 made the dashboard sections and gave it a task to open. This is the

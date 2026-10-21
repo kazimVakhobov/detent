@@ -50,15 +50,15 @@ function frontmatter(fields) {
 const notReported = () => el('span', { class: 'muted' }, 'not reported')
 
 // What the reviewer said and what it doubted, as the journal recorded it: this
-// is a record of the acceptance pass and never a second one.
-function verdict(run) {
-  const acceptance = run.acceptance
+// is a record of the acceptance pass and never a second one. \`reason\` is the
+// run's and belongs to its last round only, which is where it was written.
+function verdict(acceptance, reason) {
   if (!acceptance) return notReported()
   const doubts = acceptance.doubts || []
   return el('div', {},
     el('div', {}, acceptance.verdict || notReported()),
     doubts.length ? el('ul', { class: 'doubts' }, doubts.map((d) => el('li', {}, d))) : null,
-    run.reason && !doubts.length ? el('div', { class: 'muted' }, run.reason) : null)
+    reason && !doubts.length ? el('div', { class: 'muted' }, reason) : null)
 }
 
 // Whether its links checked, from the line the run wrote (ADR 0014). "0
@@ -163,13 +163,51 @@ function landed(run) {
     run.branch ? el('span', {}, el('code', {}, run.branch)) : null)
 }
 
+// The rounds of a run, one per attempt. A line the journal wrote before
+// \`rounds\` existed has none, so one is built from the flat fields — which hold
+// the last round and were never anything else — and every run already in a
+// journal reads exactly as it did.
+function roundsOf(run) {
+  if (run.rounds && run.rounds.length) return run.rounds
+  return [{ attempt: run.attempts, gauge: run.gauge, acceptance: run.acceptance, cost: run.cost, only: true }]
+}
+
+// What one round did: what the gauge said, what the reviewer said, and — once
+// there is more than one — which attempt it was and what that attempt cost.
+//
+// **A single round is drawn exactly as a run was before rounds existed.** Its
+// cost is the run's cost, already in the table above, and the same figure
+// twice reads as two figures. The attempt number is in the head row.
+//
+// **A round the reviewer never reached says nothing about it.** The pass runs
+// on a green gauge only, so "not reported" under a red one would read as a
+// verdict that went missing rather than one that was never asked for.
+function roundLine(round, many, reason) {
+  const gauge = round.gauge || {}
+  const stopped = gauge.failedStage
+  const said = []
+  if (stopped) said.push([el('span', { class: 'status look' }, icon('!'), 'the ' + (gauge.profile || 'exit') + ' gauge stopped on ' + stopped)])
+  else if (many) said.push([el('span', { class: 'status passed' }, icon('✓'), 'the gauge was green')])
+  if (round.only || round.acceptance) said.push([el('span', { class: 'muted' }, 'acceptance: '), verdict(round.acceptance, reason)])
+  if (many) said.push([dollars(round.cost), ' · ', tokensOf(round.cost)])
+  return el('div', { class: 'line' },
+    many ? el('span', { class: 'muted' }, 'attempt ' + (typeof round.attempt === 'number' ? round.attempt : '?') + ': ') : null,
+    said.flatMap((group, i) => (i === 0 ? group : [el('span', { class: 'muted' }, ' · '), ...group])))
+}
+
 // One run. The head is the row that answers "what happened": what became of
 // it, how many attempts it took, how long it ran and when it stopped.
 //
 // **A resumed run says so.** A task that came back from \`hold/\` and finished is
 // not the same story as one that passed first time, and the attempt count alone
 // does not tell them apart — \`resumed\` is in the line, so it is on the screen.
+//
+// **Then every round of it**, because one run can be red on the gauge, then
+// green and doubted, then green and accepted, and the head row's attempt count
+// tells none of those three apart.
 function ran(run) {
+  const rounds = roundsOf(run)
+  const many = rounds.length > 1
   return el('div', { class: 'run-record' },
     el('div', { class: 'facts' },
       status(run.outcome),
@@ -181,12 +219,8 @@ function ran(run) {
     spending(run),
     el('div', { class: 'line' }, 'The run: ', dollars(run.cost), ' · ', tokensOf(run.cost),
       el('span', { class: 'muted' }, ' — the total the line recorded, which the two rows above come out of')),
-    run.gauge && run.gauge.failedStage
-      ? el('div', { class: 'line' }, el('span', { class: 'status look' }, icon('!'),
-        'the ' + (run.gauge.profile || 'exit') + ' gauge stopped on ' + run.gauge.failedStage))
-      : null,
+    rounds.map((round, i) => roundLine(round, many, i === rounds.length - 1 ? run.reason : null)),
     el('div', { class: 'line' }, landed(run)),
-    el('div', { class: 'line' }, el('span', { class: 'muted' }, 'acceptance: '), verdict(run)),
     el('div', { class: 'line' }, el('span', { class: 'muted' }, 'links: '), checked(run.links)))
 }
 

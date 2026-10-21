@@ -262,16 +262,19 @@ tasks/todo/0042-wallet-endpoint.md
   │   gauge (exit profile)
   │     red   → the agent is handed the stage and the failure text; attempt++
   │     red on the last attempt → escalation, no further attempt
-  └── green → commit
+  │   green → commit
+  │
+  │   acceptance pass, on a different model — may demote, never approve
+  │     a doubt → wip commit carrying each doubt; the agent is handed them
+  └──           and told the gauge was green; attempt++
+        a doubt on the last attempt → rejected, no further attempt
 
-  acceptance pass, on a different model — may demote, never approve
-
-  accepted  → checkout agent/dev → merge → done/
+  no doubt  → checkout agent/dev → merge → done/
               conflict → merge --abort → escalation
   otherwise → wip commit on the task branch → hold/, and a person is told
 
   always    → checkout agent/dev, clean tree
-  always    → one line appended to the journal
+  always    → one line appended to the journal, with a round per attempt
 ```
 
 ### Outcomes
@@ -279,7 +282,7 @@ tasks/todo/0042-wallet-endpoint.md
 | Outcome | Meaning | Branch | Merged |
 |---|---|---|---|
 | `passed` | gauge green, acceptance raised nothing | deleted after merge | yes |
-| `rejected` | **gauge green and the task still was not done** | kept | no |
+| `rejected` | **gauge green and the task still was not done**, on the last of `attempts` attempts | kept | no |
 | `escalated` | the last of `attempts` attempts was red, or the merge conflicted | kept | no |
 | `error` | the run itself broke — quota, crash, exception | kept | no |
 | `skipped` | the gate refused: dirty tree, no `agent/dev` | none | no |
@@ -288,6 +291,14 @@ tasks/todo/0042-wallet-endpoint.md
 exists to produce: the machine checks were green and the work was still not
 done. Folding it into `escalated` would hide exactly the measurement that
 justifies running an acceptance pass at all.
+
+**`attempts` is one budget and a doubt spends it too**
+([ADR 0023](docs/adr/0023-a-doubt-is-an-attempt-and-every-round-is-recorded.md)).
+A doubt before the last attempt hands the doubts to the agent and goes round
+again; `rejected` is the outcome of a doubt on the last one. The reviewer still
+never approves — a round ends in a merge because the gauge was green and no
+doubt was raised — so what the budget bought is how many times the reviewer
+gets to speak before a person is called, and nothing about who grants green.
 
 Failed work never reaches `agent/dev`, so the next task in that repository
 branches from a clean base and does not inherit someone else's mess.
@@ -618,10 +629,12 @@ How it runs:
   file that judges the agent changed, what the reviewer wrote is discarded and
   the task is paused as `error`.
 - **The verdict is one line:** `VERDICT: NO DOUBTS`, or `VERDICT: DOUBTS`
-  followed by one `- ` line per doubt. Doubts pause the task as `rejected`, with
-  an empty commit on the branch carrying each one as a `Doubt:` trailer. A
-  verdict detent cannot read is an `error`, never a pass: silence is not the
-  absence of doubt.
+  followed by one `- ` line per doubt. Doubts cost an attempt and put an empty
+  commit on the branch carrying each one as a `Doubt:` trailer — on **every**
+  rejected round, so `git log` on the task branch says what was said each time.
+  Doubts on the last attempt pause the task as `rejected`. A verdict detent
+  cannot read is an `error`, never a pass: silence is not the absence of doubt,
+  and it is not retried either — the pass itself is what went wrong.
 - **No `models.accept`, no pass.** The journal records `"verdict": "absent"`
   and the merge commit says `Acceptance: none declared`.
 - **`implement` and `accept` must differ** — at least in model — or the
@@ -630,11 +643,22 @@ How it runs:
   raise a doubt" carrying more weight than it was meant to. That is the price
   of the one-agent version and it is written down rather than discovered
   ([ADR 0018](docs/adr/0018-one-agent-in-the-first-version-and-what-readmits-another.md)).
-- A rejected task resumed hands the doubts to the implementer, who addresses
-  each one or says why it is wrong.
+- **A doubt is an attempt** ([ADR 0023](docs/adr/0023-a-doubt-is-an-attempt-and-every-round-is-recorded.md)).
+  The doubts go to the implementer, who addresses each one or says why it is
+  wrong, and the loop goes round on the same budget the gauge spends. The
+  wording differs from the gauge's retry on the one point that matters: the
+  previous attempt **passed the gauge** and was still not accepted, so turning
+  it green again is not what is missing. A rejected task a person resumed hands
+  the doubts over the same way, from the journal's last line for that task.
+- **Three outcomes, not two.** The pass answers merge, doubts or stop. `stop`
+  is the pass going wrong rather than the work — a breach, a pass that wrote,
+  a pass that failed, a verdict nothing can read — and it pauses the task
+  without spending an attempt.
 
 `summary` reports the number this exists for: of the green runs a reviewer
-read, how many were not done.
+read, how many were not done. Beside it, the number the retry has to earn: of
+the runs that passed, how many were accepted on a round after the first, having
+been doubted on an earlier one.
 
 ---
 
@@ -840,6 +864,14 @@ Six things about this shape are deliberate:
     "accept": { "agent": "claude", "requested": "claude-sonnet-5", "actual": "claude-sonnet-5" }
   },
   "acceptance": { "verdict": "accepted", "doubts": [], "cost": { "usd": 0.06, "tokens": { "input": 21004, "output": 312 } } },
+  "rounds": [
+    { "attempt": 1, "gauge": { "profile": "exit", "green": true, "failedStage": null },
+      "acceptance": { "verdict": "rejected", "doubts": ["no test covers the balance"] },
+      "cost": { "usd": 0.18, "tokens": { "input": 90000, "output": 3100 } } },
+    { "attempt": 2, "gauge": { "profile": "exit", "green": true, "failedStage": null },
+      "acceptance": { "verdict": "accepted", "doubts": [] },
+      "cost": { "usd": 0.23, "tokens": { "input": 92044, "output": 3110 } } }
+  ],
   "links": { "checked": 3, "broken": ["shared-docs/adr/0003.md"] },
   "cost": { "usd": 0.41, "tokens": { "input": 182044, "output": 6210 } },
   "branch": "agent/task-0042-wallet-endpoint",
@@ -856,6 +888,18 @@ exists to prevent.
 
 The model that actually ran is recorded alongside the one requested, because a
 silent substitution would quietly corrupt every comparison built on this file.
+
+`rounds` is one entry per attempt
+([ADR 0023](docs/adr/0023-a-doubt-is-an-attempt-and-every-round-is-recorded.md)):
+what the gauge said, what the reviewer said if the attempt reached the
+acceptance pass, and what that attempt cost. A round that never reached the
+pass has `"acceptance": null`, which is not the same fact as a pass that raised
+nothing. **`attempts`, `gauge` and `acceptance` are not computed from it and
+hold the last round**, because the journal is appended and never rewritten: no
+line written before `rounds` existed has one, so every number reported from
+this file goes on reading the flat fields, and the task detail builds a single
+round out of them for any line that has none. The duplication is deliberate and
+is the price of a file nothing migrates.
 
 `links` says what the task's links turned out to be: how many documents were
 looked for at the start of the run, and which of them were not there (§4). It is
@@ -1220,9 +1264,15 @@ never confirmed says so rather than standing in for a confirmation. The run's
 own total is shown beside those two rather than instead of them, so a line
 whose numbers disagree with each other shows that it does; the implementation
 figure is the total less the acceptance figure and nothing else is added up to
-reach it. And then which gauge stage sent it back, whether it merged and as
-what commit, the acceptance verdict with its doubts, and whether the task's
-links checked.
+reach it. And then **every round of the run** — which gauge stage sent each
+attempt back, what the reviewer said about it and with which doubts, and what
+that attempt cost — because one run can be red on the gauge, then green and
+doubted, then green and accepted, and the attempt count tells none of those
+three apart. A line with no `rounds` is drawn as one round built from the flat
+fields (§11), exactly as it was drawn before they existed: its cost is the
+run's cost, already above, and the same figure twice would read as two.
+Finally, whether it merged and as what commit, and whether the task's links
+checked.
 
 **Every number there is already in the journal line** (§11) — this reads it and
 records nothing — and **a field the line has as `null` is shown as not

@@ -937,6 +937,87 @@ test('a run that was resumed says so, because coming back from hold/ is a differ
   })
 })
 
+// A run that went round three times: red on the gauge, then green and
+// doubted, then green and accepted. One `attempts` count, one `gauge` and one
+// `acceptance` describe only the last of those three, which is what `rounds`
+// is for (ADR 0023).
+function wentRound(s) {
+  appendJournal(s.dir, {
+    kind: 'task',
+    task: '0001',
+    slug: 'first',
+    repo: 'acme-api',
+    started: '2026-10-08T09:00:00Z',
+    finished: '2026-10-08T09:20:00Z',
+    outcome: 'passed',
+    reason: null,
+    resumed: false,
+    attempts: 3,
+    lock: 'enforced',
+    gauge: { profile: 'exit', failedStage: null },
+    models: { implement: { agent: 'claude', requested: 'claude-opus-5', actual: null }, accept: { agent: 'claude', requested: 'claude-sonnet-5', actual: null } },
+    cost: { usd: 0.5, tokens: { input: 3000, output: 300 } },
+    acceptance: { verdict: 'accepted', doubts: [], cost: { usd: 0.2, tokens: { input: 200, output: 20 } } },
+    rounds: [
+      { attempt: 1, gauge: { profile: 'exit', green: false, failedStage: 'test' }, acceptance: null, cost: { usd: 0.1, tokens: { input: 1000, output: 100 } } },
+      {
+        attempt: 2,
+        gauge: { profile: 'exit', green: true, failedStage: null },
+        acceptance: { verdict: 'rejected', doubts: ['no test covers the balance'] },
+        cost: { usd: 0.2, tokens: { input: 1000, output: 100 } },
+      },
+      { attempt: 3, gauge: { profile: 'exit', green: true, failedStage: null }, acceptance: { verdict: 'accepted', doubts: [] }, cost: { usd: 0.2, tokens: { input: 1000, output: 100 } } },
+    ],
+    links: { checked: 0, broken: [] },
+    commit: 'def5678',
+    branch: 'agent/task-0001-first',
+    merged: true,
+  })
+  return s
+}
+
+test('every round of a run is on the page: what the gauge did, what the reviewer said, what it cost', async () => {
+  const s = wentRound(ranAgain(queued(setup())))
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: taskHash('queue', '0001') })
+    await page.settle()
+    const third = recordsIn(page)[2]
+    const lines = third.children.filter((child) => child.className === 'line').map((child) => child.textContent)
+
+    // One line per attempt, between the run's total and where it landed. The
+    // head row says "3 attempts"; these say what each of the three did.
+    assert.deepEqual(lines.slice(1, 4), [
+      'attempt 1: !the exit gauge stopped on test · $0.10 · 1,100 tok (1,000 in, 100 out)',
+      'attempt 2: ✓the gauge was green · acceptance: rejectedno test covers the balance · $0.20 · 1,100 tok (1,000 in, 100 out)',
+      'attempt 3: ✓the gauge was green · acceptance: accepted · $0.20 · 1,100 tok (1,000 in, 100 out)',
+    ])
+    // The doubt is a list item, as a reviewer's doubt is everywhere else.
+    assert.deepEqual(third.all((n) => n.className === 'doubts').flatMap((n) => n.children.map((c) => c.textContent)),
+      ['no test covers the balance'])
+    // A round that never reached the acceptance pass says nothing about it: a
+    // verdict there would be one nobody asked for.
+    assert.doesNotMatch(lines[1], /acceptance|not reported/)
+  })
+})
+
+test('a line written before rounds existed is one round built from the flat fields, and reads as it always did', async () => {
+  const s = ranAgain(queued(setup()))
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: taskHash('queue', '0001') })
+    await page.settle()
+    for (const record of recordsIn(page)) {
+      const lines = record.children.filter((child) => child.className === 'line').map((child) => child.textContent)
+      assert.equal(lines.length, 4, 'the run total, its one round, where it landed, and its links')
+      assert.doesNotMatch(record.textContent, /attempt \d:/, 'nothing numbers a round there is only one of')
+      assert.doesNotMatch(record.textContent, /the gauge was green/, 'and nothing is said about a gauge the line did not record')
+    }
+    const [first, second] = recordsIn(page)
+    assert.equal(second.children.filter((c) => c.className === 'line')[1].textContent,
+      '!the exit gauge stopped on test · acceptance: accepted')
+    assert.equal(first.children.filter((c) => c.className === 'line')[1].textContent, 'acceptance: accepted')
+  })
+})
+
 test('a task the journal has never seen says so, and grows no block of dashes', async () => {
   const s = queued(setup())
   await dashboard(s, async (base) => {
