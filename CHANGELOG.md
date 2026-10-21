@@ -4,7 +4,54 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
-## Unreleased
+## 0.7.0 — 2026-10-21
+
+0.6.0 made the dashboard sections and gave it a task to open. This is the
+release where a person said the sections were not much use yet, and said why in
+eight specific ways. All of them are here.
+
+**The page answers questions instead of holding tables.** Overview opened with
+lifetime averages — pass rate, cost per pass — while the two things somebody
+actually opens a dashboard for were elsewhere: what is running was a sentence
+in the header, and what is next was behind a click, in a table that did not say
+it was in run order. It now leads with what is running, what is next in the
+order a run will take it, and what is waiting for a person; the averages are
+below, because *was it worth it* is a different question from *what now*. The
+queue is cards rather than four thin tables, with the reason a task stopped on
+the face of the card instead of under the height of a row — `abandoned by hand`
+had been invisible in `failed/` since the section existed. Columns sort, and
+sorting the view of `todo/` says in a sentence that the order a run takes them
+is unchanged. Opening a task leads with what its runs cost: attempts, the
+implementation against the acceptance pass in money and tokens, which model
+ran which, how long. Every number was already in the journal line; nothing new
+is recorded.
+
+**A task opens over what you were reading.** It was a seventh section, so
+clicking a row replaced the list you were working down
+([0022](docs/adr/0022-the-task-detail-is-a-drawer-over-the-section-you-were-on.md)).
+It is a drawer now, the section behind it stays where it was, and Escape or the
+close control brings you back to it. **The fragment grammar changed with it:**
+`#queue/task/0049` names both, and `#task/0049` — the shape 0.6.0 shipped —
+no longer names anything. It lands on a section, which is the landing rule
+working, and it is a link that used to go somewhere.
+
+**And the page says what it cannot do.** The question that prompted half of
+this was whether tasks could be started from the dashboard. They cannot, and
+the reason is not that nobody got to it: detent has already read the queue and
+moves tasks by its own results, the page writes the configuration and nothing
+else ([0015](docs/adr/0015-the-dashboard-may-write-the-configuration-between-runs.md)),
+and `detent run` is the most consequential thing this product does. So the
+Queue section explains how to make a task and how to run one, with this
+product's own paths and the next number worked out, and says plainly that it
+will not do either itself.
+
+Five tasks, and two of them cost four runs each. The acceptance pass demoted
+green work six times across the batch and was right six times — three findings
+in the code, and three in the tasks the work was judged against: a criterion
+that contradicted its own out-of-scope, a criterion asking for something in a
+commit body that `core/run.mjs` leaves no room for, and a miscounted field
+list. `0004` says a model's judgement may only raise a doubt and send the task
+to a person. It did, and the person was wrong half the time.
 
 ### Fixed
 
