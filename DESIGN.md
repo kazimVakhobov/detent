@@ -897,9 +897,9 @@ pass has `"acceptance": null`, which is not the same fact as a pass that raised
 nothing. **`attempts`, `gauge` and `acceptance` are not computed from it and
 hold the last round**, because the journal is appended and never rewritten: no
 line written before `rounds` existed has one, so every number reported from
-this file goes on reading the flat fields, and the task detail builds a single
-round out of them for any line that has none. The duplication is deliberate and
-is the price of a file nothing migrates.
+this file goes on reading the flat fields, and a line that has none is a run of
+one round, which the task detail draws from them. The duplication is deliberate
+and is the price of a file nothing migrates.
 
 `links` says what the task's links turned out to be: how many documents were
 looked for at the start of the run, and which of them were not there (§4). It is
@@ -1264,15 +1264,19 @@ never confirmed says so rather than standing in for a confirmation. The run's
 own total is shown beside those two rather than instead of them, so a line
 whose numbers disagree with each other shows that it does; the implementation
 figure is the total less the acceptance figure and nothing else is added up to
-reach it. And then **every round of the run** — which gauge stage sent each
-attempt back, what the reviewer said about it and with which doubts, and what
-that attempt cost — because one run can be red on the gauge, then green and
-doubted, then green and accepted, and the attempt count tells none of those
-three apart. A line with no `rounds` is drawn as one round built from the flat
-fields (§11), exactly as it was drawn before they existed: its cost is the
-run's cost, already above, and the same figure twice would read as two.
-Finally, whether it merged and as what commit, and whether the task's links
+reach it. Then what the gauge stopped on, whether it merged and as what commit,
+what the reviewer said and with which doubts, and whether the task's links
 checked.
+
+A run that went round more than once replaces those first three lines with
+**one line per round** — which gauge stage sent that attempt back, what the
+reviewer said about it, and what the attempt cost — because one run can be red
+on the gauge, then green and doubted, then green and accepted, and the attempt
+count tells none of those three apart. **A run of one round keeps the lines it
+has always had**, and a line with no `rounds` is a run of that shape (§11): the
+flat fields hold its one round, so the runs already in a journal are drawn by
+the code that drew them. Their cost is the run's cost, already above, and the
+same figure twice would read as two.
 
 **Every number there is already in the journal line** (§11) — this reads it and
 records nothing — and **a field the line has as `null` is shown as not

@@ -71,8 +71,9 @@ acceptance pass had nothing of the kind.
 - **`attempts`, `gauge` and `acceptance` stay as they are, holding the last
   round.** The journal is appended and never rewritten, so no line already
   written has `rounds`: `summary`, the demotion rate and the dashboard go on
-  reading the flat fields, and the task detail builds a single round from them
-  for every line that has none.
+  reading the flat fields, and a line that has none is a run of one round — the
+  shape the task detail already drew, drawn by the same lines in the same
+  places, so the runs already in a journal look exactly as they did.
 - **`summary` reports what the retry has to earn:** of the runs that passed,
   how many were accepted on a round after the first, having been doubted on an
   earlier one. If that stays near zero the retry is not worth what it costs,

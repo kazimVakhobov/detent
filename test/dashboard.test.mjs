@@ -982,14 +982,18 @@ test('every round of a run is on the page: what the gauge did, what the reviewer
     const page = openPage(base, { hash: taskHash('queue', '0001') })
     await page.settle()
     const third = recordsIn(page)[2]
-    const lines = third.children.filter((child) => child.className === 'line').map((child) => child.textContent)
+    const lines = linesOf(third)
 
-    // One line per attempt, between the run's total and where it landed. The
-    // head row says "3 attempts"; these say what each of the three did.
-    assert.deepEqual(lines.slice(1, 4), [
+    // One line per attempt, between the run's total and where it landed, and
+    // the flat `acceptance` is not said a second time under them: the last
+    // round is where the journal wrote it. The head row says "3 attempts";
+    // these say what each of the three did.
+    assert.deepEqual(lines.slice(1), [
       'attempt 1: !the exit gauge stopped on test · $0.10 · 1,100 tok (1,000 in, 100 out)',
       'attempt 2: ✓the gauge was green · acceptance: rejectedno test covers the balance · $0.20 · 1,100 tok (1,000 in, 100 out)',
       'attempt 3: ✓the gauge was green · acceptance: accepted · $0.20 · 1,100 tok (1,000 in, 100 out)',
+      '✓mergedcommit def5678agent/task-0001-first',
+      'links: 0 checked',
     ])
     // The doubt is a list item, as a reviewer's doubt is everywhere else.
     assert.deepEqual(third.all((n) => n.className === 'doubts').flatMap((n) => n.children.map((c) => c.textContent)),
@@ -1000,21 +1004,39 @@ test('every round of a run is on the page: what the gauge did, what the reviewer
   })
 })
 
-test('a line written before rounds existed is one round built from the flat fields, and reads as it always did', async () => {
+// A line the journal wrote before `rounds` existed is a run of one round, and
+// the fifty already in this repository's journal have to look exactly as they
+// did. Every line of both runs is named here rather than searched for: a
+// substring assertion passes just as happily when two lines become one, which
+// is a change to the page nobody asked for.
+test('a line written before rounds existed is a run of one round, drawn by the lines a run has always had', async () => {
   const s = ranAgain(queued(setup()))
   await dashboard(s, async (base) => {
     const page = openPage(base, { hash: taskHash('queue', '0001') })
     await page.settle()
     for (const record of recordsIn(page)) {
-      const lines = record.children.filter((child) => child.className === 'line').map((child) => child.textContent)
-      assert.equal(lines.length, 4, 'the run total, its one round, where it landed, and its links')
       assert.doesNotMatch(record.textContent, /attempt \d:/, 'nothing numbers a round there is only one of')
       assert.doesNotMatch(record.textContent, /the gauge was green/, 'and nothing is said about a gauge the line did not record')
     }
     const [first, second] = recordsIn(page)
-    assert.equal(second.children.filter((c) => c.className === 'line')[1].textContent,
-      '!the exit gauge stopped on test · acceptance: accepted')
-    assert.equal(first.children.filter((c) => c.className === 'line')[1].textContent, 'acceptance: accepted')
+
+    // A run with no failed stage: where it landed, then the acceptance pass.
+    assert.deepEqual(linesOf(first), [
+      'The run: $0.10 · not reported — the total the line recorded, which the two rows above come out of',
+      '·not merged',
+      'acceptance: accepted',
+      'links: not reported',
+    ])
+
+    // And one the gauge stopped: that line above the merge, the acceptance
+    // pass below it, each on its own as it has always been.
+    assert.deepEqual(linesOf(second), [
+      'The run: $1.50 · 126,000 tok (100,000 in, 26,000 out) — the total the line recorded, which the two rows above come out of',
+      '!the exit gauge stopped on test',
+      '✓mergedcommit abc1234agent/task-0001-first',
+      'acceptance: accepted',
+      'links: 2 checked',
+    ])
   })
 })
 

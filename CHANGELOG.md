@@ -39,9 +39,10 @@ green-and-doubted again has three stories, and the same doubt three times
 ("the criteria are wrong") is different news from a new doubt each time ("the
 reviewer is wandering"). `attempts`, `gauge` and `acceptance` stay as they are,
 holding the last round, because the journal is appended and never rewritten;
-the task detail shows every round and builds one from the flat fields for the
-lines that have none. The rejected rounds are on the task branch too, a commit
-each, so `git log` says what was said when.
+the task detail shows a line per round for a run that went round twice, and
+leaves a run of one round — which is what every line already written is — drawn
+by the lines it has always had. The rejected rounds are on the task branch too,
+a commit each, so `git log` says what was said when.
 
 **`summary` reports what the retry has to earn:** of the runs that passed, how
 many were accepted on a round after the first, having been doubted on an
