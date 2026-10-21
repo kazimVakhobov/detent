@@ -176,6 +176,8 @@ test('an agent error pauses the task, keeps the work and says why', async () => 
   const result = await runTask(s.product, s.repo, s.task, { invoke: a.invoke, notify: n.notify })
   assert.equal(result.outcome, 'error')
   assert.equal(result.reason, 'the agent failed: usage limit reached')
+  assert.equal(result.attempts, 1, 'an agent that failed is not handed its own failure and asked again')
+  assert.equal(a.prompts.length, 1)
   assert.equal(result.cost.usd, 0.1, 'a failed attempt still cost what it cost')
   assert.match(sh(s.repoDir, 'log', '-1', '--format=%B', BRANCH), /^Outcome: error — the agent failed: usage limit reached$/m)
   assert.equal(show(s.repoDir, BRANCH, 'value.txt'), 'half')
@@ -183,11 +185,14 @@ test('an agent error pauses the task, keeps the work and says why', async () => 
   assertInvariant(s.repoDir, s.before, s.product)
 })
 
-test('green with nothing changed is not a pass', async () => {
+test('green with nothing changed is not a pass, and is not retried', async () => {
   const s = setup({ gauge: { exit: [{ stage: 'test', command: 'true' }] } })
-  const result = await runTask(s.product, s.repo, s.task, { invoke: agent(() => {}).invoke, notify: notifier().notify })
+  const a = agent(() => {})
+  const result = await runTask(s.product, s.repo, s.task, { invoke: a.invoke, notify: notifier().notify })
   assert.equal(result.outcome, 'error')
   assert.equal(result.reason, 'the gauge is green but the agent changed nothing')
+  assert.equal(result.attempts, 1)
+  assert.equal(a.prompts.length, 1, 'the budget was 3, and none of it was spent asking again')
   assert.equal(sh(s.repoDir, 'rev-parse', BRANCH), sh(s.repoDir, 'rev-parse', 'agent/dev'), 'no empty commit left behind')
   assertInvariant(s.repoDir, s.before, s.product)
 })
@@ -222,7 +227,7 @@ test('an agent that commits to agent/dev has it restored, and its commits kept o
   assertInvariant(s.repoDir, s.before, s.product)
 })
 
-test('an agent that moves a human branch is named, and the branch is not touched by detent', async () => {
+test('an agent that moves a human branch is named, the branch is not touched by detent, and nothing is retried', async () => {
   const s = setup()
   const a = agent((cwd) => {
     write('ok')(cwd)
@@ -232,6 +237,10 @@ test('an agent that moves a human branch is named, and the branch is not touched
   const result = await runTask(s.product, s.repo, s.task, { invoke: a.invoke, notify: notifier().notify })
   assert.equal(result.outcome, 'error')
   assert.match(result.reason, /the agent moved refs\/heads\/feature\/human-work — detent does not write outside agent\/, so this is left for you/)
+  // A boundary breach is a pause, never an attempt: what has to happen next is
+  // a person looking at a ref that is theirs (ADR 0023).
+  assert.equal(result.attempts, 1)
+  assert.equal(a.prompts.length, 1)
   assert.equal(sh(s.repoDir, 'log', '-1', '--format=%s', 'feature/human-work'), 'x', 'still where the agent left it: not ours to move back')
 })
 
@@ -432,12 +441,15 @@ test('a conflict with agent/dev is aborted, never resolved, and the task paused 
   execFileSync('mv', [join(s.dir, 'tasks', 'hold', '0042-wallet-endpoint.md'), join(s.dir, 'tasks', 'todo')])
   const [resumed] = readQueue(s.dir, s.product).filter((t) => t.folder === 'todo')
   const n = notifier()
-  const result = await runTask(s.product, s.repo, resumed, {
-    invoke: agent((cwd) => (write('ok')(cwd), writeFileSync(join(cwd, 'notes.txt'), 'from 0042\n'))).invoke,
-    notify: n.notify,
-  })
+  const conflicting = agent((cwd) => (write('ok')(cwd), writeFileSync(join(cwd, 'notes.txt'), 'from 0042\n')))
+  const result = await runTask(s.product, s.repo, resumed, { invoke: conflicting.invoke, notify: n.notify })
   assert.equal(result.outcome, 'escalated')
   assert.equal(result.reason, 'merging into agent/dev conflicts in notes.txt')
+  // Not retried, whatever the budget says: detent never resolves a conflict
+  // and the agent is not let into a merge, so an attempt spent here would be
+  // an attempt spent on nothing it can change (ADR 0023).
+  assert.equal(result.attempts, 1)
+  assert.equal(conflicting.prompts.length, 1)
   assert.equal(sh(s.repoDir, 'rev-parse', 'agent/dev'), devTip)
   assert.ok(sh(s.repoDir, 'branch', '--list', BRANCH), 'the branch is kept for a person to look at')
   assert.match(n.sent[0].message, /conflicts in notes\.txt\. Resolve it on the task branch — git switch agent\/task-0042-wallet-endpoint && git merge agent\/dev — then move tasks\/hold\/0042-wallet-endpoint\.md back to todo\/\./)

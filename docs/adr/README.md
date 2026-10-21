@@ -13,7 +13,7 @@ that changed**.
 | [0006](0006-zero-dependencies-node-22.md) | Zero dependencies, and the published artifact is the source | accepted |
 | [0007](0007-scoped-package-name.md) | Published under a scope, because npm refuses the bare name | accepted |
 | [0008](0008-optional-agent-staging.md) | Optional agent-side staging, for a gauge that checks a batch | accepted |
-| [0009](0009-three-attempts-then-pause.md) | Three attempts, then the task is paused and a person is told | accepted |
+| [0009](0009-three-attempts-then-pause.md) | Three attempts, then the task is paused and a person is told | accepted; narrowed by 0023 |
 | [0010](0010-three-agent-clis.md) | Three agent CLIs behind one call, and a role names its agent | accepted; narrowed by 0018 |
 | [0011](0011-a-gauge-that-cannot-read-the-change.md) | A gauge that cannot read the change it gates says nothing | accepted |
 | [0012](0012-the-queue-and-the-shared-context-may-be-repositories.md) | The queue and the shared context may be repositories | accepted |
@@ -27,6 +27,7 @@ that changed**.
 | [0020](0020-the-dashboard-is-sections-and-the-configuration-is-read-before-it-is-written.md) | The dashboard is sections, and the configuration is read before it is written | accepted |
 | [0021](0021-the-agents-output-is-a-stream-written-to-a-file-that-is-not-a-record.md) | The agent's output is a stream, written to a file that is not a record | accepted |
 | [0022](0022-the-task-detail-is-a-drawer-over-the-section-you-were-on.md) | The task detail is a drawer over the section you were on | accepted; narrows 0020 part 1 |
+| [0023](0023-a-doubt-is-an-attempt-and-every-round-is-recorded.md) | A doubt is an attempt, and every round is recorded | accepted; narrows 0009 |
 
 ## The rules
 

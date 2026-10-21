@@ -50,15 +50,15 @@ function frontmatter(fields) {
 const notReported = () => el('span', { class: 'muted' }, 'not reported')
 
 // What the reviewer said and what it doubted, as the journal recorded it: this
-// is a record of the acceptance pass and never a second one.
-function verdict(run) {
-  const acceptance = run.acceptance
+// is a record of the acceptance pass and never a second one. \`reason\` is the
+// run's and belongs to its last round only, which is where it was written.
+function verdict(acceptance, reason) {
   if (!acceptance) return notReported()
   const doubts = acceptance.doubts || []
   return el('div', {},
     el('div', {}, acceptance.verdict || notReported()),
     doubts.length ? el('ul', { class: 'doubts' }, doubts.map((d) => el('li', {}, d))) : null,
-    run.reason && !doubts.length ? el('div', { class: 'muted' }, run.reason) : null)
+    reason && !doubts.length ? el('div', { class: 'muted' }, reason) : null)
 }
 
 // Whether its links checked, from the line the run wrote (ADR 0014). "0
@@ -163,13 +163,54 @@ function landed(run) {
     run.branch ? el('span', {}, el('code', {}, run.branch)) : null)
 }
 
+// What a run's gauge stopped on, when it stopped on something. A run that went
+// round once has one gauge result and the line above the merge is where it has
+// always been said.
+function gaugeStopped(gauge) {
+  if (!gauge || !gauge.failedStage) return null
+  return el('div', { class: 'line' }, el('span', { class: 'status look' }, icon('!'),
+    'the ' + (gauge.profile || 'exit') + ' gauge stopped on ' + gauge.failedStage))
+}
+
+// What one round of a run that went round more than once did: which attempt it
+// was, what the gauge said, what the reviewer said if the pass was reached, and
+// what that attempt cost.
+//
+// **A round the reviewer never reached says nothing about it.** The pass runs
+// on a green gauge only, so "not reported" under a red one would read as a
+// verdict that went missing rather than one that was never asked for.
+function roundLine(round, reason) {
+  const gauge = round.gauge || {}
+  const stopped = gauge.failedStage
+  const said = [stopped
+    ? [el('span', { class: 'status look' }, icon('!'), 'the ' + (gauge.profile || 'exit') + ' gauge stopped on ' + stopped)]
+    : [el('span', { class: 'status passed' }, icon('✓'), 'the gauge was green')]]
+  if (round.acceptance) said.push([el('span', { class: 'muted' }, 'acceptance: '), verdict(round.acceptance, reason)])
+  said.push([dollars(round.cost), ' · ', tokensOf(round.cost)])
+  return el('div', { class: 'line' },
+    el('span', { class: 'muted' }, 'attempt ' + (typeof round.attempt === 'number' ? round.attempt : '?') + ': '),
+    said.flatMap((group, i) => (i === 0 ? group : [el('span', { class: 'muted' }, ' · '), ...group])))
+}
+
 // One run. The head is the row that answers "what happened": what became of
 // it, how many attempts it took, how long it ran and when it stopped.
 //
 // **A resumed run says so.** A task that came back from \`hold/\` and finished is
 // not the same story as one that passed first time, and the attempt count alone
 // does not tell them apart — \`resumed\` is in the line, so it is on the screen.
+//
+// **Then every round of it**, because one run can be red on the gauge, then
+// green and doubted, then green and accepted, and the head row's attempt count
+// tells none of those three apart.
+//
+// **A run of one round keeps the lines it has always had**, in the places it
+// has always had them: the gauge above where it landed, the acceptance pass
+// below. A line the journal wrote before \`rounds\` existed is a run of that
+// shape — the flat fields hold its one round and were never anything else — so
+// the runs already in a journal are drawn by the code that drew them, and only
+// a run that went round twice reaches the per-round lines.
 function ran(run) {
+  const rounds = run.rounds && run.rounds.length > 1 ? run.rounds : null
   return el('div', { class: 'run-record' },
     el('div', { class: 'facts' },
       status(run.outcome),
@@ -181,12 +222,9 @@ function ran(run) {
     spending(run),
     el('div', { class: 'line' }, 'The run: ', dollars(run.cost), ' · ', tokensOf(run.cost),
       el('span', { class: 'muted' }, ' — the total the line recorded, which the two rows above come out of')),
-    run.gauge && run.gauge.failedStage
-      ? el('div', { class: 'line' }, el('span', { class: 'status look' }, icon('!'),
-        'the ' + (run.gauge.profile || 'exit') + ' gauge stopped on ' + run.gauge.failedStage))
-      : null,
+    rounds ? rounds.map((round, i) => roundLine(round, i === rounds.length - 1 ? run.reason : null)) : gaugeStopped(run.gauge),
     el('div', { class: 'line' }, landed(run)),
-    el('div', { class: 'line' }, el('span', { class: 'muted' }, 'acceptance: '), verdict(run)),
+    rounds ? null : el('div', { class: 'line' }, el('span', { class: 'muted' }, 'acceptance: '), verdict(run.acceptance, run.reason)),
     el('div', { class: 'line' }, el('span', { class: 'muted' }, 'links: '), checked(run.links)))
 }
 

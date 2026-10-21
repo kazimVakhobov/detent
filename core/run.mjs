@@ -3,10 +3,17 @@
 //   the agent works → the gauge runs on its way out
 //     green            → one commit on the task branch, the acceptance pass,
 //                        then the merge into agent/dev behind the merge profile
-//     a doubt          → rejected: the task paused with the doubts
+//     a doubt          → the doubts are handed to the agent and it goes back in
 //     red              → the agent is handed the failure and goes back in
+//     a doubt on the last attempt
+//                      → rejected: the task paused with the doubts
 //     red, last attempt, agent error, nothing changed
 //                      → the work is parked, the task paused, a person told
+//
+// `attempts` is one budget and it is spent on both (ADR 0023): a doubt costs an
+// attempt exactly as a red gauge does, because the agent can address a doubt
+// and the reviewer may still not approve. What a person is called for is the
+// budget running out, not the first thing the reviewer says.
 //
 // The result has the shape of a journal line (DESIGN.md §11) so that writing
 // the journal (step 6) is appending it.
@@ -29,6 +36,15 @@ import { invoke as defaultInvoke } from './agents.mjs'
 import { appendJournal, lastRun, watchJournal } from './journal.mjs'
 import { openAttemptLog } from './log.mjs'
 import { PRODUCT_FILE } from './product.mjs'
+
+// What the acceptance pass answers with. Three outcomes, each with a name: a
+// boolean carried two of them and the third had to be smuggled in as a second
+// meaning for `false` — "the reviewer doubted" and "this run cannot go on"
+// read the same at the call site, and only one of them is worth another
+// attempt.
+const MERGE = 'merge' // nothing was raised, and the machine-checked green stands
+const DOUBTS = 'doubts' // the reviewer raised one or more; the budget decides what happens next
+const STOP = 'stop' // the pass broke, wrote, or said nothing readable; the task is already paused
 
 export async function runTask(product, repo, task, { invoke = defaultInvoke, notify = defaultNotify, openLog = openAttemptLog, now = () => new Date() } = {}) {
   const role = repo.models.implement
@@ -53,6 +69,17 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
     cost: { usd: null, tokens: null },
     branch: taskBranch(product, task),
     acceptance: { verdict: repo.models.accept ? null : 'absent', doubts: [], cost: null },
+    // One entry per attempt, filled in as the loop goes round (ADR 0023).
+    //
+    // **`attempts`, `gauge` and `acceptance` above are not computed from this
+    // array, and they say the same thing twice on purpose.** A single run can
+    // now be red on the gauge, then green and doubted, then green and doubted
+    // again, so those three fields describe only the last of three stories —
+    // but the journal is appended and never rewritten, so no line written
+    // before this existed has `rounds`, and `summary`, the demotion rate and
+    // the dashboard go on reading the flat fields for every one of them. The
+    // duplication is compatibility, not an oversight.
+    rounds: [],
     // Always present, like acceptance.doubts: a task with no links and a task
     // whose links all resolved are different records, and "nothing to check"
     // must not read as "checked and clean" (ADR 0014).
@@ -73,7 +100,14 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
       // The journal is watched differently: other tasks append to it meanwhile.
       judges.journal = watchJournal(product.dir)
       const history = []
+      // What the next attempt is told, and never both at once: the gauge was
+      // red, or it was green and the reviewer was not satisfied. A doubt
+      // clears the gauge's feedback and a red gauge clears the doubts, because
+      // a prompt carrying last-but-one's failure beside this round's doubt
+      // would be handing the agent two different stories about one branch.
       let feedback = null
+      let doubts = []
+      let reviewed = 0
 
       const pause = (outcome, reason, gauge) => {
         record.outcome = outcome
@@ -124,13 +158,18 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
       }
 
       // Build step 11. The reviewer runs read-only on the committed branch and
-      // may only demote: false means the task stops here, true means nothing
-      // was raised and the machine-checked green stands.
-      const review = async () => {
+      // may only demote (ADR 0004): it answers MERGE, DOUBTS or STOP, and
+      // never an approval. `round` is this attempt's entry in the journal
+      // line, which is where the verdict and what reading cost are written
+      // down; the flat fields keep the last round's copy.
+      const review = async (round) => {
         const accept = repo.models.accept
-        if (!accept) return true
-        record.models.accept = { agent: accept.agent, requested: accept.model ?? null, actual: null }
-        record.acceptance.cost = { usd: null, tokens: null }
+        if (!accept) return MERGE
+        reviewed += 1
+        // Named once: a later round whose CLI reported no model must not erase
+        // the model an earlier one reported.
+        record.models.accept ??= { agent: accept.agent, requested: accept.model ?? null, actual: null }
+        record.acceptance.cost ??= { usd: null, tokens: null }
         const committed = tip(cwd, branch)
         const { diff, truncated } = taskDiff(cwd, start, branch)
         // No `log`, deliberately (ADR 0021): this pass streams like any other
@@ -147,8 +186,13 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
           prompt: acceptancePrompt({ task, repo, branch, base: integration, diff, truncated, brokenLinks: record.links.broken }),
         })
         if (answer.model.actual) record.models.accept.actual = answer.model.actual
-        addCost(record.acceptance.cost, answer, true)
+        // Every round's review, added up: `acceptance.cost` is what reading
+        // this task cost in this run, which is what the page takes off the
+        // total to say what implementing it cost. Only the verdict and the
+        // doubts are one round's.
+        addCost(record.acceptance.cost, answer, reviewed === 1)
         addCost(record.cost, answer, false)
+        addCost(round.cost, answer, false)
 
         // Read-only is the CLI's promise; it is checked rather than trusted.
         // What a reviewer wrote is not work, so it is discarded, not parked.
@@ -156,44 +200,52 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
         const moved = tip(cwd, branch) !== committed
         if (moved) setRef(cwd, branch, committed, 'undo what the acceptance pass committed')
         if (moved || !isClean(cwd) || currentBranch(cwd) !== branch) forceCheckout(cwd, branch)
+        // Neither of these is a doubt, and neither is worth another attempt:
+        // what is wrong is the pass itself, not the work it was reading.
         if (breach || moved) {
           pause('error', `the acceptance pass changed the repository${breach ? ` — ${breach}` : ''}`)
-          return false
+          return STOP
         }
         if (!answer.ok) {
           pause('error', `the acceptance pass failed: ${answer.error}`)
-          return false
+          return STOP
         }
 
-        const { verdict, doubts } = parseVerdict(answer.message)
+        const { verdict, doubts: raised } = parseVerdict(answer.message)
         record.acceptance.verdict = verdict
-        record.acceptance.doubts = doubts
+        record.acceptance.doubts = raised
+        round.acceptance = { verdict, doubts: raised }
         if (!verdict) {
           // Silence is not the absence of doubt.
           pause('error', 'the acceptance pass gave no verdict detent can read')
-          return false
+          return STOP
         }
-        if (verdict === 'rejected') {
-          record.outcome = 'rejected'
-          record.reason = `the acceptance pass raised ${doubts.length === 1 ? 'a doubt' : `${doubts.length} doubts`}: ${doubts.join('; ')}`
-          snapshotOnto(
-            cwd,
-            branch,
-            [
-              `wip(${task.slug}): rejected by the acceptance pass`,
-              '',
-              `Task: ${task.id}`,
-              `Outcome: rejected — the gauge is green and the task is not done`,
-              ...doubts.map((doubt) => `Doubt: ${doubt}`),
-              agentTrailer(record),
-              acceptanceTrailer(record),
-            ].join('\n'),
-            { allowEmpty: true },
-          )
-          return false
-        }
-        return true
+        return verdict === 'rejected' ? DOUBTS : MERGE
       }
+
+      // The branch's own record of a round the reviewer rejected, written on
+      // every one of them and not only the last: the journal lists the rounds,
+      // and `git log` on the task branch is where a person reads what was said
+      // each time (§10). The last one is the commit the work is parked on, so
+      // it says the outcome a person will be notified of; an earlier one says
+      // which attempt follows, because the branch does not stop there.
+      const parkDoubts = (raised, attempt, last) =>
+        snapshotOnto(
+          cwd,
+          branch,
+          [
+            last ? `wip(${task.slug}): rejected by the acceptance pass` : `wip(${task.slug}): attempt ${attempt} doubted by the acceptance pass`,
+            '',
+            `Task: ${task.id}`,
+            last
+              ? `Outcome: rejected — the gauge is green and the task is not done`
+              : `Outcome: doubted — the gauge is green and the task is not done; attempt ${attempt + 1} of ${limit} follows`,
+            ...raised.map((doubt) => `Doubt: ${doubt}`),
+            agentTrailer(record),
+            acceptanceTrailer(record),
+          ].join('\n'),
+          { allowEmpty: true },
+        )
 
       // Before the first turn: the shared context is brought up to date, and
       // the journal records the commit each tracked submodule was at — so the
@@ -215,6 +267,12 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
         setAttempt(attempt)
         record.attempts = attempt
 
+        // This attempt's line in the journal's `rounds`, pushed before the
+        // agent is called so that an attempt which ends badly still has one.
+        // What it cost is this attempt's own share of the run's total.
+        const round = { attempt, gauge: null, acceptance: null, cost: { usd: null, tokens: null } }
+        record.rounds.push(round)
+
         // What the agent says, in a file of its own, while it says it (ADR
         // 0021). The journal is unaffected either way: this run's numbers come
         // from the result object below, and nothing reads the log back.
@@ -225,12 +283,13 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
             cwd,
             log,
             timeoutMs: repo.timeout * 60_000,
-            prompt: implementPrompt({ task, repo, branch, attempt, limit, resumed, feedback, previous: resumed ? previous : null, tracked, brokenLinks: record.links.broken }),
+            prompt: implementPrompt({ task, repo, branch, attempt, limit, resumed, feedback, doubts, previous: resumed ? previous : null, tracked, brokenLinks: record.links.broken }),
           })
         } finally {
           log.close()
         }
         account(record, answer)
+        addCost(round.cost, answer, true)
 
         // The agent has a shell, so the boundary is checked after it, not
         // assumed. agent/dev is detent's to put back; a human ref is not, and
@@ -241,6 +300,7 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
 
         const gauge = await runGauge(repo.gauge.exit, { cwd, profile: 'exit' })
         history.push(gauge)
+        round.gauge = { profile: 'exit', green: gauge.green, failedStage: gauge.failed ? gauge.failed.stage : null }
         const verdict = judge(history, { limit })
 
         if (verdict.verdict === 'leave' || verdict.verdict === 'unlocked') {
@@ -271,13 +331,34 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
             return pause('error', 'the gauge is green but the agent changed nothing')
           }
           record.commit = tip(cwd, branch)
-          if (!(await review())) return
+
+          const read = await review(round)
+          // The task is already paused: the pass itself went wrong, and a
+          // budget spent on it would be a budget spent on nothing the agent
+          // can change.
+          if (read === STOP) return
+          if (read === DOUBTS) {
+            const raised = round.acceptance.doubts
+            const last = attempt === limit
+            parkDoubts(raised, attempt, last)
+            if (last) {
+              record.outcome = 'rejected'
+              record.reason = `the acceptance pass raised ${raised.length === 1 ? 'a doubt' : `${raised.length} doubts`}: ${raised.join('; ')}`
+              return
+            }
+            // The gauge was green, so there is no failure to hand over — only
+            // what the reviewer said about work that already passed.
+            feedback = null
+            doubts = raised
+            continue
+          }
           return land(subject, gauge)
         }
 
         record.gauge.failedStage = verdict.stage
         if (verdict.verdict === 'escalate') return pause('escalated', verdict.reason, gauge)
         feedback = verdict.feedback
+        doubts = []
       }
     })
   } catch (error) {
