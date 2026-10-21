@@ -1093,7 +1093,21 @@ somebody was — no server route, and nothing fetched to change section
 ([ADR 0020](docs/adr/0020-the-dashboard-is-sections-and-the-configuration-is-read-before-it-is-written.md)).
 The sections are:
 
-- **Overview** — the figures `summary` computes, from the same code.
+- **Overview** — what is happening and what is next, because that is what
+  somebody opens the page to find out. **Running now**: which repository, which
+  task, which attempt and how long it has been going, from the claim's
+  `started` against the read's own clock — or, when nothing is running, a
+  sentence saying so, since an empty box reads the same either way. **Next
+  up**: the next few of `todo/` in the order a run would take them, which is
+  ascending task id, and the line above the table says so; a barrier
+  (`touches_contract`) is marked as one, because it runs alone and nothing
+  queued past it starts until it has landed (§8). **Waiting for you**: the
+  paused tasks with why each stopped — the same rows Queue lists and the strip
+  counts, because the strip is a line saying how many and this is the list
+  saying which. Then the figures `summary` computes, from the same code: they
+  answer "was it worth it", which is a different question from "what now" and
+  so reads under those three rather than instead of them. Nothing here is a
+  prediction — no estimate of how long a run has left or what it will cost.
 - **Repositories** — where each repository's `agent/dev` stands against its
   `compare` branch (identical, behind — agents cannot see your work — or tasks
   ahead, waiting for your review), and the same numbers per repository. Not
@@ -1101,9 +1115,35 @@ The sections are:
   written, and two renderings of one fact are free to disagree.
 - **Queue** — all four folders: `todo/`, the paused tasks with why each was
   paused and the reviewer's doubts, the `done/` detent has finished with, and
-  the `failed/` a person abandoned.
-- **Task** — one task, opened by its number, and under it what its agent is
-  saying while it says it.
+  the `failed/` a person abandoned. **Each task is a card, not a row.** A
+  folder here has about a third of the width, and a row that narrow could not
+  hold what the journal already knew about a task — the words "abandoned by
+  hand" in `failed/` sat under the height of their own row and were never
+  seen. A card is the number and its name on one line, the path under it,
+  small, and every fact on a line of its own: the outcome, why it stopped, the
+  reviewer's doubts, the branch, and what `Recent runs` says about the same
+  journal line — how many attempts, what it cost, when it finished and the
+  acceptance verdict. **A card's rows do not wrap**: what is laid out in a row
+  stays in one row, and anything longer than a row is a line, so nothing is
+  pushed under a fold a row has. **The name is the slug** —
+  `0043 · A task is something you can open`, derived where it is drawn, because
+  the slug already *is* the name and a second place to keep it is a second
+  place to get it wrong; the frontmatter gains no `title`. A task the journal
+  has never seen says that, rather than showing dashes that read like zeros.
+  `todo/` is in ascending task id, which is the order a run takes it, and the
+  line above it says so; `done/` and `failed/` are newest first, by what the
+  journal says finished and by the number when it says nothing. **Any column
+  sorts on a click**, with the arrow showing which and which way, and the
+  choice survives the three-second read — but a sort of `todo/` never changes
+  what a run does, which is why that line says the run order whatever the
+  order on the screen is. And the section says **how to make a task and how to
+  run one**, because the page does neither: the next number, which is one past
+  the highest in the four folders, the file in this product's own `todo/` in
+  the shape §4 gives, `detent plan` to be talked through it, and `detent run`
+  or `detent run <id>` to start it — with this product's own path in the
+  command, ready to copy. **It does not run or move tasks**: detent has
+  already read this queue and moves these files by its own results, and a
+  second writer of them is a bug that arrives later disguised as a mystery.
 - **Agents** — runs, passes, attempts and cost per pass, per agent and model.
 - **Recent runs** — the last fifteen, newest first.
 - **Configuration** — what the file says, read as text, and beside it the keys
@@ -1122,14 +1162,80 @@ nothing, and nothing rewrites it: a page that corrects the address bar loses
 the one thing the fragment was for.
 
 **A task can be opened**, from every table that lists one — `todo/`, the paused
-tasks, `done/`, `failed/` and the recent runs — and by a fragment of the shape
-`#task/0042`, so a link to one task is a link somebody can send and reload. It
-shows the task's frontmatter, which folder it is in, its goal, its acceptance
-criteria, its out-of-scope, and what its attempts did: each run's outcome,
-attempts and cost, the acceptance verdict with its doubts, and whether the
-task's links checked. The sections are the ones `parseTask` already finds
-because a run needs them, and the history is the journal's own lines for that
-number; nothing is computed here and nothing is checked again.
+tasks, `done/`, `failed/` and the recent runs — so a link to one task is a link
+somebody can send and reload. The head is **a number and a name** —
+`0043 · A task is something you can open`, off the slug by the helper the
+queue's cards use, with the folder and the path still beside it, small, because
+the path is what opens the file and the line above it is not a file name any
+more.
+
+**It opens over the section you were on.** The detail is a **drawer**, not a
+section of its own: a person is in Queue comparing four folders, opens a task,
+and the list has to still be there when they close it — including which row
+they were on and which ones they had already looked at
+([ADR 0022](docs/adr/0022-the-task-detail-is-a-drawer-over-the-section-you-were-on.md)).
+So the section behind it stays rendered and stays where it was, nothing about
+it is touched while the drawer is up, and closing returns to it with nothing to
+restore because nothing was torn down. It is a drawer and nothing else: the
+detail is not also reachable as a section, because two ways to see one task
+would be two code paths free to disagree about what a task is.
+
+**The fragment names both**: `#<section>/task/<number>`, which is where the
+grammar ADR 0020 established had to grow — a fragment names where you are, and
+where you are is now two things. A fragment with no task is the bare section,
+exactly as it was. The two parts are read apart and half a fragment opens
+nothing: an unknown section with a good number and a good section with a bad
+one both **land on a section** by the rule above, and neither is corrected.
+`#task/0043` — the shape the detail shipped with as a section — names nothing
+now and lands on a section, which is that rule working and is still a link that
+used to go somewhere.
+
+**Closing it rewrites the fragment to the bare section.** That is not the
+landing rule bending: landing is the page guessing at something somebody typed,
+and closing is a person acting on the page — leaving `#queue/task/0043` in the
+address bar after they closed it would be the page lying about where they are.
+**Escape closes it, and so does a control in its head** that says `Close`,
+because a panel covering content with no obvious way back is worse than the
+section that got replaced. **On a narrow screen the drawer is the screen** —
+the section replacement this exists to avoid, arriving through the viewport
+instead of through the navigation; it is the right behaviour there, which means
+the improvement is partly a desktop one, and the head it is closed from sticks
+to the top so the way out stays reachable. Nothing animates and nothing
+transitions. A drawer is a positioned element and a `hidden` attribute: no
+router, no second asset, and the same one request.
+
+**It leads with its runs.** What its attempts did is the first block, directly
+under the head and before the frontmatter and the body: a person opening a task
+that has run wants "what happened and what did it cost", and the body is what
+they scroll to when the answer raises a question rather than four blocks to
+scroll past before finding out whether it ran at all. Each run shows **what
+became of it** — the outcome, how many attempts, how long it ran from `started`
+against `finished`, when it stopped, and whether it was **resumed**, because a
+task that came back from `hold/` and finished is not the same story as one that
+passed first time and the attempt count alone does not tell them apart. Then
+**what the implementation cost and what the acceptance pass cost, kept apart**,
+each with its tokens and the model it ran on: the name that was requested and,
+when the CLI reported a different one, the name it reported — a request the CLI
+never confirmed says so rather than standing in for a confirmation. The run's
+own total is shown beside those two rather than instead of them, so a line
+whose numbers disagree with each other shows that it does; the implementation
+figure is the total less the acceptance figure and nothing else is added up to
+reach it. And then which gauge stage sent it back, whether it merged and as
+what commit, the acceptance verdict with its doubts, and whether the task's
+links checked.
+
+**Every number there is already in the journal line** (§11) — this reads it and
+records nothing — and **a field the line has as `null` is shown as not
+reported**, never as a zero and never as a dash among real figures, because
+both read as a number and an invented number is the one thing the journal has
+always refused. A task the journal has never seen says *that*, in a sentence,
+and grows no table of blanks. Nothing here is a rate, an average or a
+projection: `summary` and **Agents** are where runs are compared, and this is
+one task's record. Under the runs, the body: the frontmatter, the goal, the
+acceptance criteria and the out-of-scope, in that order. The sections are the
+ones `parseTask` already finds because a run needs them, and the history is the
+journal's own lines for that number; nothing is computed here and nothing is
+checked again.
 
 **The body is shown as written.** A task body is markdown somebody wrote, and
 **detent renders no markdown**: every line of it reaches the page as text, so
@@ -1151,7 +1257,10 @@ number of lines, oldest off the top; and each line is clipped, because a tool
 result the agent read in full is not a line somebody scans. Each event is read
 for display and for nothing else, and a line that will not parse is shown as it
 arrived. It lives here and nowhere else: a transcript with no task attached is a
-log viewer, which is not what this is for.
+log viewer, which is not what this is for. It **moved with the detail** into the
+drawer, and a drawer is where it is drawn rather than a change to how it is
+read: the same one timer, the same request, and the same ask to carry on from
+the byte the last answer ended at.
 
 **It says which of three states it is in, in a sentence above the lines.** Not
 running: what is shown is what the last attempt said, not something happening

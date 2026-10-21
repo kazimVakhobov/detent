@@ -6,7 +6,7 @@ A detent is the catch that holds a mechanism in a defined position until it is
 deliberately released. Here it is released by a green gauge — the project's own
 checks — and by nothing else.
 
-> **Status: 0.6.0 — all thirteen build steps are done.** `detent run` takes
+> **Status: 0.7.0 — all thirteen build steps are done.** `detent run` takes
 > tasks from a queue to `agent/dev` with Claude Code behind the gauge, and `detent summary` reports what it cost; a second model reads
 > every green diff and may send it back, never wave it through; `init` asks
 > where the queue and the documents are and writes `product.json` from a scan,
@@ -230,7 +230,7 @@ are recorded with the alternatives they displaced; and progress is a table the
 gauge refuses to let lie.
 
 - [CONTRIBUTING.md](CONTRIBUTING.md) — branches, commit format, how a release is cut
-- [docs/adr/](docs/adr/) — twenty-one decisions, each with what it rejected and what that cost
+- [docs/adr/](docs/adr/) — twenty-two decisions, each with what it rejected and what that cost
 - [PROGRESS.md](PROGRESS.md) — where the build actually is, against the build order
 - [CHANGELOG.md](CHANGELOG.md)
 
