@@ -400,7 +400,7 @@ test('a task in the queue is a card: the number and its name on one line, and th
   })
 })
 
-test('a card row does not wrap, so the reason a task is in failed/ is on the card and not under the height of a row', async () => {
+test('anything longer than a row is a line, so the reason a task is in failed/ is on the card and not under the height of a row', async () => {
   const s = filled()
   await dashboard(s, async (base) => {
     const page = openPage(base)
@@ -423,11 +423,41 @@ test('a card row does not wrap, so the reason a task is in failed/ is on the car
     assert.match(doubted.textContent, /agent\/task-0006-abandoned-after-a-doubt/)
     assert.deepEqual(doubted.all((n) => n.tag === 'li').map((n) => n.textContent), ['the rounding is still wrong'])
 
-    // What keeps it there: a card's rows do not wrap, so nothing in one
-    // becomes a silent second line, and anything longer than a row is a line.
+    // What keeps it there: anything longer than a row is a line of its own,
+    // full width, and the head is the one row that stays a row.
     assert.match(STYLE, /\.card-head, \.card-head a \{[^}]*flex-wrap: nowrap/)
-    assert.match(STYLE, /\.card \.facts \{[^}]*flex-wrap: nowrap/)
     assert.match(STYLE, /\.card \.line \{[^}]*white-space: normal/)
+  })
+})
+
+test('a card shows its figures whole: the facts wrap rather than scrolling the money off the end of the row', async () => {
+  const s = filled()
+  await dashboard(s, async (base) => {
+    const page = openPage(base)
+    await page.settle()
+
+    // The row is a quarter of the page wide and the cost is at the end of it,
+    // so a row that did not wrap scrolled it out of the card: `$11.51` arrived
+    // as `$1`, which is a plausible figure with nothing to say it was a
+    // fragment. Every fact is in the row, the cost among them, whole.
+    const facts = cardFor(page, 'done', '0005').all((n) => n.className === 'facts')[0]
+    assert.deepEqual(facts.children.map((child) => child.textContent).slice(2, 4), ['2 attempts', '$1.50'])
+    assert.match(STYLE, /\.card \.facts \{[^}]*flex-wrap: wrap/)
+    assert.doesNotMatch(STYLE, /\.card \.facts \{[^}]*nowrap/)
+
+    // A fact breaks between its words and never inside one — a date may take
+    // two lines, a figure never takes two halves — so nothing in a card is cut
+    // at a digit that reads as a value.
+    assert.doesNotMatch(/\.card \.facts \{[^}]*\}/.exec(STYLE)[0], /overflow-wrap/, 'a figure is one word, and stays one')
+    assert.doesNotMatch(STYLE, /\.card \.facts > span/, 'no fact is pinned to one line of its own any more')
+    assert.match(STYLE, /\.status \{[^}]*white-space: nowrap/, 'an icon stays with the word it belongs to')
+
+    // The name still ellipsises: it is an identifier read from its beginning,
+    // and it is on the path line below in full. Only the figures changed.
+    assert.match(STYLE, /\.card-head \.name \{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; \}/)
+    // And the floor that holds the track is untouched: a card stays in its
+    // column, which is what `min-width: 0` is there for.
+    assert.match(STYLE, /\.folders > \*, \.cards > \* \{ min-width: 0; \}/)
   })
 })
 
@@ -1580,6 +1610,124 @@ test('the page shows the end of the output, and does not grow with the run', asy
     // A line nobody scans is clipped rather than shown whole: a tool result the
     // agent read in full would otherwise be one line of several thousand.
     assert.equal(shown.at(-1), `${'x'.repeat(LOG_CLIP)}…`)
+  })
+})
+
+// An event detent has no reading for, which is what fills the panel while a
+// model thinks: the stream emits it continuously, and naming it would be
+// inventing a reading of one agent's output. It is here as repetition and
+// nothing else.
+const TOKENS = { type: 'thinking_tokens', count: 12 }
+// And an assistant turn with nothing renderable in it, which prints as the one
+// word the reader of this file has no other use for.
+const MUSING = { type: 'assistant', message: { content: [{ type: 'thinking', thinking: 'hm' }] } }
+const twenty = (event) => Array.from({ length: 20 }, () => event)
+
+test('a line that repeats itself and says nothing is one line and a count, and what the agent says next is under it', async () => {
+  const s = queued(setup())
+  claim(s.dir, 'acme-api', { task: '0003', branch: 'agent/task-0003-next' })
+  setAttempt(s.dir, 'acme-api', 1)
+  const printed = printing(s, '0003', 1, [INIT, SAID, ...twenty(TOKENS)])
+
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: taskHash('queue', '0003') })
+    await page.settle()
+
+    // Twenty events, one line — and the last thing the agent actually said is
+    // still on the screen above it rather than twenty screens up.
+    assert.deepEqual(page.text('task-log').split('\n'), [
+      '· started on claude-opus-5',
+      'Looking at the wallet module.',
+      '· thinking_tokens ×20 · in one read',
+    ])
+
+    // What arrives next is the line under it, not the twenty-fourth line.
+    printed.write(`${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'Found it.' }] } })}\n`)
+    for (const event of twenty(MUSING)) printed.write(`${JSON.stringify(event)}\n`)
+    await page.refresh()
+    await page.settle()
+    const shown = page.text('task-log').split('\n')
+    assert.equal(shown.length, 5)
+    assert.equal(shown[3], 'Found it.')
+    // An assistant turn with nothing renderable in it collapses for the same
+    // reason: the test is that the line carries no content of its own, not
+    // what the event is called.
+    assert.equal(shown[4], '· thinking ×20 · in one read')
+  })
+  printed.close()
+})
+
+test('a collapsed line says when: four minutes of the same nothing is not four seconds of it', async () => {
+  const s = queued(setup())
+  await dashboard(s, async (base) => {
+    const page = openPage(base)
+    await page.settle()
+
+    // The clock is the page's own — when it read a line. The log carries no
+    // times, and asking an event for one would be reading this stream for
+    // meaning (ADR 0021), so these are the two readings a watcher would get
+    // and they are different news for somebody deciding whether to look.
+    const tokens = JSON.stringify(TOKENS)
+    const slow = page.logAdd([], tokens, 0)
+    for (let i = 1; i < 20; i += 1) page.logAdd(slow, tokens, i * 13_000)
+    assert.equal(slow.length, 1, 'still one line')
+    assert.equal(page.logShow(slow[0]), '· thinking_tokens ×20 · over 4m 7s')
+
+    const quick = page.logAdd([], tokens, 0)
+    for (const at of [1000, 2000, 3000, 4000]) page.logAdd(quick, tokens, at)
+    assert.equal(page.logShow(quick[0]), '· thinking_tokens ×5 · over 4s')
+
+    // Lines that arrived together say that rather than a duration of nothing:
+    // the page cannot say how long the agent took over what it had finished
+    // printing before the panel was opened.
+    assert.equal(page.logShow(page.logAdd(page.logAdd([], tokens, 7), tokens, 7)[0]), '· thinking_tokens ×2 · in one read')
+    // And one of a thing is the thing, with no count and no span on it.
+    assert.equal(page.logShow(page.logAdd([], tokens, 0)[0]), '· thinking_tokens')
+  })
+})
+
+test('nothing with content of its own is collapsed, however alike two lines look', async () => {
+  const s = queued(setup())
+  await dashboard(s, async (base) => {
+    const page = openPage(base)
+    await page.settle()
+
+    const twice = (event) => {
+      const raw = typeof event === 'string' ? event : JSON.stringify(event)
+      return page.logAdd(page.logAdd([], raw, 0), raw, 2000)
+    }
+
+    // Two calls to the same tool are two calls; two turns saying the same thing
+    // are two turns. A count on either would be the page deciding that what the
+    // agent did twice happened once.
+    assert.equal(twice({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: 'wallet.js' } }] } }).length, 2)
+    assert.equal(twice(SAID).length, 2)
+    assert.equal(twice({ type: 'user', message: { content: [{ type: 'tool_result', content: 'applied' }] } }).length, 2)
+    assert.equal(twice(INIT).length, 2)
+    assert.equal(twice(DONE).length, 2)
+    // Including a line that will not parse, which is shown as itself and is
+    // never read for anything else (ADR 0021).
+    const unparsed = twice('{ half a line')
+    assert.equal(unparsed.length, 2)
+    assert.equal(page.logShow(unparsed[0]), '{ half a line')
+  })
+})
+
+test('the line cap counts what a person can read: it is applied after the repetition has collapsed', async () => {
+  const s = queued(setup())
+  // Far more repeated events than the cap, with something worth reading before
+  // them: uncollapsed, the first lines were pushed off the top by one word
+  // repeated, which is the panel reporting that nothing is happening.
+  printing(s, '0003', 1, [INIT, SAID, ...Array.from({ length: LOG_LINES * 2 }, () => TOKENS)]).close()
+
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: taskHash('queue', '0003') })
+    await page.settle()
+    const shown = page.text('task-log').split('\n')
+    assert.equal(shown.length, 3, 'three lines, not four hundred')
+    assert.equal(shown[0], '· started on claude-opus-5')
+    assert.equal(shown[1], 'Looking at the wallet module.')
+    assert.equal(shown[2], `· thinking_tokens ×${LOG_LINES * 2} · in one read`)
   })
 })
 

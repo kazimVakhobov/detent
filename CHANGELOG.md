@@ -6,6 +6,30 @@ Notable changes, newest first. The format follows
 
 ## Unreleased
 
+**A queue card shows the cost whole, and the live log stops repeating itself.**
+Two places where a line had more to say than it had room for, and both resolved
+it by losing what mattered. **The card:** the facts row did not wrap and
+scrolled inside the card instead, and at a quarter of the page the part hanging
+past the right edge was the money — `$11.51` arrived as `$1`, a plausible
+figure with nothing on the card to say it was a fragment. The facts wrap now,
+and each one breaks between its words and never inside one, so a date may take
+two lines and a figure never takes two halves. The head is still one row and
+the name still ellipsises — it is an identifier read from its beginning, and
+the path below carries it in full — and the `min-width: 0` that keeps a card in
+its column is untouched. **The log:** the stream emits an event continuously
+while a model thinks, and an event detent has no reading for prints as its
+type, so *What the agent is saying* filled with twenty copies of one word while
+the last thing the agent actually said went off the top. Consecutive identical
+lines are one line with a count and over how long, because four minutes of the
+same nothing is not four seconds of it; the span is measured by when the page
+read the lines, since the log carries no times and asking an event for one
+would be reading the stream for meaning. Nothing with content of its own
+collapses — two calls to the same tool are two calls — no event type is named,
+and the line cap now applies after collapsing, so repetition no longer pushes
+content off the top. Still no parsing for the journal: every figure comes from
+the result object, and a line that will not parse is shown as itself
+([ADR 0021](docs/adr/0021-the-agents-output-is-a-stream-written-to-a-file-that-is-not-a-record.md)).
+
 **The dashboard's queue is four columns in one row, and it stays four.** The
 four folders were in a grid of as-many-as-fit, so at an ordinary window three
 sat in a row and **Abandoned by hand** dropped underneath **Queue**, where it
