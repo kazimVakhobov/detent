@@ -6,6 +6,60 @@ Notable changes, newest first. The format follows
 
 ## Unreleased
 
+**A barrier stops barring the moment it pauses — it did, and now it does not.**
+The scheduler's second rule says a barrier runs alone and nothing starts past
+it, and a barrier that does not pass ends the run with everything behind it
+untouched. All of that was true of the list it was handed, and `run` handed it
+`todo/` alone: the barrier moved to `hold/`, the next invocation found no
+barrier, and it started exactly the work the first run had refused to start,
+against exactly the contract it had refused to start it against. One run
+enforced the rule and the next did not know it existed. Now `run` reads
+`hold/` before anything begins — a paused task with `touches_contract: true`
+bars every queued task with a higher number, in any repository, the run names
+the barrier and why, and `detent run --past <id>` is the way past it for the
+person who knows that contract landed another way. **The barring is not part
+of any question:** a script, a pipeline and a cron line enforce it and report
+it exactly as an interactive run does
+([ADR 0024](docs/adr/0024-a-barrier-bars-until-it-passes-and-a-resume-is-a-decision-not-a-move.md)).
+A paused task that changes no contract bars nothing — it is named in one line
+and the queue runs.
+
+**`detent run 0003` on a paused task used to say `not in tasks/todo/: 0003`,**
+which is what it also said about a number nobody had ever used. A name is now
+answered by where the task actually is: `hold/` says it paused, with the
+outcome and the reason from its last journal line; `done/` says it already
+passed, with the commit; `failed/` says that folder is yours and detent never
+moves a task there. A number in none of the four keeps the old sentence, being
+the only one of the four it is true of. And `todo/` empty while `hold/` is not
+is its own sentence: there is work, it is paused.
+
+**A paused task is offered rather than refused.** With a terminal to ask on,
+`detent run` offers three answers per paused task in id order — leave it,
+resume it now, or open `plan` to change it first. The default is to leave it:
+a bare Enter must never start a run that costs money, and leaving a barrier
+paused leaves it barring, which the run says rather than quietly doing less
+than it was asked to. A resume goes through `moveAndRecord` like every other
+move, so a queue that is a repository gets the commit and the push, and a
+resume that cannot be published fails the way those do; what follows is what
+follows a hand-moved file, unchanged. `plan` opens on the task file where it
+is, with the outcome and the doubts the last run recorded and the job of
+changing that one file in place — no new task, no code — and the file stays in
+`hold/` while it is rewritten. Afterwards the run stops and says what to type
+next, rather than starting an unattended agent on a conversation nobody has
+read yet — and a task resumed earlier in the same pass has still moved, so it
+is queued in `todo/` and waiting, which that line says too. Nothing is
+remembered between runs: the answer depends on what the person has just read.
+
+**What that conversation left is checked, the way `plan` checks its own.** The
+pre-prompt says to change one file and write no code, and a prompt is an
+instruction rather than a guarantee — so the amending session is wrapped in the
+same before-and-after, with the narrower boundary it was given. Whether the
+file changed at all is said, and so is anything else that did: a ref moved, a
+working tree touched, `product.json` written, another task rewritten, a new
+task in `todo/` nobody asked for, or the file itself moved out of `hold/`. Any
+of those exits non-zero, because the one person who could catch it is the one
+who has not read the conversation yet.
+
 **A doubt is an attempt.** `attempts` was a budget for the gauge and for
 nothing else: a task whose gauge went red was handed the failure and asked
 again, and a task whose gauge went *green* and was then doubted by the

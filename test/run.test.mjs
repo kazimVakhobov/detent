@@ -657,6 +657,18 @@ printf '%s' '${JSON.stringify({ type: 'result', subtype: 'success', is_error: fa
     asked = error
   }
   assert.equal(asked.status, 2, 'asking for a task that is not queued is a usage error')
-  assert.match(asked.stderr, /^detent run: not in agent-loop\/tasks\/todo\/: 0042$/m)
+  // 0042 is in done/, and is reported by where it is rather than as a number
+  // nobody used — which is what a number in none of the four folders means,
+  // and only that (ADR 0024).
+  assert.match(asked.stderr, /^detent run: 0042 has already passed — merged into agent\/dev \([0-9a-f]{7}\), and its file is in agent-loop\/tasks\/done\/0042-wallet-endpoint\.md$/m)
+
+  let unknown
+  try {
+    detent('0099')
+  } catch (error) {
+    unknown = error
+  }
+  assert.equal(unknown.status, 2)
+  assert.match(unknown.stderr, /^detent run: not in agent-loop\/tasks\/todo\/: 0099$/m)
   assert.equal(existsSync(join(s.dir, 'tasks')), false, 'and the default queue was never created')
 })

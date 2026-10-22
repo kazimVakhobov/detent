@@ -28,7 +28,7 @@ const COMMANDS = {
   doctor: 'whether this product is in the shape detent expects',
   init: 'scan the workspace and write product.json: [--queue PATH] [--docs NAME|none]',
   plan: 'discuss a task with an agent; it writes the task files',
-  run: 'work the queue',
+  run: ['work the queue: [id…] [--past ID]', 'a paused barrier still bars; a paused task is offered'],
   promote: 'merge agent/dev into agent/staging behind the batch gauge',
   summary: 'pass rate, iterations, cost per pass',
   dashboard: 'a page that watches this product',
@@ -42,12 +42,16 @@ const BUILT = { dashboard, doctor, gauge, init, plan, promote: promoteCommand, p
 
 function usage() {
   const width = Math.max(...Object.keys(COMMANDS).map((c) => c.length))
+  // A command may say a second thing, on a line of its own under the first:
+  // one screen is the constraint, and a line that wraps costs more of it than
+  // a line that was meant to be two.
+  const say = (name, help) => [help].flat().map((text, index) => `  ${(index === 0 ? name : '').padEnd(width)}  ${text}`).join('\n')
   return [
     `detent ${version} — autonomy bounded by a machine-checkable gauge, and measured.`,
     '',
     'Usage: detent <command> [--product DIR]',
     '',
-    ...Object.entries(COMMANDS).map(([name, help]) => `  ${name.padEnd(width)}  ${help}`),
+    ...Object.entries(COMMANDS).map(([name, help]) => say(name, help)),
     '',
     'The agent never touches a human branch. It works on agent/task-<id> and',
     'integrates into agent/dev; moving work across that line is yours.',

@@ -437,6 +437,19 @@ to `todo/` resumes it on the same branch with a fresh budget and whatever the
 person added to the task. `failed/` is where a person puts a task they abandon;
 detent never moves anything there.
 
+**The decision to resume is a person's; the move need not be.** `detent run`
+offers each paused task three answers — leave it, resume it now, or open `plan`
+to change it first — and the default is to leave it, because a bare Enter must
+never start a run that costs money. Resuming moves the file through the same
+`moveAndRecord` every other move goes through, so a queue that is a repository
+gets its commit and its push (§11); `plan` is opened on the task file where it
+is, with what the last run said about it, and the run stops afterwards rather
+than chaining into one. With nobody on stdin nothing is asked, each paused task
+is named in a line, and everything a paused barrier bars stays barred
+([ADR 0024](docs/adr/0024-a-barrier-bars-until-it-passes-and-a-resume-is-a-decision-not-a-move.md)).
+Nothing about the resumed run itself changes: the same branch, the same fresh
+budget, the same doubts handed to the implementer.
+
 A **conflict** is the one pause a resume cannot get past on its own. detent
 never resolves a conflict, and the agent is not let into a merge either — a
 resolution is a judgement about two pieces of work, one of which the agent has
@@ -599,6 +612,20 @@ configured below it.
 were written for the contract it was meant to replace; starting them against
 the old one is the mistake the barrier exists to prevent. They stay in `todo/`
 for the next run, and the run says which were not started.
+
+**And it goes on barring after that run is over.** A barrier that did not pass
+is in `hold/`, so the next invocation would find no barrier in `todo/` and
+start exactly the work the last one refused to start — against exactly the
+contract it refused to start it against. The rule belongs to the queue rather
+than to one process, so `run` reads `hold/` before anything begins: a paused
+task with `touches_contract: true` bars every task in `todo/` with a higher
+number, in any repository, and what is barred does not start. The run names the
+barrier and why. This holds with a terminal and without one — it is a
+correctness rule, not a convenience — and `detent run --past <id>` is the way
+past it, for the person who knows that contract landed another way
+([ADR 0024](docs/adr/0024-a-barrier-bars-until-it-passes-and-a-resume-is-a-decision-not-a-move.md)).
+A paused task that changes no contract bars nothing: it is named in one line
+and the queue runs.
 
 Tasks for one repository run in id order; a busy repository never holds up
 another. Running side by side, tasks share the journal, so the check that an
@@ -949,7 +976,7 @@ and the batch it carried:
 detent doctor       whether this product is in the shape detent expects
 detent init         scan the workspace and write product.json
 detent plan         discuss a task with an agent; it writes the task files
-detent run          work the queue
+detent run          work the queue: [id…] [--past ID]
 detent promote      merge agent/dev into agent/staging behind the batch gauge
 detent summary      pass rate, iterations, cost per pass
 detent dashboard    a page that watches this product
@@ -969,9 +996,9 @@ detent prune        delete agent/task-* branches already merged into agent/dev
 3. **Validation against the scan.** A repository the model invents is dropped
    rather than written, because a gap is visible and an invention is not.
 
-Before those three, two questions — `init` is the one command that asks
+Before those three, two questions — the first of the two places detent asks
 anything itself, and the subsection below is what it asks and what happens when
-there is nobody to answer.
+there is nobody to answer. (The other is `run`, about a task in `hold/`.)
 
 `init` also creates the queue's four folders, `{todo,hold,done,failed}`, if they
 are not there: at the path the first question settled, before any of the three
@@ -1014,7 +1041,7 @@ With a `product.json` already there, the proposal keeps every field a person
 wrote, adds only what is new, goes to `.detent/product.proposed.json`, and the
 difference is printed.
 
-### `init` is the one command that asks
+### `init` asks two questions
 
 Two questions, after the scan and before anything is written, because they are
 the two things the scan cannot work out: **which repository holds the queue** —
@@ -1044,9 +1071,11 @@ got — and every answer is written, `"docs": null` included, so a re-run asks
 nothing the file already answers
 ([ADR 0014](docs/adr/0014-init-asks-where-the-queue-and-the-documents-are.md)).
 
-Everything else detent does is either its own work or somebody else's question:
-`plan` is interactive by handing the terminal to the agent, and nothing but
-`init` reads detent's own stdin.
+One other command asks, about one other thing: `run`, about a task in `hold/`
+(below). Everything else detent does is either its own work or somebody else's
+question — `plan` is interactive by handing the terminal to the agent — and
+those two are the whole of what reads detent's own stdin, under the one rule
+both obey: a question nobody is there to answer is not asked.
 
 `gauge` exists so the gauge is useful before any run does: a person sees exactly
 what an agent will be held to — every stage, its time, and for a red one the
@@ -1094,6 +1123,44 @@ nothing; where there is a command that fixes a finding, it prints the command.
   them is a failure naming the submodule, because a run would pause on it. A
   submodule **in** `neverCommit` is detent's to leave alone and has nothing to
   report
+
+### Run, and what it will not start
+
+`detent run [id…] [--past ID]` works `todo/` under the two rules of §8 — and
+reads `hold/` before it starts any of it, because the second of those rules
+outlives the run that paused a barrier. What a paused barrier bars is above;
+what follows is the rest of what `hold/` changes about this command.
+
+**A name that is not in `todo/` is answered by where it actually is**, one
+sentence per folder, because paused, already finished and abandoned by hand are
+three different things to have typed. A number in none of the four keeps the
+old sentence: it is the only one that means the number does not exist.
+
+**A paused task is offered, when there is a terminal to offer it on.** `detent
+run <id>` naming one, and a bare `detent run` that found anything in `hold/`,
+ask about each in id order: leave it, resume it now, or open `plan` to change
+it first. Leaving it is the default and what a pipeline gets. Resuming is a
+`moveAndRecord` back to `todo/` — committed and pushed where the queue lives,
+and the run goes on exactly as it would have after a hand-moved file. `plan`
+opens on that task file where it is, with the outcome and the doubts the last
+run recorded and the instruction to change that one file in place; the file
+stays in `hold/` while it is being rewritten, and the run stops afterwards,
+reports what the conversation left and says what to type next. That report is
+`plan`'s own check with a narrower boundary: whether the file changed, and
+anything else that did — a repository, `product.json`, another task, a new task
+in `todo/`, or the file having left `hold/` — which makes the run exit non-zero,
+because the person it is handed back to is the one who has not read the
+conversation yet. `plan` ends the run, but it does not withdraw an answer
+already given: a task resumed earlier in the same pass has moved, with its
+commit and its push, and the closing line says it is queued in `todo/` and was
+not started
+([ADR 0024](docs/adr/0024-a-barrier-bars-until-it-passes-and-a-resume-is-a-decision-not-a-move.md)).
+
+Nothing else about `run` asks anything: no confirmation before a normal queue,
+no prompt on a dirty tree, and no answer is ever remembered — the question is
+asked because the answer depends on what the person has just read. And
+`todo/` being empty while `hold/` is not is its own sentence: there is work, it
+is paused, and that is not the same as having none.
 
 ### Prune
 
@@ -1431,7 +1498,8 @@ that arrives later disguised as a mystery.
 - **Push the queue, and nothing else.** detent merges into a local `agent/dev`
   and stops: someone's CI deploys from the branch you did not expect. The queue
   is the exception, and only when it lives in a repository — a task moving to
-  `done/` or `hold/` is detent's own bookkeeping, not anybody's work, and a
+  `done/`, to `hold/` or back to `todo/` on a resume a person asked for is
+  detent's own bookkeeping, not anybody's work, and a
   queue that is never pushed is a queue the next machine reads stale
   ([ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md)).
   Never a product repository, never `agent/dev`, never a tag. A push that fails
