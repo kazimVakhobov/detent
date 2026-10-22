@@ -4,10 +4,11 @@
 // the scan. Re-running it proposes a diff rather than overwriting what a
 // person wrote.
 //
-// This is the one command that asks anything itself (ADR 0014). Everything
-// about how it behaves when there is nobody to answer is in core/ask.mjs; what
-// is here is the two questions, the flags that answer them, and the lines that
-// say which answer was taken.
+// This is the first of the two places detent asks anything itself (ADR 0014;
+// the other is `run`, about a task in hold/, ADR 0024). Everything about how
+// it behaves when there is nobody to answer is in core/ask.mjs; what is here
+// is the two questions, the flags that answer them, and the lines that say
+// which answer was taken.
 
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'

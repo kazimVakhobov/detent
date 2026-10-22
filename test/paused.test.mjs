@@ -346,6 +346,42 @@ test('plan is opened with the task in hand, the file stays in hold/, and the run
   assert.equal(r.code, 0)
 })
 
+test('a resume answered before a plan is still carried out: the move is committed, and the run says nothing started', async () => {
+  const s = setup({ queue: 'agent-loop/tasks', shared: true })
+  const { repository } = s
+  task(s, 'hold', '0003', 'who-may-act-on-whom', { barrier: true })
+  journal(s, '0003')
+  task(s, 'hold', '0006', 'admin-journal')
+  journal(s, '0006')
+  sh(repository.dir, 'add', '--all', '--', 'tasks')
+  sh(repository.dir, 'commit', '--quiet', '-m', 'session: two paused')
+  sh(repository.dir, 'push', '--quiet', 'origin', 'HEAD:refs/heads/main')
+
+  const opened = []
+  const r = await detent(s, [], {
+    script: ['resume', 'plan'],
+    spawnAgent: (command, args, cwd) => (opened.push({ command, args, cwd }), Promise.resolve(0)),
+  })
+
+  assert.equal(opened.length, 1, 'the conversation is about 0006')
+  assert.match(opened[0].args.at(-1), /Task 0006 of the product "acme" is paused/)
+
+  // The screen said "resuming", so the file moved — through moveAndRecord,
+  // with the commit and the push every other move gets.
+  assert.match(r.out, /^0003 {2}resuming$/m)
+  assert.match(r.out, /^0003 {2}resumed: agent-loop\/tasks\/todo\/ \(from hold\/\) — queue [0-9a-f]{7}, pushed to origin main$/m)
+  assert.ok(existsSync(join(s.dir, 'agent-loop', 'tasks', 'todo', '0003-who-may-act-on-whom.md')))
+  assert.equal(repository.subjects().split('\n')[0], 'queue: task 0003 who-may-act-on-whom → todo')
+  assert.ok(repository.pushed().includes('queue: task 0003 who-may-act-on-whom → todo'))
+
+  // And the conversation ended the run, so it is queued rather than running.
+  assert.deepEqual(r.started, [], 'plan does not chain into a run')
+  assert.ok(existsSync(join(s.dir, 'agent-loop', 'tasks', 'hold', '0006-admin-journal.md')), '0006 stays in hold/ while it is edited')
+  assert.match(r.out, /^0003 is back in agent-loop\/tasks\/todo\/ and was not started: this run ended with the conversation\.$/m)
+  assert.match(r.out, /^0006 is still paused, in agent-loop\/tasks\/hold\/0006-admin-journal\.md/m)
+  assert.equal(r.code, 0)
+})
+
 // --- a name that is not in todo/ --------------------------------------------------
 
 test('a name outside todo/ is reported by where it actually is, one sentence per folder', async () => {

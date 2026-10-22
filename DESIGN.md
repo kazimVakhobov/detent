@@ -996,9 +996,9 @@ detent prune        delete agent/task-* branches already merged into agent/dev
 3. **Validation against the scan.** A repository the model invents is dropped
    rather than written, because a gap is visible and an invention is not.
 
-Before those three, two questions — `init` is the one command that asks
+Before those three, two questions — the first of the two places detent asks
 anything itself, and the subsection below is what it asks and what happens when
-there is nobody to answer.
+there is nobody to answer. (The other is `run`, about a task in `hold/`.)
 
 `init` also creates the queue's four folders, `{todo,hold,done,failed}`, if they
 are not there: at the path the first question settled, before any of the three
@@ -1041,7 +1041,7 @@ With a `product.json` already there, the proposal keeps every field a person
 wrote, adds only what is new, goes to `.detent/product.proposed.json`, and the
 difference is printed.
 
-### `init` is the one command that asks
+### `init` asks two questions
 
 Two questions, after the scan and before anything is written, because they are
 the two things the scan cannot work out: **which repository holds the queue** —
@@ -1145,7 +1145,10 @@ and the run goes on exactly as it would have after a hand-moved file. `plan`
 opens on that task file where it is, with the outcome and the doubts the last
 run recorded and the instruction to change that one file in place; the file
 stays in `hold/` while it is being rewritten, and the run stops afterwards and
-says what to type next
+says what to type next. `plan` ends the run, but it does not withdraw an answer
+already given: a task resumed earlier in the same pass has moved, with its
+commit and its push, and the closing line says it is queued in `todo/` and was
+not started
 ([ADR 0024](docs/adr/0024-a-barrier-bars-until-it-passes-and-a-resume-is-a-decision-not-a-move.md)).
 
 Nothing else about `run` asks anything: no confirmation before a normal queue,

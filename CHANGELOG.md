@@ -46,8 +46,9 @@ is, with the outcome and the doubts the last run recorded and the job of
 changing that one file in place — no new task, no code — and the file stays in
 `hold/` while it is rewritten. Afterwards the run stops and says what to type
 next, rather than starting an unattended agent on a conversation nobody has
-read yet. Nothing is remembered between runs: the answer depends on what the
-person has just read.
+read yet — and a task resumed earlier in the same pass has still moved, so it
+is queued in `todo/` and waiting, which that line says too. Nothing is
+remembered between runs: the answer depends on what the person has just read.
 
 **A doubt is an attempt.** `attempts` was a budget for the gauge and for
 nothing else: a task whose gauge went red was handed the failure and asked

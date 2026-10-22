@@ -96,6 +96,13 @@ were wrong, and what it needs is not another run but an edit.
   person has just finished a conversation and has not read what came out of it,
   and starting an unattended agent on the strength of that is the one thing this
   command is careful about everywhere else.
+- **An answer is not withdrawn by a later one.** `plan` ends the run, but a
+  task resumed earlier in the same pass has still been decided about: the move
+  happens, with its commit and its push, before the conversation opens, and the
+  closing line says it is queued in `todo/` and was not started. The screen said
+  "resuming" when it was answered, and a run that then did nothing about it
+  would have been lying about the one thing a person cannot check from the
+  screen.
 - **This narrows 0009 in one place.** 0009 says a paused task is resumed by
   moving its file back to `todo/`. The move may now be detent's, on a person's
   answer; the decision is still theirs, and `failed/` is still untouchable in

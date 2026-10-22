@@ -58,10 +58,13 @@ export async function run(product, ids, values = {}, { runTask: runOne = runTask
     announce: ids.length === 0,
   })
 
-  const amending = answers.find((answer) => answer.answer === PLAN)
-  if (amending) return amend(product, amending.task, { spawnAgent, out, err })
-
+  // A resume and a `plan` can be answered in the same pass — 0003 back to
+  // todo/, 0006 to the conversation — and the earlier answer is not undone by
+  // the later one. So the moves happen first and the conversation opens after
+  // them: the screen said "resuming", and a decision a person made about one
+  // task is not withdrawn by what they then decided about another.
   const resuming = answers.filter((answer) => answer.answer === RESUME).map((answer) => answer.task)
+  const amending = answers.find((answer) => answer.answer === PLAN)
   if (resuming.length > 0) {
     // Through `moveAndRecord`, never a bare rename: a queue that is a
     // repository of its own gets the commit and the push every other move
@@ -90,6 +93,8 @@ export async function run(product, ids, values = {}, { runTask: runOne = runTask
     held = paused(product, queue)
     tasks = queue.filter((task) => task.folder === 'todo')
   }
+
+  if (amending) return amend(product, amending.task, { spawnAgent, out, err, resumed: resuming })
 
   if (ids.length > 0) {
     // A name that is not in todo/ is reported by where it actually is: one
@@ -210,7 +215,7 @@ export async function run(product, ids, values = {}, { runTask: runOne = runTask
 // conversation and has not read what came out of it, and starting an
 // unattended agent on the strength of that is the one thing this command is
 // careful about everywhere else.
-async function amend(product, task, { spawnAgent, out, err }) {
+async function amend(product, task, { spawnAgent, out, err, resumed = [] }) {
   const role = product.models?.implement
   if (!role || !Object.hasOwn(INTERACTIVE, role.agent)) {
     throw new UsageError(`no agent to change ${task.id} with — set models.implement in product.json to ${Object.keys(INTERACTIVE).join(' or ')}, or edit ${task.where} by hand`)
@@ -223,6 +228,12 @@ async function amend(product, task, { spawnAgent, out, err }) {
   }
   out.write(
     [
+      // Said here because it is the one thing the resume lines above do not:
+      // the file moved, and then this conversation ended the run, so what was
+      // resumed is queued and waiting rather than running.
+      ...(resumed.length > 0
+        ? [`${resumed.map((t) => t.id).join(', ')} ${resumed.length === 1 ? 'is' : 'are'} back in ${product.queue}/todo/ and ${resumed.length === 1 ? 'was' : 'were'} not started: this run ended with the conversation.`]
+        : []),
       `${task.id} is still paused, in ${task.where} — read what the conversation left there.`,
       `Then: detent run ${task.id}   (it offers to resume it; nothing has started)`,
       '',
