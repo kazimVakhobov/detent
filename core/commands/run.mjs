@@ -12,7 +12,7 @@ import { ask as defaultAsk } from '../ask.mjs'
 import { failures } from '../doctor.mjs'
 import { attemptLogPath } from '../log.mjs'
 import { barring, elsewhere, lastRuns, offer, paused, PLAN, RESUME } from '../paused.mjs'
-import { INTERACTIVE, amendPrompt, openAgent } from '../plan.mjs'
+import { INTERACTIVE, amendPrompt, amended, before, openAgent } from '../plan.mjs'
 import { moveAndRecord, QueueRepositoryError } from '../queue.mjs'
 import { scanProduct } from '../scan.mjs'
 import { readQueue, QueueError } from '../task.mjs'
@@ -215,17 +215,26 @@ export async function run(product, ids, values = {}, { runTask: runOne = runTask
 // conversation and has not read what came out of it, and starting an
 // unattended agent on the strength of that is the one thing this command is
 // careful about everywhere else.
+//
+// Which is also why what the conversation left is checked, the way `plan`
+// checks its own: the prompt says to change one file and write no code, and a
+// prompt is an instruction rather than a guarantee. The person it is handed
+// back to is the only one who can catch that, and they have not read the
+// conversation yet — so what it did outside the one file it was given is named
+// here rather than found later.
 async function amend(product, task, { spawnAgent, out, err, resumed = [] }) {
   const role = product.models?.implement
   if (!role || !Object.hasOwn(INTERACTIVE, role.agent)) {
     throw new UsageError(`no agent to change ${task.id} with — set models.implement in product.json to ${Object.keys(INTERACTIVE).join(' or ')}, or edit ${task.where} by hand`)
   }
+  const was = before(product)
   const [command, args] = INTERACTIVE[role.agent]({ model: role.model, prompt: amendPrompt(product, task) })
   const code = await spawnAgent(command, args, product.dir)
   if (code === null) {
     err.write(`detent run: ${command} is not installed, or not on PATH\n`)
     return 1
   }
+  const { changed, gone, breaches } = amended(product, was, task)
   out.write(
     [
       // Said here because it is the one thing the resume lines above do not:
@@ -234,12 +243,16 @@ async function amend(product, task, { spawnAgent, out, err, resumed = [] }) {
       ...(resumed.length > 0
         ? [`${resumed.map((t) => t.id).join(', ')} ${resumed.length === 1 ? 'is' : 'are'} back in ${product.queue}/todo/ and ${resumed.length === 1 ? 'was' : 'were'} not started: this run ended with the conversation.`]
         : []),
-      `${task.id} is still paused, in ${task.where} — read what the conversation left there.`,
+      ...(gone ? [] : [changed ? `changed  ${task.where}` : `unchanged  ${task.where} — the conversation left the task file as it was.`]),
+      ...(breaches.length > 0 ? ['', `changing a task changes that one file, and ${breaches.length === 1 ? 'this changed as well' : 'these changed as well'} — look at ${breaches.length === 1 ? 'it' : 'them'}:`, ...breaches.map((b) => `  ${b}`), ''] : []),
+      gone
+        ? `${task.id} is not in ${task.where} any more — put its file back there before anything can run it.`
+        : `${task.id} is still paused, in ${task.where} — read what the conversation left there.`,
       `Then: detent run ${task.id}   (it offers to resume it; nothing has started)`,
       '',
     ].join('\n'),
   )
-  return 0
+  return breaches.length > 0 ? 1 : 0
 }
 
 function line(r) {

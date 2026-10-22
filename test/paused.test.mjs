@@ -7,7 +7,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { appendJournal } from '../core/journal.mjs'
@@ -322,7 +322,13 @@ test('plan is opened with the task in hand, the file stays in hold/, and the run
   const opened = []
   const r = await detent(s, [], {
     script: ['plan'],
-    spawnAgent: (command, args, cwd) => (opened.push({ command, args, cwd }), Promise.resolve(0)),
+    spawnAgent: (command, args, cwd) => {
+      opened.push({ command, args, cwd })
+      // What the conversation is for: the one file, rewritten where it is.
+      const file = join(cwd, 'tasks', 'hold', '0003-who-may-act-on-whom.md')
+      writeFileSync(file, `${readFileSync(file, 'utf8')}\n- [ ] and it is authorised\n`)
+      return Promise.resolve(0)
+    },
   })
 
   assert.equal(opened.length, 1)
@@ -341,9 +347,75 @@ test('plan is opened with the task in hand, the file stays in hold/, and the run
   assert.equal(r.prompts.length, 1, '0006 was never asked about: the run is over')
   assert.deepEqual(r.started, [], 'and it does not chain into a run')
   assert.ok(existsSync(join(s.dir, 'tasks', 'hold', '0003-who-may-act-on-whom.md')), 'a task whose criteria are being rewritten is not ready to run')
+  assert.match(r.out, /^changed {2}tasks\/hold\/0003-who-may-act-on-whom\.md$/m, 'what the conversation left is checked, not assumed')
   assert.match(r.out, /^0003 is still paused, in tasks\/hold\/0003-who-may-act-on-whom\.md — read what the conversation left there\.$/m)
   assert.match(r.out, /^Then: detent run 0003 {3}\(it offers to resume it; nothing has started\)$/m)
   assert.equal(r.code, 0)
+})
+
+// --- and what the conversation did besides -------------------------------------
+//
+// The pre-prompt says to change one file and write no code. A prompt is an
+// instruction rather than a guarantee, and the person it is handed back to has
+// just finished a conversation they have not read — so `run` checks what it
+// left, exactly as `plan` checks its own.
+
+test('an amending conversation that wrote code, a new task and another task is reported, and the run is not green', async () => {
+  const s = setup()
+  task(s, 'hold', '0003', 'who-may-act-on-whom', { barrier: true })
+  journal(s, '0003')
+  task(s, 'done', '0001', 'already-landed')
+
+  const r = await detent(s, [], {
+    script: ['plan'],
+    spawnAgent: (command, args, cwd) => {
+      // Everything the prompt told it not to do.
+      writeFileSync(join(cwd, 'acme-api', 'app.js'), 'export const a = 2\n')
+      writeFileSync(join(cwd, '.detent', 'product.json'), '{}')
+      task({ ...s, dir: cwd }, 'todo', '0004', 'a-task-nobody-asked-for')
+      writeFileSync(join(cwd, 'tasks', 'done', '0001-already-landed.md'), 'rewritten\n')
+      return Promise.resolve(0)
+    },
+  })
+
+  assert.match(r.out, /^changing a task changes that one file, and these changed as well — look at them:$/m)
+  assert.match(r.out, / {2}acme-api's working tree changed$/m)
+  assert.match(r.out, / {2}\.detent\/product\.json changed$/m)
+  assert.match(r.out, / {2}tasks\/todo\/0004-a-task-nobody-asked-for\.md was written — amending 0003 changes tasks\/hold\/0003-who-may-act-on-whom\.md and writes no new task$/m)
+  assert.match(r.out, / {2}tasks\/done\/0001-already-landed\.md changed — amending 0003 changes tasks\/hold\/0003-who-may-act-on-whom\.md and no other task$/m)
+  assert.match(r.out, /^Then: detent run 0003 {3}\(it offers to resume it; nothing has started\)$/m, 'and it still says what to type next')
+  assert.deepEqual(r.started, [], 'reported, and still not chained into a run')
+  assert.equal(r.code, 1)
+})
+
+test('an amending conversation that moved the task file out of hold/ is reported as the move nobody recorded', async () => {
+  const s = setup()
+  const file = task(s, 'hold', '0003', 'who-may-act-on-whom', { barrier: true })
+  journal(s, '0003')
+
+  const r = await detent(s, [], {
+    script: ['plan'],
+    spawnAgent: (command, args, cwd) => (renameSync(file, join(cwd, 'tasks', 'todo', '0003-who-may-act-on-whom.md')), Promise.resolve(0)),
+  })
+
+  assert.match(
+    r.out,
+    /^ {2}tasks\/hold\/0003-who-may-act-on-whom\.md is gone — the task stays in tasks\/hold\/ while it is edited, and moving it is detent's to do$/m,
+  )
+  assert.match(r.out, /^0003 is not in tasks\/hold\/0003-who-may-act-on-whom\.md any more — put its file back there before anything can run it\.$/m)
+  assert.doesNotMatch(r.out, /^unchanged/m, 'a file that is gone is not a file that was left alone')
+  assert.equal(r.code, 1)
+})
+
+test('an amending conversation that changed nothing says so, and is not a breach', async () => {
+  const s = setup()
+  task(s, 'hold', '0003', 'who-may-act-on-whom', { barrier: true })
+  journal(s, '0003')
+
+  const r = await detent(s, [], { script: ['plan'], spawnAgent: () => Promise.resolve(0) })
+  assert.match(r.out, /^unchanged {2}tasks\/hold\/0003-who-may-act-on-whom\.md — the conversation left the task file as it was\.$/m)
+  assert.doesNotMatch(r.out, /changed as well/)
+  assert.equal(r.code, 0, 'a conversation that decided to change nothing is a conversation, not a breach')
 })
 
 test('a resume answered before a plan is still carried out: the move is committed, and the run says nothing started', async () => {

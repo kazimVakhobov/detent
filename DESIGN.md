@@ -1144,8 +1144,13 @@ it first. Leaving it is the default and what a pipeline gets. Resuming is a
 and the run goes on exactly as it would have after a hand-moved file. `plan`
 opens on that task file where it is, with the outcome and the doubts the last
 run recorded and the instruction to change that one file in place; the file
-stays in `hold/` while it is being rewritten, and the run stops afterwards and
-says what to type next. `plan` ends the run, but it does not withdraw an answer
+stays in `hold/` while it is being rewritten, and the run stops afterwards,
+reports what the conversation left and says what to type next. That report is
+`plan`'s own check with a narrower boundary: whether the file changed, and
+anything else that did — a repository, `product.json`, another task, a new task
+in `todo/`, or the file having left `hold/` — which makes the run exit non-zero,
+because the person it is handed back to is the one who has not read the
+conversation yet. `plan` ends the run, but it does not withdraw an answer
 already given: a task resumed earlier in the same pass has moved, with its
 commit and its push, and the closing line says it is queued in `todo/` and was
 not started

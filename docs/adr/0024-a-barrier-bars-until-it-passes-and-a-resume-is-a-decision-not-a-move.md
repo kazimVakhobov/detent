@@ -96,6 +96,18 @@ were wrong, and what it needs is not another run but an edit.
   person has just finished a conversation and has not read what came out of it,
   and starting an unattended agent on the strength of that is the one thing this
   command is careful about everywhere else.
+- **And what that conversation left is checked, not assumed.** `plan` already
+  wraps its own session in a before-and-after and names everything it was not
+  supposed to touch; the amending session is wrapped in the same one, with the
+  narrower boundary it was given: that one file, changed where it is. A ref
+  moved, a working tree touched, `product.json` written, another task rewritten,
+  a new task in `todo/` nobody asked for, or the file itself moved out of
+  `hold/` is named, and the run exits non-zero. The pre-prompt says "write no
+  code… change nothing else", and a prompt is an instruction rather than a
+  guarantee — the one person who could catch it is the one who has not read the
+  conversation yet. Whether the file changed at all is said too: a conversation
+  that decided to change nothing is a conversation, not a breach, but it is not
+  something to leave a person guessing about either.
 - **An answer is not withdrawn by a later one.** `plan` ends the run, but a
   task resumed earlier in the same pass has still been decided about: the move
   happens, with its commit and its push, before the conversation opens, and the

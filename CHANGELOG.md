@@ -50,6 +50,16 @@ read yet — and a task resumed earlier in the same pass has still moved, so it
 is queued in `todo/` and waiting, which that line says too. Nothing is
 remembered between runs: the answer depends on what the person has just read.
 
+**What that conversation left is checked, the way `plan` checks its own.** The
+pre-prompt says to change one file and write no code, and a prompt is an
+instruction rather than a guarantee — so the amending session is wrapped in the
+same before-and-after, with the narrower boundary it was given. Whether the
+file changed at all is said, and so is anything else that did: a ref moved, a
+working tree touched, `product.json` written, another task rewritten, a new
+task in `todo/` nobody asked for, or the file itself moved out of `hold/`. Any
+of those exits non-zero, because the one person who could catch it is the one
+who has not read the conversation yet.
+
 **A doubt is an attempt.** `attempts` was a budget for the gauge and for
 nothing else: a task whose gauge went red was handed the failure and asked
 again, and a task whose gauge went *green* and was then doubted by the
