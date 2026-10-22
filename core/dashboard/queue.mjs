@@ -10,6 +10,13 @@
 // either: what is laid out in a row stays in one row, and anything longer than
 // a row is a line.
 //
+// **A task being run right now is marked where it sits**, and comes first in
+// its folder. Nothing moves the file until `settle`, so a running task sits in
+// `todo/` among the ones nothing has touched — under the same line saying the
+// journal had never seen it. The page knew otherwise all along: `active` is in
+// the snapshot it has already read. No new read and no new endpoint, and no
+// guess about what the run is doing (ADR 0017).
+//
 // **Nothing here writes.** detent has already read this queue and moves tasks
 // between these folders by its own results; a second writer of those files is a
 // bug that arrives later disguised as a mystery (§12). So the section says how
@@ -101,11 +108,36 @@ function sortBar(folder) {
   }))
 }
 
+// Which tasks are being run right now, by number: the claims in \`active\`,
+// which the page has already read, and nothing else. A claim is a repository, a
+// task, an attempt and a pid (ADR 0017) — **a claim whose process is gone is
+// not a running task** and is not one of these, which is the same rule the
+// landing section's Running now and the strip above every section follow.
+//
+// The folder the file is in is not part of a claim, and nothing moves the file
+// until \`settle\`: so a task with a live claim is marked wherever its card is,
+// which during a run is todo/.
+function beingRun(s) {
+  const live = new Map()
+  for (const a of s.active) if (a.alive) live.set(Number(a.task), a)
+  return live
+}
+
+// What a card says about a task being run right now: that it is running, and
+// which attempt it is on. **Nothing about a phase** — which of the gauge, the
+// link check, the acceptance pass or the merge is under way is recorded
+// nowhere, so the page does not guess at it. An icon and a word like every
+// other status on this page, so it is told apart by more than colour.
+function runningLine(live) {
+  return el('div', { class: 'line' }, el('span', { class: 'status running' },
+    el('span', { class: 'icon', 'aria-hidden': 'true' }, '▶'), 'running, attempt ' + live.attempt))
+}
+
 // One task. The head is the one row that has to read like a title — the number
 // and the name — and everything else is a line or a fact under it. The path is
 // on the card too, small: it is what somebody opens the file with, and the name
 // above it is not a file name any more.
-function card(task, folder, s, parked) {
+function card(task, folder, s, parked, live) {
   // Whether the journal has a line for this task at all. Three nulls drawn as
   // dashes read like zeros — no attempts, no cost — and a task nothing has run
   // is a different thing from a task that ran and cost nothing.
@@ -123,6 +155,9 @@ function card(task, folder, s, parked) {
     el('div', { class: 'card-head' },
       el('a', { href: taskHash('queue', task.id), title: task.id + ' · ' + name },
         el('strong', { class: 'number' }, task.id), ' · ', el('span', { class: 'name' }, name))),
+    // Under the head, because it is the one thing about this task that is true
+    // now rather than something the journal said about it afterwards.
+    live ? runningLine(live) : null,
     el('div', { class: 'line path' }, el('code', {}, s.product.queue + '/' + folder + '/' + task.id + '-' + task.slug + '.md')),
     facts.length ? el('div', { class: 'facts' }, facts) : null,
     // It runs alone, and nothing queued past it starts until it has landed (§8).
@@ -134,18 +169,29 @@ function card(task, folder, s, parked) {
     // waiting for a person, failed/ is a person who has stopped waiting for
     // detent. On a line of its own, which is the whole point of a card.
     parked && !task.outcome ? el('div', { class: 'line muted' }, parked) : null,
-    seen ? null : el('div', { class: 'line muted' }, 'the journal has not seen this task — nothing has run it'),
+    // And never about a task something is running right now: the journal line
+    // is written when the run ends, so "nothing has run it" was the page
+    // saying nothing had touched a task it was watching an agent work on.
+    seen || live ? null : el('div', { class: 'line muted' }, 'the journal has not seen this task — nothing has run it'),
     task.reason && !task.doubts.length ? el('div', { class: 'line muted' }, task.reason) : null,
     task.doubts.length ? el('ul', { class: 'doubts' }, task.doubts.map((d) => el('li', {}, d))) : null,
     task.branch ? el('div', { class: 'line muted' }, el('code', {}, task.branch)) : null)
 }
 
+// One folder's cards, with the sort above them — and **what is running
+// first**, whatever the sort is: a task being worked on right now is not one
+// entry in an ordering of things that have not started. The sort still decides
+// everything else, and turning it round turns both halves round.
 function cards(folder, tasks, s, parked) {
   const node = document.getElementById(folder)
   if (!tasks.length) {
     return node.replaceChildren(el('div', { class: 'empty' }, s.product.queue + '/' + folder + '/ is empty'))
   }
-  node.replaceChildren(sortBar(folder), ...sortTasks(tasks, SORTS[folder]).map((t) => card(t, folder, s, parked)))
+  const live = beingRun(s)
+  const at = (task) => live.get(Number(task.id)) || null
+  const sorted = sortTasks(tasks, SORTS[folder])
+  const order = [...sorted.filter(at), ...sorted.filter((t) => !at(t))]
+  node.replaceChildren(sortBar(folder), ...order.map((t) => card(t, folder, s, parked, at(t))))
 }
 
 // What the order of todo/ means, said out loud whatever the sort is. A control

@@ -25,29 +25,33 @@ export const SECTIONS = [
   {
     id: 'overview',
     nav: 'Overview',
-    // The landing section, so it answers the question somebody opens the page
-    // with: **what is happening and what is next** (§12). Three blocks, in the
-    // order a person asks them in — what is running, what runs next, and what
-    // has stopped and is waiting for them — and the figures under those three.
-    // The figures are the answer to "was it worth it", which is a different
-    // question from "what now" and reads after it rather than instead of it.
+    // The landing section, so it leads with what somebody opens the page to
+    // see: **how the runs have gone** (§12) — the pass rate, what a pass costs,
+    // how many attempts a run takes, how many green runs the reviewer sent
+    // back, and how many tasks are paused. That block was last and its heading
+    // asked "was it worth it", which is a question about whether to regret the
+    // figures rather than a name for them, asked before a reader had read one.
     //
-    // Every block is read from the snapshot the page already has: `active` for
-    // what is running, `queue.todo` for what is next, `queue.hold` for what is
-    // waiting. Nothing new is fetched.
+    // Then the three blocks that say what is happening, in the order a person
+    // asks them in and in the order they have always been: what is running,
+    // what runs next, and what has stopped and is waiting for them.
+    //
+    // Every block is read from the snapshot the page already has: `numbers` for
+    // the figures, `active` for what is running, `queue.todo` for what is next,
+    // `queue.hold` for what is waiting. Nothing new is fetched.
     //
     // The paused tasks are listed here *and* in Queue, and named a third time
     // in the strip above every section. That is not a mistake: the strip is a
     // line saying how many, and this is the list saying which.
-    markup: `<h2>Running now</h2>
+    markup: `<h2>How the runs have gone</h2>
+<div class="figures" id="figures"></div>
+<h2>Running now</h2>
 <div class="panel" id="now"></div>
 <h2>Next up</h2>
 <p class="muted" id="next-up-order"></p>
 <div class="scroll"><table id="next-up"></table></div>
 <h2>Waiting for you</h2>
-<div class="scroll"><table id="waiting"></table></div>
-<h2>Was it worth it</h2>
-<div class="figures" id="figures"></div>`,
+<div class="scroll"><table id="waiting"></table></div>`,
   },
   {
     id: 'repositories',
@@ -72,10 +76,14 @@ export const SECTIONS = [
     // a column a third of the width wide cannot hold what the journal knows
     // about a task, and what did not fit was not shown at all (`queue.mjs`).
     //
+    // **One row of four**, which is what `.folders` is for: these were in a
+    // grid of as-many-as-fit, so the fourth folder wrapped under the first and
+    // read as something the first folder had to say.
+    //
     // And under them, how to make a task and how to run one — because this
     // page does neither, and the one thing a read-only view of a queue owes
     // somebody is the command they came looking for.
-    markup: `<div class="grid2">
+    markup: `<div class="folders">
   <div><h2>Queue</h2><p class="muted" id="todo-order"></p><div class="cards" id="todo"></div></div>
   <div><h2>Paused — waiting for you</h2><div class="cards" id="hold"></div></div>
   <div><h2>Done</h2><div class="cards" id="done"></div></div>
@@ -160,12 +168,18 @@ export const SECTION_IDS = SECTIONS.map((s) => s.id)
 // The head holds the way out, because a panel that covers content with no
 // obvious way back is worse than the section that got replaced. Escape is the
 // other way out, and the two are one function.
+//
+// **The detail is not a panel inside the drawer.** The drawer has an edge of
+// its own, which is what makes it a drawer, and a second border just inside it
+// was the first of three outlines a reader met before any content: what
+// separates one block of a task from the next is space and a heading
+// (`style.mjs`).
 export const DRAWER = `<aside id="task-drawer" class="drawer" aria-label="Task" hidden>
   <div class="drawer-head">
     <h2>Task</h2>
     <button type="button" id="task-close" class="quiet">Close</button>
   </div>
-  <div class="panel" id="task-detail"></div>
+  <div id="task-detail"></div>
   <div class="panel log-panel" id="task-log-panel" hidden>
     <div class="legend">What the agent is saying</div>
     <div class="status" id="task-log-state"></div>

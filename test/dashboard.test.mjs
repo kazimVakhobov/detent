@@ -101,10 +101,10 @@ test('the page loads nothing from outside and sets every value as text', () => {
 // the test below is that each is in exactly one section and that nothing the
 // page draws is missing from the list.
 // Overview's are listed in the order they are served, which the test below
-// asserts: what is running, what is next, what is waiting, and the figures
-// under those three (§12).
+// asserts: the figures first, because they are what somebody opens the page to
+// see, and then what is running, what is next and what is waiting (§12).
 const BLOCKS = {
-  overview: ['now', 'next-up-order', 'next-up', 'waiting', 'figures'],
+  overview: ['figures', 'now', 'next-up-order', 'next-up', 'waiting'],
   repositories: ['repos', 'by-repo'],
   queue: ['todo-order', 'todo', 'hold', 'done', 'failed', 'queue-how'],
   agents: ['by-model'],
@@ -431,6 +431,99 @@ test('a card row does not wrap, so the reason a task is in failed/ is on the car
   })
 })
 
+test('the queue is four columns in one row and stays four, and a card never leaves its column', () => {
+  // Four explicit tracks. `repeat(auto-fit, minmax(320px, 1fr))` fitted as
+  // many columns as the width allowed and wrapped the rest, so at an ordinary
+  // window three sat in a row and "Abandoned by hand" dropped under "Queue",
+  // where it read as a fourth thing about the first folder.
+  assert.ok(sectionOf('queue').includes('<div class="folders">'), 'the four folders are not one grid')
+  assert.match(STYLE, /\.folders \{[^}]*grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/)
+  assert.doesNotMatch(/\.folders \{[^}]*\}/.exec(STYLE)[0], /auto-fit|auto-fill/)
+
+  // And its children get the `min-width: 0` that `min-width: auto` was
+  // overriding: a grid item's default minimum is its content's intrinsic one,
+  // and a card's rows do not wrap, so `1fr` stopped being a ceiling and the
+  // card ran under the next column and past the edge of the page.
+  assert.match(STYLE, /\.folders > \*, \.cards > \* \{ min-width: 0; \}/)
+  assert.match(STYLE, /min-width: auto/, 'and the comment says what the default was doing')
+  assert.match(STYLE, /\.cards \{[^}]*grid-template-columns: minmax\(0, 1fr\)/, 'the cards are a track with a floor too')
+
+  // Below one stated width they stack, with the width in the stylesheet beside
+  // the reason: four columns of a phone are not four columns, and a page whose
+  // body scrolls sideways is the thing being avoided. It is the width the
+  // drawer already calls narrow, so the page has one narrow and not two.
+  const narrow = /@media \(max-width: (\d+)px\) \{ \.folders \{ grid-template-columns: minmax\(0, 1fr\); \} \}/.exec(STYLE)
+  assert.ok(narrow, 'the four columns never stack')
+  assert.match(STYLE, new RegExp(`Below ${narrow[1]}px they stack`), 'the breakpoint is not written beside its reason')
+  assert.match(STYLE, new RegExp(String.raw`@media \(max-width: ${narrow[1]}px\) \{ \.drawer \{`))
+
+  // The headings and the sort under each are untouched: this is the grid the
+  // four columns sit in, not what is in them.
+  for (const folder of FOLDERS) assert.ok(sectionOf('queue').includes(`<div class="cards" id="${folder}">`), folder)
+  for (const heading of ['Queue', 'Paused — waiting for you', 'Done', 'Abandoned by hand']) {
+    assert.ok(sectionOf('queue').includes(`<h2>${heading}</h2>`), heading)
+  }
+})
+
+test('a task being run right now is marked in the folder its file is still in, and comes first there', async () => {
+  const s = filled()
+  writeFileSync(where(s, '0007-shared.md'), todoTask('0007'))
+  claim(s.dir, 'acme-api', { task: '0007', branch: 'agent/task-0007-shared' })
+  setAttempt(s.dir, 'acme-api', 2)
+
+  await dashboard(s, async (base) => {
+    const page = openPage(base)
+    await page.settle()
+
+    // First in the column, ahead of the sort: ascending task id — the order
+    // the folder opens in — would put 0003 above it, and a task being worked
+    // on now is not one entry in an ordering of things that have not started.
+    assert.deepEqual(numbersIn(page, 'todo'), ['0007', '0003'])
+
+    // What its line says, from the claim and from nothing else: that it is
+    // running, and which attempt. **Nothing about a phase** — which of the
+    // gauge, the link check, the acceptance pass or the merge is under way is
+    // recorded nowhere (ADR 0017), so the page does not guess at it.
+    const running = cardFor(page, 'todo', '0007')
+    assert.deepEqual(linesOf(running), ['▶running, attempt 2', 'tasks/todo/0007-shared.md'])
+    assert.doesNotMatch(running.textContent, /gauge|acceptance|merge|link|phase|started/)
+
+    // An icon and a word, told apart by more than colour — the rule the
+    // statuses already follow — and the colour repeating what they say.
+    const [mark] = running.all((n) => n.className === 'status running')
+    assert.equal(mark.children[0].getAttribute('aria-hidden'), 'true')
+    assert.equal(mark.children[0].className, 'icon')
+    assert.notEqual(mark.children[0].textContent, '')
+    assert.match(STYLE, /\.status\.running \.icon \{ color: var\(--good\); \}/)
+
+    // And the column stops claiming the journal has never seen it: the line is
+    // written when the run ends, so that sentence was the page saying nothing
+    // had touched a task it was watching an agent work on. The task beside it,
+    // which nothing is running, still says it.
+    assert.doesNotMatch(running.textContent, /the journal has not seen this task/)
+    assert.match(cardFor(page, 'todo', '0003').textContent, /the journal has not seen this task/)
+
+    // No new read and no new endpoint: this is the `active` the page already
+    // has, out of the snapshot it polls.
+    assert.deepEqual(page.reads, ['GET state.json', 'GET configuration.json'])
+  })
+
+  // A claim whose process is gone is not a running task and is not drawn as
+  // one — the rule Running now and the strip above every section follow.
+  const file = join(s.dir, '.detent', 'state.json')
+  const state = JSON.parse(readFileSync(file, 'utf8'))
+  state.repos['acme-api'].pid = 2 ** 22 + 12345 // no such process
+  writeFileSync(file, JSON.stringify(state))
+  await dashboard(s, async (base) => {
+    const page = openPage(base)
+    await page.settle()
+    assert.deepEqual(numbersIn(page, 'todo'), ['0003', '0007'], 'and it is back where the sort puts it')
+    assert.doesNotMatch(page.text('todo'), /running, attempt/)
+    assert.match(cardFor(page, 'todo', '0007').textContent, /the journal has not seen this task/)
+    assert.match(page.text('alerts'), /the run on acme-api is gone — task 0007, attempt 2/)
+  })
+})
+
 test('the readable name is the slug, and no field is added to the frontmatter to hold it', () => {
   // The function the page runs, called here: it is serialised into the script.
   assert.ok(SCRIPT.includes(String(taskName)), 'the page runs some other copy of it')
@@ -544,26 +637,35 @@ test('the section says how to make a task and how to run one, in this product ow
   })
 })
 
-// ——— Overview answers "what now": what is running, what is next, what is
-// waiting — and the figures under those three (§12).
+// ——— Overview leads with how the runs have gone, and then answers "what now":
+// what is running, what is next, what is waiting (§12).
 
 const todoTask = (id, barrier = false) =>
   `---\nid: ${id}\nrepo: acme-api\ntouches_contract: ${barrier}\n---\n\n# Acceptance criteria\n\n- [ ] x\n`
 
 const where = (s, name) => join(s.dir, 'tasks', 'todo', name)
 
-test('Overview is the landing screen: what is running, what is next, what is waiting, and the figures under them', async () => {
+test('Overview leads with the figures, under a heading that names them, and then what is running, next and waiting', async () => {
   // In the document in that order, and every block of it inside Overview and
-  // inside no other section — the figures included, which is where they were
-  // and where they stay.
+  // inside no other section. The figures are first: they are the answer
+  // somebody opens the page for, and the three blocks under them keep the
+  // order they have always had — what is running, what runs next, what waits.
   const overview = sectionOf('overview')
   const at = (block) => overview.indexOf(`id="${block}"`)
   for (const block of BLOCKS.overview) assert.notEqual(at(block), -1, block)
   assert.deepEqual([...BLOCKS.overview].sort((a, b) => at(a) - at(b)), BLOCKS.overview,
-    'what is running, what is next, what is waiting, then the figures')
+    'the figures, then what is running, what is next, what is waiting')
   for (const block of BLOCKS.overview) {
     assert.deepEqual(SECTION_IDS.filter((id) => sectionOf(id).includes(`id="${block}"`)), ['overview'], block)
   }
+
+  // And the heading over them says what they are. It asked "Was it worth it" —
+  // a question about whether to regret the figures, over the block a person
+  // opens the page to read, before they had read one of them.
+  const headings = [...overview.matchAll(/<h2>([^<]+)<\/h2>/g)].map((m) => m[1])
+  assert.deepEqual(headings.slice(1), ['Running now', 'Next up', 'Waiting for you'])
+  assert.doesNotMatch(headings[0], /\?|worth/i, 'the heading over the figures is not a question')
+  assert.ok(overview.indexOf(`<h2>${headings[0]}</h2>`) < at('figures'), 'and it is the heading over them')
   // And Repositories keeps its own: this adds a landing screen rather than
   // moving anything into one.
   assert.deepEqual(BLOCKS.repositories, ['repos', 'by-repo'])
@@ -800,7 +902,15 @@ const blocksOf = (page) => page.node('task-detail').children
 const blockNamed = (page, legend) => page.node('task-detail').children
   .find((child) => child.className === 'group' && child.children[0].textContent === legend)
 const recordsIn = (page) => page.node('task-detail').all((node) => node.className === 'run-record')
-const rowsOf = (record) => record.all((node) => node.tag === 'tr').map((row) => row.children.map((cell) => cell.textContent))
+
+// What a run says each pass cost: a block each, and in each the heading and
+// its figures, label and value apart — `Pass / Cost / Tokens / Model` was a
+// table of four columns inside a 680px drawer, and the column holding two
+// model names broke `claude · claude-opus-5` across four lines.
+const passesOf = (record) => record.all((node) => node.className === 'pass').map((pass) => [
+  pass.children[0].textContent,
+  ...pass.children.slice(1).map((figure) => figure.children.map((part) => part.textContent)),
+])
 
 // A run with everything a journal line carries, so the block can be read
 // against it: two passes with a cost and a model each, tokens, the two
@@ -876,21 +986,28 @@ test('the implementation cost and the acceptance pass are separated, and come ou
     const [, second] = recordsIn(page)
     assert.equal(recordsIn(page).length, 2, 'both of its runs, in the order they happened')
 
-    // Two rows, each with its own cost, its own tokens and the model it ran
+    // Two blocks, each with its own cost, its own tokens and the model it ran
     // on: one number for both would hide what reading the work cost against
-    // what doing it cost.
-    assert.deepEqual(rowsOf(second), [
-      ['Pass', 'Cost', 'Tokens', 'Model'],
-      ['Implementation', '$1.20', '105,000 tok (80,000 in, 25,000 out)', 'claude · claude-opus-5-20260101 (asked for claude-opus-5)'],
-      ['Acceptance', '$0.30', '21,000 tok (20,000 in, 1,000 out)', 'claude · claude-sonnet-5 (requested — the CLI reported no model)'],
+    // what doing it cost. Every figure is labelled, because a card has no
+    // column heading to lend one.
+    assert.deepEqual(passesOf(second), [
+      ['Implementation',
+        ['cost', '$1.20'],
+        ['tokens', '105,000 tok (80,000 in, 25,000 out)'],
+        ['model', 'claude · claude-opus-5-20260101 (asked for claude-opus-5)']],
+      ['Acceptance',
+        ['cost', '$0.30'],
+        ['tokens', '21,000 tok (20,000 in, 1,000 out)'],
+        ['model', 'claude · claude-sonnet-5 (requested — the CLI reported no model)']],
     ])
+    assert.equal(second.all((n) => n.tag === 'table').length, 0, 'and no table, which is what they were')
 
     // And the total the line recorded, beside the two rather than instead of
     // them: $1.20 + $0.30 is the $1.50 the journal has, and 105,000 + 21,000
     // the 126,000 — so a line whose two numbers disagree shows that it does.
     const lines = second.children.filter((child) => child.className === 'line').map((child) => child.textContent)
     assert.equal(lines[0], 'The run: $1.50 · 126,000 tok (100,000 in, 26,000 out)'
-      + ' — the total the line recorded, which the two rows above come out of')
+      + ' — the total the line recorded, which the two passes above come out of')
 
     // Tokens, how long it ran — from `started` and `finished`, not from this
     // machine's clock — how many attempts, and which gauge stage sent it back.
@@ -908,6 +1025,63 @@ test('the implementation cost and the acceptance pass are separated, and come ou
   })
 })
 
+test('the detail is a heading and space between its blocks, not boxes inside boxes', async () => {
+  // The drawer keeps its own edge — that is what makes it a drawer — and the
+  // panel just inside it is gone, with the border off the blocks under it: a
+  // panel, a legend block, a card and a table was three outlines before any
+  // content, and the content is what somebody opened the drawer to read.
+  assert.ok(DRAWER.includes('<div id="task-detail"></div>'), 'the detail is a panel again')
+  assert.match(STYLE, /\.drawer \{[^}]*border-left: 1px solid var\(--line\)/)
+  assert.match(STYLE, /#task-detail > \.group \{ border: 0; border-radius: 0; padding: 0;/)
+
+  const s = ranAgain(queued(setup()))
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: taskHash('queue', '0001') })
+    await page.settle()
+
+    // The blocks are the same blocks in the same order, each still named by
+    // the legend over it: a border came off, and nothing moved.
+    assert.deepEqual(blocksOf(page), ['What its attempts did', 'Frontmatter', 'Goal', 'Acceptance criteria', 'Out of scope'])
+    assert.deepEqual(page.node('task-detail').all((n) => n.className.split(' ').includes('panel')), [])
+
+    // And nothing in a run is boxed again: the figures were a table inside a
+    // box that scrolls inside the record, and they are blocks of it now. What
+    // carries a border here is the record, which is the innermost one.
+    for (const record of recordsIn(page)) {
+      assert.deepEqual(record.all((n) => n.className === 'scroll'), [], 'a box inside the record')
+      assert.deepEqual(record.tags('table'), [])
+    }
+    assert.match(STYLE, /\.run-record \{[^}]*border: 1px solid var\(--line\)/)
+    assert.doesNotMatch(STYLE, /\.pass \{[^}]*border/, 'no block gained a border for one taken off elsewhere')
+    assert.doesNotMatch(STYLE, /\.passes \{[^}]*border/)
+  })
+})
+
+test('a model name is one identifier and does not break inside itself, at the drawer’s narrowest or its widest', async () => {
+  const s = ranAgain(queued(setup()))
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: taskHash('queue', '0001') })
+    await page.settle()
+    const [, second] = recordsIn(page)
+
+    // A hyphen is a break opportunity, which is how one column of a table
+    // became four lines of one word each. Every name is held together — the
+    // one that ran, and the one the parenthetical says was asked for.
+    assert.deepEqual(second.all((n) => n.className === 'id').map((n) => n.textContent),
+      ['claude · claude-opus-5-20260101', 'claude-opus-5', 'claude · claude-sonnet-5'])
+    assert.match(STYLE, /\.pass \.id \{ white-space: nowrap; \}/)
+
+    // So the line breaks between its parts instead, and a name wider than the
+    // block it is in scrolls — the rule a card's row of facts already follows.
+    assert.match(STYLE, /\.pass \.figure \{[^}]*flex-wrap: wrap[^}]*overflow-x: auto/)
+
+    // Two blocks side by side in a drawer 680px wide, one under the other when
+    // the drawer is the screen.
+    assert.match(STYLE, /\.passes \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/)
+    assert.match(STYLE, /@media \(max-width: 560px\) \{ \.passes \{ grid-template-columns: minmax\(0, 1fr\); \} \}/)
+  })
+})
+
 test('a cost, a model or an instant the journal has as null is shown as not reported, never as zero', async () => {
   const s = ranAgain(queued(setup()))
   await dashboard(s, async (base) => {
@@ -919,10 +1093,9 @@ test('a cost, a model or an instant the journal has as null is shown as not repo
     // zero there would be a number nobody recorded, which is the one thing the
     // journal has always refused.
     const [first] = recordsIn(page)
-    assert.deepEqual(rowsOf(first), [
-      ['Pass', 'Cost', 'Tokens', 'Model'],
-      ['Implementation', '$0.10', 'not reported', 'claude · claude-opus-5'],
-      ['Acceptance', 'not reported', 'not reported', 'not reported'],
+    assert.deepEqual(passesOf(first), [
+      ['Implementation', ['cost', '$0.10'], ['tokens', 'not reported'], ['model', 'claude · claude-opus-5']],
+      ['Acceptance', ['cost', 'not reported'], ['tokens', 'not reported'], ['model', 'not reported']],
     ])
     assert.match(first.textContent, /took not reported/)
     assert.doesNotMatch(first.textContent, /\$0\.00|0 tok/)
@@ -1029,7 +1202,7 @@ test('a line written before rounds existed is a run of one round, drawn by the l
 
     // A run with no failed stage: where it landed, then the acceptance pass.
     assert.deepEqual(linesOf(first), [
-      'The run: $0.10 · not reported — the total the line recorded, which the two rows above come out of',
+      'The run: $0.10 · not reported — the total the line recorded, which the two passes above come out of',
       '·not merged',
       'acceptance: accepted',
       'links: not reported',
@@ -1038,7 +1211,7 @@ test('a line written before rounds existed is a run of one round, drawn by the l
     // And one the gauge stopped: that line above the merge, the acceptance
     // pass below it, each on its own as it has always been.
     assert.deepEqual(linesOf(second), [
-      'The run: $1.50 · 126,000 tok (100,000 in, 26,000 out) — the total the line recorded, which the two rows above come out of',
+      'The run: $1.50 · 126,000 tok (100,000 in, 26,000 out) — the total the line recorded, which the two passes above come out of',
       '!the exit gauge stopped on test',
       '✓mergedcommit abc1234agent/task-0001-first',
       'acceptance: accepted',
