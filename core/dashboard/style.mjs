@@ -103,11 +103,10 @@ main > section > h2:first-child { margin-top: 8px; }
    row is four columns at every desktop width.
 
    **And the four children get \`min-width: 0\`.** A grid item's default is
-   \`min-width: auto\`, which is its content's intrinsic minimum — and a card's
-   rows are \`flex-wrap: nowrap\` on purpose below, so a long path or a long row
-   of facts made the item wider than its track, \`1fr\` stopped being a ceiling,
-   and the card ran under the next column and off the right-hand edge of the
-   page. At 0 the track is the width and the content ellipsises or scrolls
+   \`min-width: auto\`, which is its content's intrinsic minimum — and a card
+   holds things that cannot break, a long path and a head that does not wrap, so
+   the item was wider than its track, \`1fr\` stopped being a ceiling, and the
+   card ran under the next column and off the right-hand edge of the page. At 0 the track is the width and the content ellipsises or scrolls
    inside it, which is what \`.card-head .name\` and \`.card .facts\` already
    intend. The cards inside a column are a grid of their own, so they get the
    same floor and the same 0: one level down, the default does the same thing.
@@ -125,13 +124,30 @@ main > section > h2:first-child { margin-top: 8px; }
 /* The queue, as cards: one card per task, the number and its name on the one
    row that reads like a title, and every fact on a line under it.
 
-   **A card's rows do not wrap.** flex-wrap: nowrap on both of them, so what is
-   laid out in a row stays in one row rather than silently becoming a second
-   line inside it — which is what the rows this replaces did to "abandoned by
-   hand" in failed/, where it sat under the height of its own row and was never
-   seen. Anything longer than a row is a .line instead, full width, wrapping
-   normally. Nothing is hidden to achieve it: a long name is clipped visibly and
-   is also on the path line below it in full, and a row of facts scrolls. */
+   **The head is one row; the facts are as many as they need.** Both were
+   flex-wrap: nowrap, so what was laid out in a row stayed in one row rather
+   than silently becoming a second line inside it — which is what the rows this
+   replaces did to "abandoned by hand" in failed/, where it sat under the height
+   of its own row and was never seen. Anything longer than a row is a .line
+   instead, full width, wrapping normally.
+
+   **The facts wrap, because the figures are at the end of that row.** nowrap
+   was written when a card had a whole row of the page to itself and the only
+   risk was a card growing taller than its neighbours; four columns that stay
+   four put the row at a quarter of the width, and what then hung past the right
+   edge was the cost — \`$11.51\` arriving as \`$1\`, which is a plausible figure
+   with nothing on the card to say it is a fragment. A card has no height of its
+   own, so a second line of facts makes the card taller and is read: the failure
+   nowrap guarded against needs a row with a fold in it, and there is none here.
+
+   Each fact breaks between its words and never inside one — nothing here sets
+   \`overflow-wrap\`, so a figure is one word and stays whole, and
+   \`.status\`'s own nowrap keeps an icon with the word it belongs to.
+   \`overflow-x\` is the floor under that, for the one fact that cannot break at
+   all — a forty-character repository name — which scrolls rather than painting
+   over the next column. The head keeps its row: a name is an identifier read
+   from its beginning, so it ellipsises, and it is on the path line below in
+   full. */
 .cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-bottom: 8px; }
 .cards .empty { background: var(--raised); border: 1px solid var(--line); border-radius: 8px; }
 .card { background: var(--raised); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
@@ -139,8 +155,7 @@ main > section > h2:first-child { margin-top: 8px; }
 .card-head a { color: var(--accent); text-decoration: none; }
 .card-head .number { font-variant-numeric: tabular-nums; }
 .card-head .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.card .facts { display: flex; flex-wrap: nowrap; align-items: baseline; gap: 4px 14px; overflow-x: auto; margin-top: 4px; }
-.card .facts > span { white-space: nowrap; }
+.card .facts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; overflow-x: auto; margin-top: 4px; }
 .card .line { white-space: normal; overflow-wrap: anywhere; margin-top: 4px; }
 .card .path code { color: var(--muted); }
 #todo-order { margin: 0 0 8px; }

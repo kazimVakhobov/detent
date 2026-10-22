@@ -1302,10 +1302,10 @@ The sections are:
   four columns of a phone are not four columns and a page whose body scrolls
   sideways is worse than four folders read one after another. **A card never
   leaves its column**: a grid item's default `min-width` is its content's
-  intrinsic minimum, and a card's rows do not wrap on purpose, so the track
+  intrinsic minimum, and a card holds things that cannot break, so the track
   stopped being a ceiling and a long path ran the card under the next column
   and off the edge of the page — the four children are `min-width: 0`, so the
-  track is the width and the content ellipsises or scrolls inside it.
+  track is the width and the content ellipsises or wraps inside it.
   **A task being run right now is marked where it sits**, and comes first in
   its folder whatever the sort is: nothing moves the file until `settle`, so a
   running task is in `todo/` among the ones nothing has touched, and it was
@@ -1324,9 +1324,17 @@ The sections are:
   small, and every fact on a line of its own: the outcome, why it stopped, the
   reviewer's doubts, the branch, and what `Recent runs` says about the same
   journal line — how many attempts, what it cost, when it finished and the
-  acceptance verdict. **A card's rows do not wrap**: what is laid out in a row
-  stays in one row, and anything longer than a row is a line, so nothing is
-  pushed under a fold a row has. **The name is the slug** —
+  acceptance verdict. **Anything longer than a row is a line**, full width, so
+  nothing is pushed under a fold a row has. The head is the one row that stays
+  one — a number and a name, and the name ellipsises, because it is an
+  identifier read from its beginning and the path below carries it in full.
+  **The facts wrap, because the figures are at the end of that row**: a row of
+  them that did not wrap scrolled inside a card a quarter of the page wide, and
+  what hung past the edge was the cost — `$11.51` arrived as `$1`, a plausible
+  figure with nothing on the card to say it was a fragment, which is worse than
+  a figure not shown. A fact breaks between its words and never inside one, so
+  a date may take two lines and a figure never takes two halves. **The name is
+  the slug** —
   `0043 · A task is something you can open`, derived where it is drawn, because
   the slug already *is* the name and a second place to keep it is a second
   place to get it wrong; the frontmatter gains no `title`. A task the journal
@@ -1474,13 +1482,32 @@ where the output of a running task is read, a few seconds behind, which is what
 watching is
 ([ADR 0021](docs/adr/0021-the-agents-output-is-a-stream-written-to-a-file-that-is-not-a-record.md)).
 It is the end of the newest attempt's log — read from the same file `tail -f`
-would read, on the timer the page already has — and three things keep it from
+would read, on the timer the page already has — and four things keep it from
 growing with the run: the page asks to carry on from the byte its last answer
-ended at, so it never re-reads what it has; what arrives is kept as a bounded
-number of lines, oldest off the top; and each line is clipped, because a tool
-result the agent read in full is not a line somebody scans. Each event is read
-for display and for nothing else, and a line that will not parse is shown as it
-arrived. It lives here and nowhere else: a transcript with no task attached is a
+ended at, so it never re-reads what it has; a line that repeats the one before
+it and carries no content of its own is counted on that line rather than drawn
+again; what is left is kept as a bounded number of lines, oldest off the top;
+and each line is clipped, because a tool result the agent read in full is not a
+line somebody scans. Each event is read for display and for nothing else, and a
+line that will not parse is shown as it arrived.
+
+**Repetition costs one line.** The stream emits an event continuously while a
+model thinks, and an event detent has no reading for prints as its type — so
+the panel filled with twenty copies of one word, the last thing the agent
+actually said went off the top under the line cap, and a person watching
+learned only that something was happening. Consecutive identical lines are one
+line now, with how many there were and **over how long**, because four minutes
+of the same nothing and four seconds of it are different news for somebody
+deciding whether to look at the task. The clock is the page's own — when it
+read a line, not when the agent wrote it: the log carries no times, and asking
+an event for one would be reading this stream for meaning. Lines that arrived
+in one read say that rather than a duration of nothing. **Nothing with content
+of its own is ever collapsed**: two calls to the same tool are two calls and
+two turns are two turns; the test is that the line carries nothing — a type
+with no reading, an assistant turn with nothing renderable — and **no event
+type is named**, because a reading of one agent's stream is not detent's to
+invent. The line cap is applied to what collapsing left, so a panel full of
+repetition is not a panel that has pushed content off the top. It lives here and nowhere else: a transcript with no task attached is a
 log viewer, which is not what this is for. It **moved with the detail** into the
 drawer, and a drawer is where it is drawn rather than a change to how it is
 read: the same one timer, the same request, and the same ask to carry on from

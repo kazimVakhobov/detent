@@ -167,8 +167,12 @@ export function openPage(base, { hash = '' } = {}) {
   // the other in a browser either, so a test that wants both says both.
   const location = { hash }
 
+  // `logAdd` and `logShow` are handed out as themselves, because what a
+  // collapsed line says includes *when* — and a clock a test cannot set is a
+  // clock a test cannot assert against. Everything else about the panel is
+  // driven through the page, where the clock is the real one.
   const start = new Function('document', 'window', 'location', 'fetch', 'setInterval', 'Node',
-    `${SCRIPT}\nreturn { refresh, loadConfig, refreshConfig, openEditor, save, discard, sendSecret, showSection, closeTask, inside: () => ({ config, editing, fields }) }`)
+    `${SCRIPT}\nreturn { refresh, loadConfig, refreshConfig, openEditor, save, discard, sendSecret, showSection, closeTask, logAdd, logShow, inside: () => ({ config, editing, fields }) }`)
 
   const page = start(document, window, location, traced, (call, every) => timers.push({ call, every }), StubNode)
 
