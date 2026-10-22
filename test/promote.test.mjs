@@ -13,11 +13,11 @@ import { readJournal } from '../core/journal.mjs'
 import { validateProduct } from '../core/product.mjs'
 import { landedSince, promote } from '../core/promote.mjs'
 import { claim, readState } from '../core/state.mjs'
-import { assertInvariant, gitProduct, sh, show } from './support/product.mjs'
+import { assertInvariant, gitProduct, notifier, sh, show } from './support/product.mjs'
 
 const root = join(import.meta.dirname, '..')
 
-function setup(promoteStages = [{ stage: 'e2e', command: 'test "$(cat a.txt b.txt 2>/dev/null | wc -l)" -lt 3 || { echo "a and b together break the build"; exit 1; }' }]) {
+function setup(promoteStages = [{ stage: 'e2e', command: 'test "$(cat a.txt b.txt 2>/dev/null | wc -l)" -lt 3 || { echo "a and b together break the build"; exit 1; }' }], productOverrides = {}) {
   const s = gitProduct()
   sh(s.repoDir, 'branch', 'agent/staging', 'agent/dev')
   const raw = {
@@ -25,6 +25,7 @@ function setup(promoteStages = [{ stage: 'e2e', command: 'test "$(cat a.txt b.tx
     product: { name: 'acme' },
     branches: { staging: 'agent/staging' },
     repos: [{ name: 'acme-api', compare: 'dev', gauge: { exit: [{ stage: 'test', command: 'true' }], promote: promoteStages } }],
+    ...productOverrides,
   }
   writeFileSync(join(s.dir, '.detent', 'product.json'), JSON.stringify(raw))
   const { product } = validateProduct(raw, s.dir)
@@ -41,11 +42,6 @@ function land(repoDir, id, file, text) {
   sh(repoDir, 'switch', '--quiet', 'agent/dev')
   sh(repoDir, 'merge', '--quiet', '--no-ff', '-m', `merge: task ${id}\n\nTask: ${id}`, branch)
   sh(repoDir, 'branch', '-D', branch)
-}
-
-function notifier() {
-  const sent = []
-  return { sent, notify: (_, d) => (sent.push(d), { sent: true, via: 'test' }) }
 }
 
 test('the batch is what landed since the last promotion, by Task trailer', () => {
@@ -75,7 +71,7 @@ test('green: agent/staging moves to a merge that names the batch, and the reposi
   assert.equal(sh(s.repoDir, 'rev-parse', 'agent/dev'), devTip, 'agent/dev is not touched')
   assert.equal(show(s.repoDir, 'agent/staging', 'c.txt'), 'c')
   assertInvariant(s.repoDir, before, s.product)
-  assert.deepEqual(n.sent, [])
+  assert.deepEqual(n.sent, [], 'a promotion that happened tells nobody until somebody asks (ADR 0025)')
   assert.equal(readJournal(s.dir).lines.at(-1).kind, 'promote')
 
   const again = await promote(s.product, s.repo, { notify: n.notify })
@@ -98,6 +94,7 @@ test('red: every task green alone, the batch red together — nothing promoted, 
   assert.equal(r.merged, false)
   assert.equal(sh(s.repoDir, 'rev-parse', 'agent/staging'), stagingTip, 'nothing promoted')
   assert.equal(sh(s.repoDir, 'rev-parse', 'agent/dev'), devTip, 'nothing reverted')
+  assert.equal(n.sent[0].event, 'paused', 'a promotion that did not happen needs a person, which is the default event')
   assert.match(n.sent[0].message, /stays on agent\/dev; nothing was reverted/)
   assertInvariant(s.repoDir, before, s.product)
 
@@ -166,7 +163,7 @@ test('a promotion killed mid-gauge is returned by detent recover', async () => {
     `import { loadProduct } from ${JSON.stringify(pathToFileURL(join(root, 'core', 'product.mjs')).href)}
 import { promote } from ${JSON.stringify(pathToFileURL(join(root, 'core', 'promote.mjs')).href)}
 const product = loadProduct(${JSON.stringify(s.dir)})
-await promote(product, product.repos[0], { notify: () => ({ sent: true }) })
+await promote(product, product.repos[0], { notify: () => ({ event: 'promoted', asked: false, channels: [] }) })
 `,
   )
   const child = spawn(process.execPath, [script], { stdio: 'ignore' })
@@ -180,4 +177,37 @@ await promote(product, product.repos[0], { notify: () => ({ sent: true }) })
   assert.match(out, /^acme-api {2}task promote {2}returned to agent\/dev, merge aborted$/m)
   assertInvariant(s.repoDir, before, s.product)
   assert.equal(sh(s.repoDir, 'rev-parse', 'agent/staging'), before.get('refs/heads/agent/staging'), 'nothing promoted')
+})
+
+// A batch reaching agent/staging is news a person watching the gate wants, and
+// it was news nothing told them (ADR 0025).
+test('a promotion sends its own event, and only to somebody who asked for it', async () => {
+  const s = setup(undefined, { notify: { events: ['promoted'], channels: [{ kind: 'command', command: 'true' }] } })
+  land(s.repoDir, '0001', 'a.txt', 'a\n')
+  land(s.repoDir, '0002', 'c.txt', 'c\n')
+  const n = notifier()
+
+  const r = await promote(s.product, s.repo, { notify: n.notify })
+  assert.equal(r.outcome, 'passed', r.reason)
+  assert.equal(n.sent.length, 1)
+  assert.equal(n.sent[0].event, 'promoted')
+  assert.equal(n.sent[0].task, 'promote')
+  assert.match(n.sent[0].message, /^acme-api promoted 2 tasks \(0001, 0002\) to agent\/staging as [0-9a-f]{7}\. The gate is now agent\/staging → dev\.$/)
+  assert.equal(r.notified.asked, true)
+  assert.equal(readJournal(s.dir).lines.at(-1).notified.event, 'promoted')
+
+  // And a skipped promotion is not an event at all: there is nothing to say.
+  const again = await promote(s.product, s.repo, { notify: n.notify })
+  assert.equal(again.outcome, 'skipped')
+  assert.equal(again.notified, undefined)
+  assert.equal(n.sent.length, 1)
+})
+
+test('detent promote prints what each channel did, and a channel that failed does not fail the command', async () => {
+  const s = setup(undefined, { notify: { events: ['promoted'], channels: [{ kind: 'command', command: 'echo "no route to chat" >&2; exit 3' }] } })
+  land(s.repoDir, '0001', 'a.txt', 'a\n')
+  const out = execFileSync(process.execPath, [join(root, 'cli.mjs'), 'promote', '--product', s.dir], { encoding: 'utf8' })
+
+  assert.match(out, /^acme-api {2}promoted \(0001\) to agent\/staging \([0-9a-f]{7}\)$/m)
+  assert.match(out, /^ {6}could not notify via command \(echo "no route to chat" >&2; exit 3\): exit code 3: no route to chat$/m)
 })

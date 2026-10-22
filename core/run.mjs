@@ -383,7 +383,14 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
 // 0012). A push that fails ends the run, but not before this task's own record
 // is complete: the journal line and the person's message are written first and
 // the failure is raised after them.
-function settle(product, task, record, notify) {
+//
+// **Two occasions now, not one** (ADR 0025). A pause is the one that has always
+// been sent, and a task that passed is sent too — to whoever asked for it, and
+// to nobody otherwise, because the default is a pause and nothing else. Which
+// means `record.notified` is on a passing line as well, carrying a result per
+// channel; a product that configured nothing gets `asked: false` and no send,
+// which is the same silence as before said out loud.
+async function settle(product, task, record, notify) {
   let ending = null
   const move = (folder) => {
     try {
@@ -397,6 +404,15 @@ function settle(product, task, record, notify) {
 
   if (record.outcome === 'passed') {
     move('done')
+    const attempts = `${record.attempts} ${record.attempts === 1 ? 'attempt' : 'attempts'}`
+    record.notified = await notify(product, {
+      event: 'passed',
+      task: record.task,
+      repo: record.repo,
+      outcome: record.outcome,
+      branch: record.branch,
+      message: `task ${record.task} (${record.repo}) passed — merged into ${product.branches.integration}${record.commit ? ` as ${record.commit.slice(0, 7)}` : ''} after ${attempts}. Nothing is waiting for you.`,
+    })
   } else if (['escalated', 'rejected', 'error'].includes(record.outcome)) {
     move('hold')
     const file = `${product.queue}/hold/${task.id}-${task.slug}.md`
@@ -407,7 +423,7 @@ function settle(product, task, record, notify) {
       ? `Resolve it on the task branch — git switch ${record.branch} && git merge ${product.branches.integration} — then move ${file} back to todo/.`
       : `The work is on ${record.branch}; move ${file} back to todo/ to resume.`
     const message = `task ${record.task} (${record.repo}) is paused — ${record.outcome}: ${record.reason}. ${next}`
-    record.notified = notify(product, { task: record.task, repo: record.repo, outcome: record.outcome, branch: record.branch, message })
+    record.notified = await notify(product, { event: 'paused', task: record.task, repo: record.repo, outcome: record.outcome, branch: record.branch, message })
   }
   appendJournal(product.dir, record)
   if (ending) throw ending

@@ -7,6 +7,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { currentBranch, git, isClean, operationInProgress, snapshotRefs } from '../../core/git.mjs'
+import { notifyPlan, wanted } from '../../core/notify.mjs'
 import { validateProduct } from '../../core/product.mjs'
 import { readState } from '../../core/state.mjs'
 
@@ -37,6 +38,33 @@ export function gitProduct(repoOverrides = {}, productOverrides = {}) {
   const { product, problems } = validateProduct(raw, dir)
   assert.deepEqual(problems, [])
   return { dir, repoDir, product, repo: product.repos[0] }
+}
+
+// The notifier a test hands `runTask` and `promote`: one channel that always
+// delivers, and `sent` is what a person was actually told.
+//
+// **Whether anybody asked is the real rule, not a stub's** — `wanted` and
+// `notifyPlan` are the dispatcher's own, so a run notifies here exactly on the
+// occasions a run notifies for real. Which is what keeps every assertion of the
+// form "and nobody was woken up about it" meaning what it meant before
+// `passed` became an event a product can ask for (ADR 0025): a task that passed
+// calls the notifier, the configuration says nothing about `passed`, and
+// nothing is sent.
+export function notifier() {
+  const sent = []
+  return {
+    sent,
+    notify(product, details) {
+      const asked = wanted(notifyPlan(product.notify), details)
+      if (asked) sent.push(details)
+      return {
+        event: details.event,
+        outcome: details.outcome ?? null,
+        asked,
+        channels: asked ? [{ kind: 'test', where: 'the test', sent: true, via: 'test' }] : [],
+      }
+    },
+  }
 }
 
 // A repository with a remote of its own, somewhere a product folder's scan

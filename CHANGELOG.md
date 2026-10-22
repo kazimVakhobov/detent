@@ -6,6 +6,48 @@ Notable changes, newest first. The format follows
 
 ## Unreleased
 
+**`notify` was one command on one occasion, and the dashboard said it ran "when
+a task finishes" — which is not what the code did: a task that passed was
+settled in silence.** It now accepts an object — which events, and a list of
+channels — and **still accepts a string**, meaning exactly what it meant
+before, so every `product.json` already written keeps working and nothing has
+to be edited to go on behaving as it did. Events are named: `paused`, `passed`
+and `promoted`, plus the raw outcomes, so somebody can ask for `error` alone;
+**a `notify` that does not say which events it wants notifies on a pause and
+nothing else**, which is today's behaviour spelled out. `settle` now sends on
+the `passed` branch too, and a promotion sends `promoted` — a batch reaching
+`agent/staging` is news a person watching the gate wants, and it was news
+nothing told them. Channels are a registry, one module per kind: the command
+channel is what shipped, moved, and `telegram` is new — one POST to the Bot
+API, no dependency, nothing vendored. A kind is added once it has delivered a
+real message, not once its module compiles
+([ADR 0025](docs/adr/0025-a-channel-is-a-kind-and-the-secret-is-not-in-the-configuration.md)).
+
+**A channel that fails is reported and never fails the run — now per channel.**
+One failing does not stop the others, `record.notified` carries a result per
+channel, and `detent run` and `detent promote` print a line for each that did
+not deliver, naming the channel and where it was aimed.
+
+**The token is not in `product.json`, and the reason is not squeamishness: the
+dashboard reads that file back and serves its values to a browser, and nothing
+gitignored it.** A channel names the environment variable its token is in —
+`tokenEnv` — and detent reads it when it sends; a `token` key is refused by
+name with that reason rather than as an unknown key. A secret may also be typed
+on the dashboard, which writes it to `.detent/secrets.json`, created `0600`,
+under the same name; `init` now writes `.detent/.gitignore`, which there was
+none of before. **Whether it is set is reported; what it is never is** — the one
+place the page does not show what the file says, which is a decision and is
+written down as one. Nothing prints, logs or journals a secret: the token is in
+the URL the Bot API is called at, so a failed send is built from the status and
+the API's own sentence, and redacted against the token on the way out.
+
+**Notifications is a block of its own on the dashboard,** not a row among
+`attempts`, `timeout` and `concurrency`: those are one value under one key, and
+a list of channels is not one value. The events are choices, the channels are a
+list, and a telegram channel shows its chat, its topic and the name of its
+variable with `set` or `not set` beside it. It is drawn from the same read and
+written by the same Save, because it is the same file.
+
 **A barrier stops barring the moment it pauses — it did, and now it does not.**
 The scheduler's second rule says a barrier runs alone and nothing starts past
 it, and a barrier that does not pass ends the run with everything behind it

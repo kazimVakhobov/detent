@@ -15,7 +15,7 @@ import { validateProduct } from '../core/product.mjs'
 import { run as runCommand } from '../core/commands/run.mjs'
 import { runTask } from '../core/run.mjs'
 import { readQueue } from '../core/task.mjs'
-import { gitProduct, queueRepository, sh } from './support/product.mjs'
+import { gitProduct, notifier, queueRepository, sh } from './support/product.mjs'
 
 // Green when value.txt says "ok", like every other run fixture.
 const GAUGE = { exit: [{ stage: 'test', command: 'test "$(cat value.txt 2>/dev/null)" = ok' }] }
@@ -271,9 +271,8 @@ test('resume moves the file through moveAndRecord — a commit in the queue\'s r
   // journal line saying why — the state a person actually meets.
   const answer = (extra = {}) => ({ agent: 'claude', ok: true, message: 'Commit: feat(wallet): balance endpoint', model: { requested: 'claude-opus-5', actual: 'claude-opus-5' }, cost: { usd: 0.25, tokens: null }, session: 's', error: null, ms: 10, ...extra })
   const write = (value) => async (role, { cwd }) => (writeFileSync(join(cwd, 'value.txt'), `${value}\n`), answer())
-  const notify = () => ({ sent: true, via: 'test' })
   const [queued] = readQueue(s.dir, s.product)
-  const stopped = await runTask(s.product, s.repo, queued, { invoke: write('no'), notify })
+  const stopped = await runTask(s.product, s.repo, queued, { invoke: write('no'), notify: notifier().notify })
   assert.equal(stopped.outcome, 'escalated')
   assert.ok(existsSync(join(s.dir, 'agent-loop', 'tasks', 'hold', '0042-wallet-endpoint.md')))
 
@@ -281,7 +280,7 @@ test('resume moves the file through moveAndRecord — a commit in the queue\'s r
   const r = await detent(s, [], {
     script: ['resume'],
     runTask: async (product, repo, task_) => {
-      const result = await runTask(product, repo, task_, { invoke: write('ok'), notify })
+      const result = await runTask(product, repo, task_, { invoke: write('ok'), notify: notifier().notify })
       results.push(result)
       return result
     },

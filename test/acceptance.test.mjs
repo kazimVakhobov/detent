@@ -12,7 +12,7 @@ import { parseVerdict } from '../core/acceptance.mjs'
 import { readJournal } from '../core/journal.mjs'
 import { runTask } from '../core/run.mjs'
 import { readQueue } from '../core/task.mjs'
-import { assertInvariant, gitProduct, sh, show } from './support/product.mjs'
+import { assertInvariant, gitProduct, notifier, sh, show } from './support/product.mjs'
 
 const BRANCH = 'agent/task-0042-wallet-endpoint'
 const GAUGE = { exit: [{ stage: 'test', command: 'test "$(cat value.txt 2>/dev/null)" = ok' }] }
@@ -45,11 +45,6 @@ function agents({ implement = [(cwd) => writeFileSync(join(cwd, 'value.txt'), 'o
     return (await step(cwd)) ?? reply('Commit: feat(wallet): balance')
   }
   return { invoke, calls }
-}
-
-function notifier() {
-  const sent = []
-  return { sent, notify: (_, details) => (sent.push(details), { sent: true, via: 'test' }) }
 }
 
 test('no doubts: the machine-checked green stands, and the merge says who read it', async () => {

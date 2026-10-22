@@ -40,13 +40,19 @@
 // The keys with one value each, in the order they are drawn. Data rather than
 // lines of the script, so what the page offers can be read off the module
 // instead of out of its source: these are `EDITABLE` less `models`, which the
-// fields above them cover. The view and the editor both draw from this list,
-// so a key cannot be readable and not editable, or the other way round.
+// fields above them cover, and less `notify`, which is a block of its own. The
+// view and the editor both draw from this list, so a key cannot be readable and
+// not editable, or the other way round.
+//
+// **`notify` left this list** (ADR 0025). Every row here is one value under one
+// key, and `notify` is now which events and a list of channels — a row for it
+// would have been a text input holding a shell command, labelled "run when a
+// task finishes", which was never what the code did and is not what the key is
+// any more.
 export const LIMITS = [
   ['attempts', 'attempts — tries before a task pauses', { type: 'number', min: '1', step: '1' }],
   ['timeout', 'timeout — minutes an agent may run', { type: 'number', min: '0', step: 'any' }],
   ['concurrency', 'concurrency — tasks at once', { type: 'number', min: '1', step: '1' }],
-  ['notify', 'notify — a command run when a task finishes', { type: 'text' }],
 ]
 
 export const CONFIGURATION = `// The configuration: a view that refreshes, and an editor that does not
@@ -93,6 +99,9 @@ function viewConfig() {
       ...config.roles.map((role) => reads(role, repo.models[role] ? agent(repo.models[role]) : inherited(repo.inherited[role])))))
   }
   document.getElementById('config-view').replaceChildren(...groups)
+  // The same read draws the block beside this one: notifications are this file
+  // too, and two reads of one file are two states free to disagree (ADR 0025).
+  viewNotify()
 }
 
 // Shown here and changed on disk, each with the reason it is not editable
@@ -200,6 +209,9 @@ function renderEditor() {
   }
 
   document.getElementById('config-fields').replaceChildren(...groups)
+  // And the block beside it, into the same \`fields\`: one Save writes the whole
+  // file, so the events and the channels go in the same patch as the limits.
+  notifyFields()
 }
 
 // ——— Which half is shown, and what a run stops.
@@ -207,6 +219,10 @@ function renderEditor() {
 function mode() {
   document.getElementById('config-view').hidden = editing
   document.getElementById('config-fields').hidden = !editing
+  // Both halves of the Notifications block swap with it: one editor over one
+  // file, entered and left in one place (ADR 0025).
+  document.getElementById('notify-view').hidden = editing
+  document.getElementById('notify-fields').hidden = !editing
   // With the inputs it is about, and only while they are there: the view has
   // no model to type into.
   document.getElementById('config-models-note').hidden = !editing
@@ -281,6 +297,7 @@ function closeEditor() {
   editing = false
   fields = []
   document.getElementById('config-fields').replaceChildren()
+  document.getElementById('notify-fields').replaceChildren()
   problems([])
   mode()
 }

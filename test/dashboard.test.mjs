@@ -1,9 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import process from 'node:process'
 import { serve } from '../core/commands/dashboard.mjs'
 import { EDITABLE, NOT_EDITABLE, readConfiguration } from '../core/configure.mjs'
+import { EVENTS, KIND_NAMES } from '../core/notify.mjs'
+import { writeSecret } from '../core/secret.mjs'
 import { PAGE, POLL, SCRIPT } from '../core/dashboard-page.mjs'
 import { LIMITS } from '../core/dashboard/configuration.mjs'
 import { LOG_CLIP, LOG_LINES, LOG_QUIET } from '../core/dashboard/log.mjs'
@@ -106,7 +109,9 @@ const BLOCKS = {
   queue: ['todo-order', 'todo', 'hold', 'done', 'failed', 'queue-how'],
   agents: ['by-model'],
   runs: ['recent'],
-  configuration: ['config', 'fixed'],
+  // Notifications is a block of its own beside the configuration, not a row
+  // among its limits (ADR 0025).
+  configuration: ['config', 'notify', 'fixed'],
 }
 
 // And what is in no section, because it is drawn over one: the drawer a task
@@ -181,8 +186,10 @@ test('the fragment names the section, an unknown one still lands somewhere, and 
   // Nothing is fetched to change section, with two exceptions the fragment
   // itself names: the task, which is not in the snapshot (ADR 0020 part 3),
   // and what its agent is saying, which is not in it either (ADR 0021).
+  // `secret.json` is neither: it is a write, and the only one whose body never
+  // comes back (ADR 0025).
   assert.deepEqual([...SCRIPT.matchAll(/fetch\('([\w.?=]+)/g)].map((m) => m[1]).sort(),
-    ['configuration.json', 'configuration.json', 'log.json?task=', 'state.json', 'task.json?task='])
+    ['configuration.json', 'configuration.json', 'log.json?task=', 'secret.json', 'state.json', 'task.json?task='])
 })
 
 test('the fragment names a section and a task over it, and a fragment that is half wrong still lands on a section', () => {
@@ -1591,7 +1598,12 @@ test('a write is applied, and what comes back is read off the file rather than a
     assert.deepEqual(configuration.models.implement, { agent: 'claude', model: 'claude-sonnet-5' })
     assert.deepEqual(configuration.attempts, { value: 2, effective: 2 })
     assert.deepEqual(configuration.timeout, { value: 45, effective: 45 })
-    assert.deepEqual(configuration.notify, { value: 'say done', effective: 'say done' })
+    // notify is no longer one value, so it is no longer reported as one: the
+    // string is a command channel on a pause, and the events it would notify
+    // on are said beside the ones the file names (ADR 0025).
+    assert.deepEqual(configuration.notify.events, { value: null, effective: ['paused'] })
+    assert.deepEqual(configuration.notify.channels, [{ kind: 'command', command: 'say done', where: 'say done', secret: null }])
+    assert.equal(configuration.notify.shape, 'command')
     // A cleared role is the key gone, and the page is told whose it is now.
     assert.equal(configuration.repos[0].models.accept, null)
     assert.deepEqual(configuration.repos[0].inherited.accept, { agent: 'claude' })
@@ -1729,8 +1741,12 @@ test('the page offers what ADR 0015 allows, and says why the rest is not editabl
   // And the inputs it builds are the allowed ones and no others. The keys are
   // the module's own data rather than lines of its source: `models` is the
   // fields above them, and these are the rest of EDITABLE in the order drawn.
-  assert.deepEqual(LIMITS.map(([key]) => key), [...EDITABLE].filter((key) => key !== 'models'))
-  assert.deepEqual(LIMITS.map(([key]) => key), ['attempts', 'timeout', 'concurrency', 'notify'])
+  // `models` is the fields above them; `notify` is a block of its own, because
+  // which events and a list of channels is not one value under one key
+  // (ADR 0025).
+  assert.deepEqual(LIMITS.map(([key]) => key), [...EDITABLE].filter((key) => key !== 'models' && key !== 'notify'))
+  assert.deepEqual(LIMITS.map(([key]) => key), ['attempts', 'timeout', 'concurrency'])
+  assert.ok(!PAGE.includes('a command run when a task finishes'), 'the label still says notify is run when a task finishes')
   for (const [key, label, attrs] of LIMITS) {
     assert.match(label, new RegExp(`^${key} — `), `${key} is offered without saying what it is`)
     assert.ok(attrs.type === 'number' || attrs.type === 'text', key)
@@ -1756,6 +1772,11 @@ async function onThePage(s, body) {
 const LABELS = Object.fromEntries(LIMITS.map(([key, label]) => [key, label]))
 
 const editor = (page) => page.node('config-fields')
+
+// The Notifications block's half of the editor, and the label of the one
+// control that used to be the `notify` row (ADR 0025).
+const notifyEditor = (page) => page.node('notify-fields')
+const COMMAND = 'command — the shell command, with the message on stdin'
 
 // One group of the editor, by the legend over it: a role is `accept` in more
 // than one of them, which is the point of the per-repository ones.
@@ -1794,7 +1815,6 @@ test('the configuration is a view by default: what the file says as text, and an
     assert.match(view, /implementclaude claude-opus-5/, 'the product’s own models')
     assert.match(view, new RegExp(`${LABELS.attempts}5`), 'a key the file sets')
     assert.match(view, new RegExp(`${LABELS.timeout}30 — the default`), 'and one it leaves out')
-    assert.match(view, new RegExp(`${LABELS.notify}none`))
 
     // What a repository inherits is shown as inherited and says from where —
     // a repository overrides a role and never "the model" — and the editor's
@@ -1864,7 +1884,7 @@ test('the editor takes a fresh read, so what is edited is what the file currentl
     assert.equal(page.node('config-fields').hidden, false)
     assert.equal(page.node('config-view').hidden, true)
     assert.equal(control(editor(page), LABELS.attempts).value, '9')
-    assert.equal(control(editor(page), LABELS.notify).value, 'say done')
+    assert.equal(control(notifyEditor(page), COMMAND).value, 'say done', 'and the notify the file now says')
     // The buttons swap: there is a way out that is not the write.
     assert.equal(page.node('config-edit').hidden, true)
     assert.equal(page.node('config-save').hidden, false)
@@ -1909,7 +1929,7 @@ test('a write the server refuses leaves the editor open with what was typed in i
   await onThePage(s, async (page) => {
     await page.click('config-edit')
     control(editor(page), LABELS.attempts).value = '0'
-    control(editor(page), LABELS.notify).value = 'say done'
+    control(notifyEditor(page), COMMAND).value = 'say done'
     await page.click('config-save')
 
     // Refused by the validator, whole and by path — the server's own rules,
@@ -1926,7 +1946,7 @@ test('a write the server refuses leaves the editor open with what was typed in i
     assert.equal(page.editing(), true)
     assert.equal(page.node('config-fields').hidden, false)
     assert.equal(control(editor(page), LABELS.attempts).value, '0')
-    assert.equal(control(editor(page), LABELS.notify).value, 'say done', 'the edit that was fine survived too')
+    assert.equal(control(notifyEditor(page), COMMAND).value, 'say done', 'the edit that was fine survived too')
 
     // Fixed in place, from the same editor, and the write goes through.
     control(editor(page), LABELS.attempts).value = '2'
@@ -2036,5 +2056,216 @@ test('leaving the editor discards, and writes nothing', async () => {
     // later: a change accepted and not yet applied is the third state the page
     // exists to avoid (ADR 0015).
     assert.doesNotMatch(SCRIPT, /confirm\(|beforeunload|dialog/)
+  })
+})
+
+// ——— Notifications, and the one value the page writes and never reads back
+// (ADR 0025).
+
+// A product whose notify is the object form, with a channel that needs a
+// credential. The token is in neither this file nor anything the page is served.
+function notifying(extra = {}) {
+  const s = configured()
+  const raw = JSON.parse(readFileSync(file(s), 'utf8'))
+  raw.notify = {
+    events: ['paused', 'passed'],
+    channels: [
+      { kind: 'command', command: 'say it' },
+      { kind: 'telegram', chat: '-1001234567890', thread: 9, tokenEnv: 'DETENT_TEST_PAGE_TOKEN' },
+    ],
+    ...extra,
+  }
+  writeFileSync(file(s), `${JSON.stringify(raw, null, 2)}\n`)
+  return s
+}
+
+test('the configuration reports which events, which channels, and whether a secret is set — never what it is', () => {
+  const s = notifying()
+  delete process.env.DETENT_TEST_PAGE_TOKEN
+  const { notify } = readConfiguration(s.dir)
+
+  assert.equal(notify.shape, 'object')
+  assert.deepEqual(notify.events, { value: ['paused', 'passed'], effective: ['paused', 'passed'] })
+  assert.deepEqual(notify.names, [...EVENTS])
+  assert.deepEqual(notify.kinds.map((k) => k.kind), [...KIND_NAMES])
+  assert.deepEqual(notify.problems, [])
+  assert.equal(notify.secretFile, join('.detent', 'secrets.json'))
+
+  // The channels, each as its kind describes it, and the telegram one's
+  // variable as "named, and not set" rather than as a value.
+  assert.deepEqual(notify.channels[0], { kind: 'command', command: 'say it', where: 'say it', secret: null })
+  assert.deepEqual(notify.channels[1], {
+    kind: 'telegram',
+    chat: '-1001234567890',
+    thread: 9,
+    tokenEnv: 'DETENT_TEST_PAGE_TOKEN',
+    where: 'chat -1001234567890, topic 9',
+    secret: { name: 'DETENT_TEST_PAGE_TOKEN', set: false, where: null, problem: null },
+  })
+
+  // Set, and still no value anywhere in what the page is served. **This is the
+  // one place the page is not shown what the file says**, and it is the whole
+  // point of the design.
+  writeSecret(s.dir, 'DETENT_TEST_PAGE_TOKEN', '123456:AAH-must-never-reach-a-browser')
+  const set = readConfiguration(s.dir)
+  assert.deepEqual(set.notify.channels[1].secret, { name: 'DETENT_TEST_PAGE_TOKEN', set: true, where: join('.detent', 'secrets.json'), problem: null })
+  assert.ok(!JSON.stringify(set).includes('AAH-must-never-reach-a-browser'), 'the token is in what the page is served')
+})
+
+test('a notify the validator would refuse is reported with the file rather than dropped from it', () => {
+  const s = configured()
+  const raw = JSON.parse(readFileSync(file(s), 'utf8'))
+  raw.notify = { events: ['whenever'], channels: [{ kind: 'slack', webhook: 'https://example.com' }] }
+  writeFileSync(file(s), `${JSON.stringify(raw, null, 2)}\n`)
+
+  const { notify } = readConfiguration(s.dir)
+  assert.equal(notify.problems.length, 2)
+  assert.match(notify.problems[0], /^notify\.events\[0\]: "whenever" is not an event/)
+  assert.match(notify.problems[1], /^notify\.channels\[0\]\.kind: "slack" is not a channel detent has/)
+})
+
+test('Notifications is a block of its own: the events as choices, and the channels as a list', async () => {
+  const s = notifying()
+  delete process.env.DETENT_TEST_PAGE_TOKEN
+  await onThePage(s, async (page) => {
+    // The view: text, like the configuration beside it.
+    const view = page.text('notify-view')
+    assert.deepEqual(page.node('notify-view').tags('input', 'select', 'button'), [], 'the view is built out of controls')
+    assert.match(view, /paused — a task paused, or a promotion did not happen — needs a personon/)
+    assert.match(view, /passed — a task passed and landed on the integration branchon/)
+    assert.match(view, /promoted — a batch was promotedoff/)
+    assert.match(view, /Channel 1 — command/)
+    assert.match(view, /Channel 2 — telegram/)
+    assert.match(view, /sends tochat -1001234567890, topic 9/)
+    // And the variable, with set / not set beside it — never what is in it.
+    assert.match(view, /DETENT_TEST_PAGE_TOKEN — named, and not set/)
+    assert.match(page.text('notify-how'), /A token is never in that file/)
+
+    // The choices are in the editor the one Edit button opens, and so are the
+    // channels: one file, one editor, one Save.
+    await page.click('config-edit')
+    assert.equal(page.node('notify-view').hidden, true)
+    assert.equal(page.node('notify-fields').hidden, false)
+    const boxes = notifyEditor(page).all((n) => n.getAttribute('type') === 'checkbox')
+    assert.equal(boxes.length, EVENTS.length, 'every event is a choice')
+    assert.deepEqual(boxes.map((b) => b.checked), EVENTS.map((name) => ['paused', 'passed'].includes(name)))
+    assert.equal(control(notifyEditor(page), COMMAND).value, 'say it')
+    assert.equal(control(notifyEditor(page), 'chat — the id, or @name for a public channel').value, '-1001234567890')
+    assert.equal(control(notifyEditor(page), 'tokenEnv — the variable the bot token is in, never the token').value, 'DETENT_TEST_PAGE_TOKEN')
+    // There is no field for the token, because there is nowhere for it to go.
+    assert.deepEqual(notifyEditor(page).all((n) => n.getAttribute('type') === 'password'), [])
+
+    // Asking for one more event writes the file, and a run would load it.
+    boxes[EVENTS.indexOf('promoted')].checked = true
+    await page.click('config-save')
+    assert.equal(page.editing(), false)
+    assert.deepEqual(page.node('config-problems').children, [])
+    const raw = JSON.parse(readFileSync(file(s), 'utf8'))
+    assert.deepEqual(raw.notify.events, ['paused', 'passed', 'promoted'])
+    assert.deepEqual(raw.notify.channels[1], { kind: 'telegram', chat: '-1001234567890', thread: 9, tokenEnv: 'DETENT_TEST_PAGE_TOKEN' })
+    assert.deepEqual(loadProduct(s.dir).notify.events, ['paused', 'passed', 'promoted'])
+    assert.match(page.text('notify-view'), /promoted — a batch was promotedon/)
+  })
+})
+
+test('a notify that is still the default leaves the key out of the file, and one command stays a command', async () => {
+  const s = configured()
+  await onThePage(s, async (page) => {
+    // Nothing configured: one command channel with no command, which is the
+    // desktop notifier, and a pause.
+    assert.match(page.text('notify-view'), new RegExp(`the desktop notifier on ${process.platform}`))
+    await page.click('config-edit')
+    await page.click('config-save')
+    assert.equal(JSON.parse(readFileSync(file(s), 'utf8')).notify, undefined, 'saving the default writes the key')
+
+    // A command typed into it keeps the shape it has always had, rather than
+    // rewriting a one-line key as an object.
+    await page.click('config-edit')
+    control(notifyEditor(page), COMMAND).value = 'notify-send detent "$DETENT_MESSAGE"'
+    await page.click('config-save')
+    assert.equal(JSON.parse(readFileSync(file(s), 'utf8')).notify, 'notify-send detent "$DETENT_MESSAGE"')
+    assert.deepEqual(loadProduct(s.dir).notify.channels, [{ kind: 'command', command: 'notify-send detent "$DETENT_MESSAGE"' }])
+  })
+})
+
+test('a secret typed on the page goes to a file of its own, 0600, and is never read back', async () => {
+  const s = notifying()
+  delete process.env.DETENT_TEST_PAGE_TOKEN
+  const token = '123456:AAH-typed-on-the-dashboard'
+  await onThePage(s, async (page) => {
+    assert.equal(page.node('notify-secret').hidden, false, 'the control is there, because a channel asks for a secret')
+    assert.deepEqual(page.node('notify-secret-name').children.map((o) => o.getAttribute('value')), ['DETENT_TEST_PAGE_TOKEN'])
+    assert.equal(page.node('notify-secret-value').getAttribute('type'), 'password')
+
+    // An empty field sets nothing: a stray click is not how a working token
+    // gets removed.
+    await page.click('notify-secret-set')
+    assert.match(page.text('notify-secret-note'), /an empty field sets nothing/)
+    assert.ok(!page.reads.includes('POST secret.json'))
+
+    page.node('notify-secret-value').value = token
+    await page.click('notify-secret-set')
+
+    assert.ok(page.reads.includes('POST secret.json'))
+    assert.match(page.text('notify-secret-note'), /DETENT_TEST_PAGE_TOKEN is set in \.detent\/secrets\.json/)
+    assert.match(page.text('notify-secret-note'), /never read back/)
+    assert.equal(page.node('notify-secret-value').value, '', 'the page holds no secret for longer than the request')
+
+    // In the file, 0600, and out of product.json.
+    const secrets = join(s.dir, '.detent', 'secrets.json')
+    assert.deepEqual(JSON.parse(readFileSync(secrets, 'utf8')), { DETENT_TEST_PAGE_TOKEN: token })
+    assert.equal(statSync(secrets).mode & 0o777, 0o600)
+    assert.ok(!readFileSync(file(s), 'utf8').includes(token), 'the token reached product.json')
+
+    // The view now says set, and still carries no value.
+    assert.match(page.text('notify-view'), /DETENT_TEST_PAGE_TOKEN — set, in \.detent\/secrets\.json/)
+    assert.ok(!page.text('notify-view').includes(token))
+  })
+})
+
+test('a secret is written and never served: there is no GET for it, and a name no channel asks for is refused', async () => {
+  const s = notifying()
+  delete process.env.DETENT_TEST_PAGE_TOKEN
+  await dashboard(s, async (base) => {
+    // No reading it back, by construction rather than by omission.
+    const read = await fetch(`${base}/secret.json`)
+    assert.equal(read.status, 405)
+    assert.equal(read.headers.get('allow'), 'POST')
+    assert.match(await read.text(), /written here and never read back/)
+
+    const post = (body, headers = {}) => fetch(`${base}/secret.json`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: base, ...headers },
+      body: JSON.stringify(body),
+    })
+
+    // A name no channel reads is a secret on disk doing nothing.
+    const unknown = await post({ name: 'DETENT_TEST_NOBODY', value: 'x' })
+    assert.equal(unknown.status, 422)
+    assert.match((await unknown.json()).message, /no channel in \.detent\/product\.json asks for DETENT_TEST_NOBODY — DETENT_TEST_PAGE_TOKEN/)
+
+    // A token pasted where the name goes is refused without being echoed.
+    const swapped = await post({ name: '123456:AAHpasted', value: 'x' })
+    assert.equal(swapped.status, 422)
+    assert.match((await swapped.json()).message, /name of an environment variable/)
+
+    // And the same origin rule the configuration has: a page the person did
+    // not open must not replace the token a run sends with.
+    const forged = await fetch(`${base}/secret.json`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'http://example.com' },
+      body: JSON.stringify({ name: 'DETENT_TEST_PAGE_TOKEN', value: 'x' }),
+    })
+    assert.equal(forged.status, 403)
+    assert.throws(() => statSync(join(s.dir, '.detent', 'secrets.json')), /ENOENT/, 'nothing was written by any of them')
+
+    // The write that is allowed, and what comes back: whether it is set, and
+    // the configuration read off disk — with no value in either.
+    const written = await post({ name: 'DETENT_TEST_PAGE_TOKEN', value: 'a-real-looking-token' })
+    assert.equal(written.status, 200)
+    const result = await written.json()
+    assert.equal(result.written, true)
+    assert.deepEqual(result.secret, { name: 'DETENT_TEST_PAGE_TOKEN', set: true, where: join('.detent', 'secrets.json'), problem: null })
+    assert.ok(!JSON.stringify(result).includes('a-real-looking-token'), 'the answer carries the value')
   })
 })

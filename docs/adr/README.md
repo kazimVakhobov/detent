@@ -29,6 +29,7 @@ that changed**.
 | [0022](0022-the-task-detail-is-a-drawer-over-the-section-you-were-on.md) | The task detail is a drawer over the section you were on | accepted; narrows 0020 part 1 |
 | [0023](0023-a-doubt-is-an-attempt-and-every-round-is-recorded.md) | A doubt is an attempt, and every round is recorded | accepted; narrows 0009 |
 | [0024](0024-a-barrier-bars-until-it-passes-and-a-resume-is-a-decision-not-a-move.md) | A barrier bars until it passes, and a resume is a decision rather than a move | accepted; narrows 0009 |
+| [0025](0025-a-channel-is-a-kind-and-the-secret-is-not-in-the-configuration.md) | A channel is a kind, and the secret is not in the configuration | accepted; narrows 0009 |
 
 ## The rules
 
