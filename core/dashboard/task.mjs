@@ -8,6 +8,13 @@
 // when the answer raises a question, not four blocks to scroll past before
 // finding out whether it ran at all.
 //
+// **A block of it is a heading and the space to the next one.** It was a panel,
+// a legend block inside that, a card inside that and a table inside that: three
+// borders before any content, and the content is what somebody opened the
+// drawer to read. The drawer's own edge is what makes it a drawer, and the one
+// border left inside is the innermost — a run, or a table that scrolls
+// sideways (`style.mjs`). Nothing gained one to make up for the two that went.
+//
 // **Every number in that block is already in the journal line** (§11), and
 // nothing here records one. No rate, no average, no projection either:
 // `summary` and the Agents section are where numbers are compared, and this is
@@ -109,16 +116,26 @@ function less(total, part) {
 // reported if it reported one. They are two facts and the line keeps them
 // apart, so a request the CLI never confirmed says that rather than standing in
 // for a confirmation — \`actual\` is null until something tells detent otherwise.
+//
+// **A name is one thing and does not break inside itself**: the agent and the
+// model it ran are an \`.id\`, which the stylesheet holds together, so
+// \`claude · claude-opus-5\` is never four lines of one word each. What is said
+// about the name beside it is a part of its own, and the line breaks between
+// the two rather than inside either.
 function ranOn(role) {
   if (!role) return notReported()
   const asked = role.requested || null
   const actual = role.actual || null
+  // The space between a name and what is said about it is outside both, so
+  // that is where the line breaks if it has to.
+  const named = (text) => el('span', { class: 'id' }, role.agent + ' · ' + text)
   if (actual && asked && actual !== asked) {
-    return el('span', {}, role.agent + ' · ' + actual, el('span', { class: 'muted' }, ' (asked for ' + asked + ')'))
+    return el('span', {}, named(actual), ' ',
+      el('span', { class: 'muted' }, '(asked for ', el('span', { class: 'id' }, asked), ')'))
   }
-  if (actual) return el('span', {}, role.agent + ' · ' + actual)
-  if (asked) return el('span', {}, role.agent + ' · ' + asked, el('span', { class: 'muted' }, ' (requested — the CLI reported no model)'))
-  return el('span', {}, role.agent, el('span', { class: 'muted' }, ' — no model named'))
+  if (actual) return el('span', {}, named(actual))
+  if (asked) return el('span', {}, named(asked), ' ', el('span', { class: 'muted' }, '(requested — the CLI reported no model)'))
+  return el('span', {}, el('span', { class: 'id' }, role.agent), el('span', { class: 'muted' }, ' — no model named'))
 }
 
 // How long it ran, from the two instants the line carries and from no clock on
@@ -136,20 +153,32 @@ function took(started, finished) {
 
 const howMany = (n) => typeof n === 'number' ? n + (n === 1 ? ' attempt' : ' attempts') : el('span', {}, 'attempts ', notReported())
 
+// One pass: what it cost, its tokens in and out, and which model ran it. A
+// block and not a row — \`Pass / Cost / Tokens / Model\` was four columns inside
+// a drawer 680px wide at its widest, and the one holding two model names broke
+// \`claude · claude-opus-5\` across four lines, one word per line. The figures
+// are the figures the row had, from the same two numbers the journal line
+// carries, and a figure the line has not got still says it is not reported.
+function pass(name, paid, role) {
+  const figure = (label, value) => el('div', { class: 'figure' }, el('span', { class: 'muted' }, label), value)
+  return el('div', { class: 'pass' },
+    el('div', { class: 'legend' }, name),
+    figure('cost', dollars(paid)),
+    figure('tokens', tokensOf(paid)),
+    figure('model', ranOn(role)))
+}
+
 // The two passes a run pays for, kept apart: the agent that did the work and
 // the reviewer that read it. One number for both would hide the thing the
 // acceptance pass exists to be judged on (ADR 0004) — what reading the work
-// cost against what doing it cost.
+// cost against what doing it cost — so they are side by side, which is what
+// makes them a comparison.
 function spending(run) {
-  const node = el('table')
   const paid = run.acceptance ? run.acceptance.cost : null
-  const implement = less(run.cost, paid)
   const models = run.models || {}
-  table(node, [['Pass'], ['Cost', 'num'], ['Tokens', 'num'], ['Model']], [
-    ['Implementation', dollars(implement), tokensOf(implement), ranOn(models.implement)],
-    ['Acceptance', dollars(paid), tokensOf(paid), ranOn(models.accept)],
-  ], 'nothing')
-  return scrolled(node)
+  return el('div', { class: 'passes' },
+    pass('Implementation', less(run.cost, paid), models.implement),
+    pass('Acceptance', paid, models.accept))
 }
 
 // Whether it landed, and on what. A merge is the end of a run that worked
@@ -221,7 +250,7 @@ function ran(run) {
       run.resumed ? el('span', { class: 'status info' }, icon('↻'), 'resumed — it carried on what an earlier run left behind') : null),
     spending(run),
     el('div', { class: 'line' }, 'The run: ', dollars(run.cost), ' · ', tokensOf(run.cost),
-      el('span', { class: 'muted' }, ' — the total the line recorded, which the two rows above come out of')),
+      el('span', { class: 'muted' }, ' — the total the line recorded, which the two passes above come out of')),
     rounds ? rounds.map((round, i) => roundLine(round, i === rounds.length - 1 ? run.reason : null)) : gaugeStopped(run.gauge),
     el('div', { class: 'line' }, landed(run)),
     rounds ? null : el('div', { class: 'line' }, el('span', { class: 'muted' }, 'acceptance: '), verdict(run.acceptance, run.reason)),

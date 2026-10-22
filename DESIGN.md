@@ -1267,21 +1267,25 @@ somebody was — no server route, and nothing fetched to change section
 ([ADR 0020](docs/adr/0020-the-dashboard-is-sections-and-the-configuration-is-read-before-it-is-written.md)).
 The sections are:
 
-- **Overview** — what is happening and what is next, because that is what
-  somebody opens the page to find out. **Running now**: which repository, which
-  task, which attempt and how long it has been going, from the claim's
-  `started` against the read's own clock — or, when nothing is running, a
-  sentence saying so, since an empty box reads the same either way. **Next
-  up**: the next few of `todo/` in the order a run would take them, which is
-  ascending task id, and the line above the table says so; a barrier
-  (`touches_contract`) is marked as one, because it runs alone and nothing
-  queued past it starts until it has landed (§8). **Waiting for you**: the
-  paused tasks with why each stopped — the same rows Queue lists and the strip
-  counts, because the strip is a line saying how many and this is the list
-  saying which. Then the figures `summary` computes, from the same code: they
-  answer "was it worth it", which is a different question from "what now" and
-  so reads under those three rather than instead of them. Nothing here is a
-  prediction — no estimate of how long a run has left or what it will cost.
+- **Overview** — how the runs have gone, and then what is happening and what
+  is next. **It leads with the figures** `summary` computes, from the same
+  code: the pass rate, what a pass costs, how many attempts a run takes, how
+  many green runs the reviewer sent back and how many tasks are paused. They
+  were the last block on the landing screen under the heading "was it worth
+  it", which asks whether to regret the figures rather than naming them, of
+  somebody who had not read one yet — so the heading says what they are and
+  the block is first. Then, in the order a person asks them in: **Running
+  now**, which repository, which task, which attempt and how long it has been
+  going, from the claim's `started` against the read's own clock — or, when
+  nothing is running, a sentence saying so, since an empty box reads the same
+  either way. **Next up**: the next few of `todo/` in the order a run would
+  take them, which is ascending task id, and the line above the table says so;
+  a barrier (`touches_contract`) is marked as one, because it runs alone and
+  nothing queued past it starts until it has landed (§8). **Waiting for you**:
+  the paused tasks with why each stopped — the same rows Queue lists and the
+  strip counts, because the strip is a line saying how many and this is the
+  list saying which. Nothing here is a prediction — no estimate of how long a
+  run has left or what it will cost.
 - **Repositories** — where each repository's `agent/dev` stands against its
   `compare` branch (identical, behind — agents cannot see your work — or tasks
   ahead, waiting for your review), and the same numbers per repository. Not
@@ -1289,8 +1293,31 @@ The sections are:
   written, and two renderings of one fact are free to disagree.
 - **Queue** — all four folders: `todo/`, the paused tasks with why each was
   paused and the reviewer's doubts, the `done/` detent has finished with, and
-  the `failed/` a person abandoned. **Each task is a card, not a row.** A
-  folder here has about a third of the width, and a row that narrow could not
+  the `failed/` a person abandoned. **They are one row of four, and it stays
+  four.** The grid fitted as many columns as the width allowed and wrapped the
+  rest, so at an ordinary window the fourth folder sat underneath the first and
+  "Abandoned by hand" read as a fourth thing about `todo/` rather than as the
+  fourth folder; the tracks are four, equal, and do not reflow at any desktop
+  width. Below the width the drawer already calls narrow they stack, because
+  four columns of a phone are not four columns and a page whose body scrolls
+  sideways is worse than four folders read one after another. **A card never
+  leaves its column**: a grid item's default `min-width` is its content's
+  intrinsic minimum, and a card's rows do not wrap on purpose, so the track
+  stopped being a ceiling and a long path ran the card under the next column
+  and off the edge of the page — the four children are `min-width: 0`, so the
+  track is the width and the content ellipsises or scrolls inside it.
+  **A task being run right now is marked where it sits**, and comes first in
+  its folder whatever the sort is: nothing moves the file until `settle`, so a
+  running task is in `todo/` among the ones nothing has touched, and it was
+  drawn under the line saying the journal had never seen it. Its card says that
+  it is running and which attempt, as an icon and a word like every other
+  status, out of the `active` the page has already read — **and nothing about a
+  phase**, because a claim is a repository, a task, an attempt and a pid, and
+  which of the gauge, the link check, the acceptance pass or the merge is under
+  way is recorded nowhere. A claim whose process is gone is not a running task
+  and is not drawn as one
+  ([ADR 0017](docs/adr/0017-a-claim-locks-the-configuration-only-while-its-run-is-alive.md)). **Each task is a card, not a row.** A
+  folder here has about a quarter of the width, and a row that narrow could not
   hold what the journal already knew about a task — the words "abandoned by
   hand" in `failed/` sat under the height of their own row and were never
   seen. A card is the number and its name on one line, the path under it,
@@ -1378,6 +1405,14 @@ to the top so the way out stays reachable. Nothing animates and nothing
 transitions. A drawer is a positioned element and a `hidden` attribute: no
 router, no second asset, and the same one request.
 
+**What separates one block of it from the next is space and a heading.** The
+detail was a panel, a legend block inside that, a card inside that and a table
+inside that: three borders before any content, and the content is what somebody
+opened the drawer to read. The drawer keeps its own edge — that is what makes it
+a drawer — and inside it the border that is left is the innermost one, around a
+run or around a table that scrolls sideways. No block gained one to make up for
+the two that went.
+
 **It leads with its runs.** What its attempts did is the first block, directly
 under the head and before the frontmatter and the body: a person opening a task
 that has run wants "what happened and what did it cost", and the body is what
@@ -1390,7 +1425,12 @@ passed first time and the attempt count alone does not tell them apart. Then
 **what the implementation cost and what the acceptance pass cost, kept apart**,
 each with its tokens and the model it ran on: the name that was requested and,
 when the CLI reported a different one, the name it reported — a request the CLI
-never confirmed says so rather than standing in for a confirmation. The run's
+never confirmed says so rather than standing in for a confirmation. **Those two
+are a block each and not a row each.** `Pass / Cost / Tokens / Model` was four
+columns inside a drawer 680px wide at its widest, and the column holding two
+model names broke `claude · claude-opus-5` across four lines, one word per
+line: a model name is an identifier and reads as one thing, so nothing breaks
+inside one and a name wider than the block it is in scrolls instead. The run's
 own total is shown beside those two rather than instead of them, so a line
 whose numbers disagree with each other shows that it does; the implementation
 figure is the total less the acceptance figure and nothing else is added up to

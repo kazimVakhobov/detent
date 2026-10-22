@@ -6,6 +6,52 @@ Notable changes, newest first. The format follows
 
 ## Unreleased
 
+**The dashboard's queue is four columns in one row, and it stays four.** The
+four folders were in a grid of as-many-as-fit, so at an ordinary window three
+sat in a row and **Abandoned by hand** dropped underneath **Queue**, where it
+read as a fourth thing about `todo/` rather than as the fourth folder. The
+tracks are now four, equal, and do not reflow at any desktop width; below the
+width the drawer already calls narrow they stack, because four columns of a
+phone are not four columns. **And a card no longer leaves its column**: a grid
+item's default `min-width` is its content's intrinsic minimum and a card's rows
+do not wrap on purpose, so a long path made the item wider than its track, the
+track stopped being a ceiling, and the card ran under the next column and off
+the right-hand edge of the page. The four children are `min-width: 0`, the
+track is the width, and the content ellipsises or scrolls inside it the way it
+always meant to. The headings and the sort under each are untouched.
+
+**A task that is being run now looks like one.** Its file stays in `todo/`
+until `settle` moves it, so it sat among the tasks nothing had touched, under
+the line *the journal has not seen this task — nothing has run it*, while
+Overview's **Running now** said otherwise in another tab. Its card now carries
+that it is running and which attempt, as an icon and a word like every other
+status, and comes first in its folder whatever the sort is. It says nothing
+about a phase: a claim is a repository, a task, an attempt and a pid, and which
+of the gauge, the link check, the acceptance pass or the merge is under way is
+recorded nowhere. A claim whose process is gone is not a running task and is
+not drawn as one. No new read and no new endpoint — this is the `active` the
+page had already read.
+
+**The task detail loses a level of boxing, and the agent figures become
+blocks.** It was a panel, a legend block inside that, a card inside that and a
+table inside that: three borders before any content, and the content is what
+somebody opened the drawer to read. What separates one block from the next is
+space and a heading now; the drawer keeps its own edge, which is what makes it
+a drawer, and the border left inside is the innermost one. The `Pass / Cost /
+Tokens / Model` table was four columns inside a drawer 680px wide at its
+widest, and it broke `claude · claude-opus-5` across four lines, one word per
+line — it is a block per pass, each with what it cost, its tokens in and out
+and the model that ran it, and a model name no longer breaks mid-identifier.
+Every figure is the figure it was, out of the same two numbers the journal line
+carries.
+
+**Overview leads with the figures, and their heading says what they are.** The
+pass rate, cost per pass, attempts per run, green-but-not-done and paused were
+the last block on the landing screen, under a heading asking *was it worth it*
+— a question about whether to regret the figures, put to somebody who had not
+read one of them yet. The three blocks under them keep their order: what is
+running, what runs next, what is waiting.
+
 **`notify` was one command on one occasion, and the dashboard said it ran "when
 a task finishes" — which is not what the code did: a task that passed was
 settled in silence.** It now accepts an object — which events, and a list of
