@@ -1,11 +1,18 @@
-// The dashboard's one write: a product's configuration, between runs
-// (ADR 0015).
+// The dashboard's writes: a product's configuration, between runs (ADR 0015),
+// and a notification channel's secret, which goes somewhere else entirely
+// (ADR 0025).
 //
 // What may change is the configuration and nothing else — the models for each
 // role, product-wide and per repository, `attempts`, `timeout`, `concurrency`
 // and `notify`. `repos`, `queue`, `docs` and `branches` name things on disk,
 // and a page cannot create what it names; they are read back so the page can
 // show them, each with the reason it is not editable here.
+//
+// **One value is written and never read back**, which is the one break in the
+// rule that this page shows what the file says: a channel's token. It is not in
+// `product.json` — the validator refuses it there by name — and
+// `writeChannelSecret` puts it in a file of its own, `0600` and gitignored,
+// while `readConfiguration` reports only whether it is set and where.
 //
 // Two rules hold every write. It is refused while a run is active, by the same
 // `state.json` that `recover` reads: the files that judge an agent are
@@ -19,7 +26,9 @@
 import { renameSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import process from 'node:process'
+import { EVENTS, EVENT_LABELS, KINDS, KIND_NAMES, notifyPlan, validateNotify } from './notify.mjs'
 import { AGENT_NAMES, DEFAULTS, PRODUCT_FILE, ROLES, modelSuggestionsOf, readConfig, validateProduct } from './product.mjs'
+import { ENVIRONMENT, SECRETS_FILE, secretNameProblem, secretState, writeSecret } from './secret.mjs'
 import { isAlive, readState } from './state.mjs'
 
 // The keys of `product.json` a page may change (ADR 0015, decision 1). Plus
@@ -90,7 +99,7 @@ export function readConfiguration(productDir) {
     attempts: field(raw.attempts, DEFAULTS.attempts),
     timeout: field(raw.timeout, DEFAULTS.timeout),
     concurrency: field(raw.concurrency, DEFAULTS.concurrency),
-    notify: field(raw.notify, null),
+    notify: notifyConfiguration(dir, raw.notify),
     repos: declared.map((repo) => ({
       name: typeof repo.name === 'string' ? repo.name : null,
       models: roles(isObject(repo.models) ? repo.models : {}),
@@ -109,6 +118,100 @@ export function readConfiguration(productDir) {
       },
     ],
   }
+}
+
+// What the file says about notification: which events, which channels, and for
+// a channel that needs a credential **whether** it is set and where — never
+// what it is (ADR 0025).
+//
+// **This is the one place the page is not shown what the file says.** Every
+// other value on it is `raw[key]` read back, because that is how an editor
+// shows a current value — and a token read back is a token in a browser, in a
+// screenshot, in whatever the page is open next to. So the raw key is never
+// echoed: the channels are the normalised ones, built from the keys each kind
+// declares, and a secret is reported as a state with no value in it. A `token`
+// somebody typed into the file is not served here *and* is refused by the
+// validator by name, so the page cannot read it back and cannot write it.
+//
+// It reports rather than validates, like everything else here — but a channel
+// the validator would drop must not simply vanish from the page, so the
+// problems come back with it and the page says the file needs a hand.
+function notifyConfiguration(dir, raw) {
+  const problems = []
+  const plan = validateNotify(raw, 'notify', (path, message) => problems.push(`${path}: ${message}`))
+  return {
+    // Absent, a command, or the object: the page's note says which, because
+    // "no channels" and "the desktop notifier" look alike and are not.
+    shape: raw === undefined || raw === null ? 'absent' : typeof raw === 'string' ? 'command' : 'object',
+    // The file's own list, or `null` where it says nothing, beside the events a
+    // run would use — the same pair every other field carries, so an empty
+    // choice leaves the key out rather than writing the default into it.
+    events: {
+      value: isObject(raw) && Array.isArray(raw.events) ? raw.events.filter((name) => typeof name === 'string') : null,
+      effective: plan.events,
+    },
+    channels: plan.channels.map((channel) => {
+      const kind = KINDS[channel.kind]
+      const name = kind.secret(channel)
+      return { ...channel, where: kind.describe(channel), secret: name === null ? null : secretState(dir, name) }
+    }),
+    names: EVENTS,
+    labels: EVENT_LABELS,
+    // Each kind with the fields it declares, so the page draws a channel
+    // without knowing what a chat id or a shell command is.
+    kinds: KIND_NAMES.map((name) => ({ kind: name, fields: KINDS[name].fields })),
+    secretFile: SECRETS_FILE,
+    problems,
+  }
+}
+
+// The secret typed on the dashboard: the one value a page may write that does
+// not go into `product.json` (ADR 0025). It goes to a file of its own, created
+// `0600` and gitignored, and what comes back says whether it is set and never
+// what it is.
+//
+// Refused for a name no channel asks for, so the file cannot quietly collect
+// values nothing will ever read — a secret stored under a name with no channel
+// behind it is a secret on disk doing nothing.
+//
+// **Not refused during a run, and that is deliberate.** ADR 0015 shuts the
+// configuration while a run is active because `product.json` is one of the
+// files fingerprinted before each of the agent's turns, and a write now would
+// pause the task blaming the agent. This file is not one of those, no agent can
+// see it, and a run whose channel is missing its token is exactly when somebody
+// needs to supply one.
+export function writeChannelSecret(productDir, patch) {
+  const dir = resolve(productDir)
+  if (!isObject(patch) || typeof patch.name !== 'string') {
+    return { outcome: 'invalid', message: 'the body names no secret — { "name": "TELEGRAM_BOT_TOKEN", "value": "…" }, or a null value to unset it' }
+  }
+  const problem = secretNameProblem(patch.name)
+  // The name, never the value: whoever swapped the two must not have the token
+  // printed back at them.
+  if (problem) return { outcome: 'invalid', message: `${patch.name}: ${problem}` }
+  if (patch.value !== null && patch.value !== undefined && typeof patch.value !== 'string') {
+    return { outcome: 'invalid', message: `the value for ${patch.name} must be text, or null to unset it` }
+  }
+
+  const { raw } = readConfig(dir)
+  const named = notifyPlan(isObject(raw) ? raw.notify : undefined).channels.flatMap((channel) => {
+    const name = KINDS[channel.kind].secret(channel)
+    return name === null ? [] : [name]
+  })
+  if (!named.includes(patch.name)) {
+    return {
+      outcome: 'unknown',
+      message: `no channel in ${PRODUCT_FILE} asks for ${patch.name}${named.length > 0 ? ` — ${[...new Set(named)].join(', ')}` : ', and none of its channels asks for a secret at all'}`,
+    }
+  }
+
+  const secret = writeSecret(dir, patch.name, patch.value ?? null)
+  const where = secret.set
+    ? secret.where === ENVIRONMENT
+      ? `set in ${ENVIRONMENT}, which is what a send uses — ${SECRETS_FILE} was written and the variable wins over it`
+      : `set in ${secret.where}`
+    : 'not set'
+  return { outcome: 'written', secret, message: `${patch.name} is ${where}. It is never read back to this page.` }
 }
 
 // The parsed file in, the file it would become out, with the problems the patch

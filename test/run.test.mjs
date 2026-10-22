@@ -9,14 +9,17 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import process from 'node:process'
 import { failures } from '../core/doctor.mjs'
 import { snapshotRefs } from '../core/git.mjs'
 import { attemptLogPath, openAttemptLog } from '../core/log.mjs'
 import { scanProduct } from '../core/scan.mjs'
 import { createQueue, readQueue } from '../core/task.mjs'
 import { readJournal } from '../core/journal.mjs'
+import { run as runCommand } from '../core/commands/run.mjs'
+import { notifyProblems } from '../core/notify.mjs'
 import { runTask } from '../core/run.mjs'
-import { assertInvariant, gitProduct, sh, show } from './support/product.mjs'
+import { assertInvariant, gitProduct, notifier, sh, show } from './support/product.mjs'
 
 const BRANCH = 'agent/task-0042-wallet-endpoint'
 // Green when value.txt says "ok".
@@ -52,11 +55,6 @@ function agent(...steps) {
 }
 
 const write = (value) => (cwd) => writeFileSync(join(cwd, 'value.txt'), `${value}\n`)
-
-function notifier() {
-  const sent = []
-  return { sent, notify: (product, details) => (sent.push(details), { sent: true, via: 'test' }) }
-}
 
 test('green on the first attempt: one commit, merged into agent/dev, the branch deleted, the task done', async () => {
   const s = setup()
@@ -134,6 +132,7 @@ test('red on the last attempt: paused in hold/, work parked with its outcome, th
   assert.ok(!existsSync(join(s.dir, 'tasks', 'todo', '0042-wallet-endpoint.md')))
 
   assert.equal(n.sent.length, 1)
+  assert.equal(n.sent[0].event, 'paused', 'a pause is the event that has always been sent (ADR 0025)')
   assert.equal(n.sent[0].outcome, 'escalated')
   assert.equal(n.sent[0].branch, BRANCH)
   assert.match(n.sent[0].message, /task 0042 \(acme-api\) is paused — escalated: 3 identical failures on test/)
@@ -671,4 +670,73 @@ printf '%s' '${JSON.stringify({ type: 'result', subtype: 'success', is_error: fa
   assert.equal(unknown.status, 2)
   assert.match(unknown.stderr, /^detent run: not in agent-loop\/tasks\/todo\/: 0099$/m)
   assert.equal(existsSync(join(s.dir, 'tasks')), false, 'and the default queue was never created')
+})
+
+// A task that passed is news too, to whoever asked for it — and to nobody
+// otherwise, which is why every other test in this file sees nothing on a pass
+// (ADR 0025).
+test('a passed task notifies when its event is asked for, and the journal line carries a result per channel', async () => {
+  const s = setup({}, { notify: { events: ['passed'], channels: [{ kind: 'command', command: 'true' }] } })
+  const n = notifier()
+  const result = await runTask(s.product, s.repo, s.task, { invoke: agent(write('ok')).invoke, notify: n.notify })
+
+  assert.equal(result.outcome, 'passed')
+  assert.equal(n.sent.length, 1)
+  assert.equal(n.sent[0].event, 'passed')
+  assert.equal(n.sent[0].outcome, 'passed')
+  assert.match(n.sent[0].message, /^task 0042 \(acme-api\) passed — merged into agent\/dev as [0-9a-f]{7} after 1 attempt\. Nothing is waiting for you\.$/)
+
+  // The journal says what each channel did, which is what the terminal prints
+  // and what a person reads afterwards.
+  assert.equal(result.notified.event, 'passed')
+  assert.equal(result.notified.asked, true)
+  assert.deepEqual(result.notified.channels, [{ kind: 'test', where: 'the test', sent: true, via: 'test' }])
+  const [line] = readFileSync(join(s.dir, 'runs', 'journal.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+  assert.deepEqual(line.notified, result.notified, 'the journal line is the record')
+})
+
+test('a channel that fails is reported per channel and never fails the run', async () => {
+  const s = setup({}, { notify: { channels: [{ kind: 'command', command: 'echo "no route" >&2; exit 7' }, { kind: 'command', command: 'true' }] } })
+  // The real dispatcher, not the stub: what is being asserted is that two
+  // channels are attempted, that the first one's failure is a line rather than
+  // an exception, and that the run's outcome is untouched by either.
+  const result = await runTask(s.product, s.repo, s.task, { invoke: agent(write('no'), write('no'), write('no')).invoke })
+
+  assert.equal(result.outcome, 'escalated', 'the run ended on its own terms')
+  assert.equal(result.notified.channels.length, 2)
+  assert.equal(result.notified.channels[0].sent, false)
+  assert.match(result.notified.channels[0].error, /exit code 7: no route/)
+  assert.equal(result.notified.channels[1].sent, true)
+  assert.deepEqual(notifyProblems(result.notified).length, 1)
+  assert.match(notifyProblems(result.notified)[0], /^could not notify via command \(echo "no route" >&2; exit 7\)/)
+})
+
+test('detent run prints what each channel did, under the task it is about', async () => {
+  const s = setup({}, { notify: { channels: [{ kind: 'command', command: 'echo "no route to chat" >&2; exit 3' }, { kind: 'command', command: 'true' }] } })
+  // `run` refuses on what `doctor` would fail, and doctor asks PATH: a
+  // declared agent nobody installed is a run refused before anything starts.
+  const bin = mkdtempSync(join(tmpdir(), 'detent-bin-'))
+  writeFileSync(join(bin, 'claude'), '#!/bin/sh\n')
+  chmodSync(join(bin, 'claude'), 0o755)
+  const path = process.env.PATH
+  const out = []
+  let code
+  try {
+    process.env.PATH = `${bin}:${path}`
+    code = await runCommand(s.product, [], {}, {
+      runTask: (product, repo, task) => runTask(product, repo, task, { invoke: agent(write('no'), write('no'), write('no')).invoke }),
+      out: { write: (chunk) => (out.push(String(chunk)), true) },
+      err: { write: () => true },
+    })
+  } finally {
+    process.env.PATH = path
+  }
+
+  const printed = out.join('')
+  assert.equal(code, 1, printed)
+  assert.match(printed, /^0042 {2}paused \(escalated\): 3 identical failures on test/m)
+  // One line per channel that did not deliver, and nothing for the one that
+  // did: two channels and one sentence (ADR 0025).
+  assert.match(printed, /^ {6}could not notify via command \(echo "no route to chat" >&2; exit 3\): exit code 3: no route to chat$/m)
+  assert.equal(printed.match(/could not notify/g).length, 1)
 })

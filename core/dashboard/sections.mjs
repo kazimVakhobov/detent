@@ -103,6 +103,13 @@ export const SECTIONS = [
     // is in the document, the editor is the half that is hidden until somebody
     // asks for it, and the lock above both is why the asking is refused during
     // a run.
+    //
+    // Notifications is a block of its own and not a row among the limits
+    // (ADR 0025): the events are choices and the channels are a list, and
+    // neither is one value under one key. It is drawn from the same read and
+    // written by the same Save — one file, one editor. The secret beside it is
+    // the exception that writes somewhere else, and the only control on this
+    // page whose value is never read back.
     markup: `<h2>Configuration</h2>
 <div class="panel" id="config">
   <div class="status look lock" id="config-lock"></div>
@@ -117,6 +124,20 @@ export const SECTIONS = [
     <span id="config-note" class="muted"></span>
   </div>
   <ul class="problems" id="config-problems"></ul>
+</div>
+<h2>Notifications</h2>
+<div class="panel" id="notify">
+  <div id="notify-view"></div>
+  <div id="notify-fields" hidden></div>
+  <ul class="problems" id="notify-problems"></ul>
+  <p class="muted" id="notify-how"></p>
+  <div class="actions" id="notify-secret" hidden>
+    <label for="notify-secret-value">Its secret</label>
+    <select id="notify-secret-name"></select>
+    <input type="password" id="notify-secret-value" placeholder="the token — written to a file of its own, never read back">
+    <button type="button" id="notify-secret-set">Set it</button>
+    <span id="notify-secret-note" class="muted"></span>
+  </div>
 </div>
 <h2>Shown here, changed on disk</h2>
 <div class="scroll"><table id="fixed"></table></div>`,

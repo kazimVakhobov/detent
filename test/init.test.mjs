@@ -335,3 +335,30 @@ test('a queue created where nothing can commit it says so, and says a different 
   )
   assert.doesNotMatch(second, /is not in a git repository/, 'which of the two it is, and not both')
 })
+
+// A `.gitignore` for the one file detent creates that must never be committed
+// (ADR 0025). There was none at all before this, which is the whole reason a
+// token in `product.json` was the wrong place for one.
+test('detent init writes the .gitignore that keeps a channel\'s secret out of a commit', () => {
+  const dir = shop()
+  const env = withAgents(['claude'], (path) => ({ ...process.env, PATH: `${path}:${process.execPath.replace(/\/node$/, '')}` }))
+
+  const out = execFileSync(process.execPath, [cli, 'init', '--product', dir, '--no-agent'], { encoding: 'utf8', env })
+  assert.match(out, /^wrote \.detent\/\.gitignore — \.detent\/secrets\.json is where a notification channel's token goes if you type it on the dashboard, and it is never committed$/m)
+
+  const ignore = join(dir, '.detent', '.gitignore')
+  assert.match(readFileSync(ignore, 'utf8'), /^secrets\.json$/m)
+  // It goes inside `.detent/`, the folder detent owns, so a `.gitignore` a
+  // person wrote at the product root is left exactly as they wrote it.
+  assert.equal(existsSync(join(dir, '.gitignore')), false)
+
+  // And git agrees, which is the only opinion that matters here.
+  sh(dir, 'init', '--quiet')
+  writeFileSync(join(dir, '.detent', 'secrets.json'), '{}\n')
+  assert.equal(execFileSync('git', ['-C', dir, 'check-ignore', '.detent/secrets.json'], { encoding: 'utf8' }).trim(), '.detent/secrets.json')
+
+  // Written once: a re-run neither duplicates the rule nor announces it again.
+  const again = execFileSync(process.execPath, [cli, 'init', '--product', dir, '--no-agent'], { encoding: 'utf8', env })
+  assert.doesNotMatch(again, /\.gitignore/)
+  assert.equal(readFileSync(ignore, 'utf8').match(/^secrets\.json$/gm).length, 1)
+})

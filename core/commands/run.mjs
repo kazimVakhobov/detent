@@ -12,6 +12,7 @@ import { ask as defaultAsk } from '../ask.mjs'
 import { failures } from '../doctor.mjs'
 import { attemptLogPath } from '../log.mjs'
 import { barring, elsewhere, lastRuns, offer, paused, PLAN, RESUME } from '../paused.mjs'
+import { notifyProblems } from '../notify.mjs'
 import { INTERACTIVE, amendPrompt, amended, before, openAgent } from '../plan.mjs'
 import { moveAndRecord, QueueRepositoryError } from '../queue.mjs'
 import { scanProduct } from '../scan.mjs'
@@ -189,7 +190,11 @@ export async function run(product, ids, values = {}, { runTask: runOne = runTask
     },
     onFinish: (task, result) => {
       out.write(`${task.id}  ${line(result)}\n`)
-      if (result.notified && !result.notified.sent) out.write(`      could not notify: ${result.notified.error}\n`)
+      // One line per channel that did not deliver, naming the channel and
+      // where it was aimed (ADR 0025): a product with two channels is told
+      // which one failed, and one failing says nothing about the other. The
+      // sentence is `core/notify.mjs`'s, because `promote` prints the same one.
+      for (const problem of notifyProblems(result.notified)) out.write(`      ${problem}\n`)
     },
   })
   // The queue is how the next machine knows what has been done. A run that

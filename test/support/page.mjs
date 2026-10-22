@@ -26,6 +26,9 @@ class StubNode {
     this.hidden = Object.hasOwn(attrs, 'hidden')
     this.disabled = false
     this.selected = false
+    // A checkbox answers `.checked` the way a select's option answers
+    // `.selected`: a property, set and read by the script rather than drawn.
+    this.checked = Object.hasOwn(attrs, 'checked')
     this.placeholder = attrs.placeholder ?? ''
     this.className = attrs.class ?? ''
     // A browser answers `.id` as well as `getAttribute('id')`, and
@@ -165,7 +168,7 @@ export function openPage(base, { hash = '' } = {}) {
   const location = { hash }
 
   const start = new Function('document', 'window', 'location', 'fetch', 'setInterval', 'Node',
-    `${SCRIPT}\nreturn { refresh, loadConfig, refreshConfig, openEditor, save, discard, showSection, closeTask, inside: () => ({ config, editing, fields }) }`)
+    `${SCRIPT}\nreturn { refresh, loadConfig, refreshConfig, openEditor, save, discard, sendSecret, showSection, closeTask, inside: () => ({ config, editing, fields }) }`)
 
   const page = start(document, window, location, traced, (call, every) => timers.push({ call, every }), StubNode)
 

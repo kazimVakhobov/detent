@@ -457,11 +457,55 @@ never seen. So the notification names the paths and the person's step: merge
 `agent/dev` into the task branch, resolve, commit, and move the task back to
 `todo/`. The next run lands it.
 
-`notify` in `product.json` is a shell command. It gets the message on stdin and
-`DETENT_TASK`, `DETENT_REPO`, `DETENT_OUTCOME`, `DETENT_BRANCH` and
-`DETENT_MESSAGE` in its environment — enough to reach a chat, a phone or a mail
-without detent holding a credential for any of them. Without it, detent tries a
-desktop notification. A notifier that fails is reported, never fatal.
+### Who is told, and how
+
+`notify` in `product.json` is **a shell command, or which events and a list of
+channels**
+([ADR 0025](docs/adr/0025-a-channel-is-a-kind-and-the-secret-is-not-in-the-configuration.md)).
+A string means one command on a pause, which is what it has always meant, so no
+file has to be edited to go on behaving as it did.
+
+```json
+"notify": {
+  "events": ["paused", "passed"],
+  "channels": [
+    { "kind": "command",  "command": "notify-send detent \"$DETENT_MESSAGE\"" },
+    { "kind": "telegram", "chat": "-1001234567890", "thread": 9, "tokenEnv": "TELEGRAM_BOT_TOKEN" }
+  ]
+}
+```
+
+**Events are named, and the default is a pause and nothing else.** `paused` is a
+task that needs a person — or a promotion that did not happen; `passed` is a task
+that landed on the integration branch; `promoted` is a batch that reached
+`agent/staging` (§7). The raw outcomes may be named instead — `escalated`,
+`rejected`, `error`, `red` — so somebody can ask for `error` alone. Present means
+exactly what it says: `"events": []` is silence.
+
+**A channel is a kind, one module per kind** (`core/notify/`). The `command` kind
+gets the message on stdin and `DETENT_EVENT`, `DETENT_TASK`, `DETENT_REPO`,
+`DETENT_OUTCOME`, `DETENT_BRANCH` and `DETENT_MESSAGE` in its environment —
+enough to reach a chat, a phone or a mail with detent holding no credential for
+any of them, which is still the kind that needs nothing. With no command it is
+the desktop notifier, which is what a product that configures nothing gets. The
+`telegram` kind is one POST to the Bot API and needs no dependency: Node 22 has
+`fetch`. A kind is added once it has delivered a real message, not once its
+module compiles — 0018's rule for agents, for the same reason.
+
+**The token is never in `product.json`.** The channel names the environment
+variable it is in and detent reads it at send time; a `token` key is refused by
+name, because that file is read back and served to the dashboard and nothing
+gitignores it. A secret may also be typed on the dashboard, which writes it to
+`.detent/secrets.json`, created `0600` and excluded by the `.detent/.gitignore`
+`init` writes — and the page reports **whether** it is set, never what it is
+(§12). A channel whose variable is unset is reported as "named, and not set".
+Nothing prints, logs or journals a secret: a failed send names the condition.
+
+**A channel that fails is reported and never fatal, per channel.** One failing
+does not stop the others, `record.notified` carries a result per channel, and
+`detent run` and `detent promote` print a line for each that did not deliver. A
+send is attempted once: detent is not a notification router, and the task is
+already paused.
 
 ---
 
@@ -748,6 +792,10 @@ concluded, and which tasks went into which batch.
 <product>/
   .detent/product.json       composition, branches, gauge, models
   .detent/state.json         per repository: active task, attempt, started at
+  .detent/secrets.json       0600, gitignored, and never served to the page: a
+                             notification channel's token, if it is not in the
+                             environment (§5)
+  .detent/.gitignore         written by `init`, and the reason it exists
   tasks/{todo,hold,done,failed}/NNNN-<slug>.md      the queue, where `queue` puts it
   runs/journal.jsonl         append-only, one line per run
   runs/logs/NNNN-attempt-N.jsonl   what the agent printed, as it printed it —
@@ -787,7 +835,13 @@ product.
   "concurrency": 3,
   "attempts": 3,
   "timeout": 30,
-  "notify": "notify-send detent \"$DETENT_MESSAGE\"",
+  "notify": {
+    "events": ["paused", "passed"],
+    "channels": [
+      { "kind": "command",  "command": "notify-send detent \"$DETENT_MESSAGE\"" },
+      { "kind": "telegram", "chat": "-1001234567890", "tokenEnv": "TELEGRAM_BOT_TOKEN" }
+    ]
+  },
   "models": {
     "implement": { "agent": "claude", "model": "claude-sonnet-5" },
     "accept":    { "agent": "claude", "model": "claude-opus-5" }
@@ -815,7 +869,7 @@ product.
 }
 ```
 
-Six things about this shape are deliberate:
+Seven things about this shape are deliberate:
 
 - **`queue` is a path inside the product folder, and `tasks` when it is left
   out.** It is validated like `repos[].path`: a value that escapes the product
@@ -871,6 +925,15 @@ Six things about this shape are deliberate:
 - **Every edge carries its `source`.** Edges established by the deterministic
   scan are drawn plain; edges a model proposed are labelled with their kind, so
   a guess never looks like a fact.
+- **`notify` names where to send and never what the secret is.** A string is
+  still one command on a pause, so the key is backwards-compatible by
+  construction; the object says which events and which channels (§5). A channel
+  that needs a credential carries `tokenEnv`, the **name** of an environment
+  variable, and a `token` key is refused by name — this file is read back and
+  served to the dashboard, and nothing gitignores it
+  ([ADR 0025](docs/adr/0025-a-channel-is-a-kind-and-the-secret-is-not-in-the-configuration.md)).
+  The secret itself lives in that variable, or in `.detent/secrets.json`, which
+  is created `0600` and excluded by the `.detent/.gitignore` `init` writes.
 
 ### A journal line
 
@@ -1457,6 +1520,24 @@ what it names, so they are shown with the reason they are not editable there.
 Not `modelSuggestions` either: the model field offers that list, accepts any
 name, and says where the list is — it is shown and used on the page and
 extended in the file (§11).
+
+**`notify` is a block of its own and not a row among the limits**: those are one
+value under one key, and which events and a list of channels is not one value
+([ADR 0025](docs/adr/0025-a-channel-is-a-kind-and-the-secret-is-not-in-the-configuration.md)).
+Notifications shows the events as choices and the channels as a list — for a
+telegram channel its chat, its topic and the name of its variable with `set` or
+`not set` beside it — drawn from the same read and written by the same Save,
+because it is the same file. A channel is added or removed in the file.
+
+**And it holds the one control whose value is written and never read back.** A
+secret typed there goes to `.detent/secrets.json` through a path of its own, and
+`readConfiguration` reports whether it is set and where rather than what it is.
+This is the single exception to "the page shows what the file says", which is
+otherwise the rule this panel is built on: a token read back is a token in a
+browser, which is exactly why it is not in `product.json`. The secret write is
+*not* refused during a run — that refusal exists because `product.json` is
+fingerprinted before each of the agent's turns, this file is not, and a run whose
+channel is missing its token is when somebody needs to supply one.
 
 Three things hold every write.
 

@@ -20,6 +20,7 @@ import { invoke as defaultInvoke } from '../agents.mjs'
 import { modelPass } from '../model-pass.mjs'
 import { publishing } from '../queue.mjs'
 import { scanProduct } from '../scan.mjs'
+import { SECRETS_FILE, writeSecretsGitignore } from '../secret.mjs'
 import { createQueue, QUEUE } from '../task.mjs'
 import { UsageError } from './usage.mjs'
 
@@ -131,6 +132,18 @@ export async function run(dir, _positionals = [], values = {}, { invoke = defaul
   const created = queuePath === null ? [] : createQueue(root, queuePath)
   if (created.length) {
     process.stdout.write(`created ${created.map((f) => `${queuePath}/${f}`).join(', ')} — the queue run reads and plan writes into\n`)
+  }
+
+  // And the one line that keeps a secret out of a commit (ADR 0025). Written
+  // before anything else is, and whether or not any channel needs one: a
+  // `.gitignore` that arrives with the file it is about cannot be forgotten,
+  // and the first notification channel somebody configures is not the moment to
+  // start thinking about git. It goes inside `.detent/`, the folder detent
+  // owns, so that a `.gitignore` a person wrote at the product root is left
+  // exactly as they wrote it.
+  const ignored = writeSecretsGitignore(root)
+  if (ignored.written) {
+    process.stdout.write(`wrote ${ignored.file} — ${SECRETS_FILE} is where a notification channel's token goes if you type it on the dashboard, and it is never committed\n`)
   }
 
   // What creating those folders did not create (ADR 0012). A queue somewhere

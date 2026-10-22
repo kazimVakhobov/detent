@@ -11,7 +11,7 @@ import { snapshotRefs } from '../core/git.mjs'
 import { readJournal } from '../core/journal.mjs'
 import { runTask } from '../core/run.mjs'
 import { readQueue } from '../core/task.mjs'
-import { assertInvariant, gitProduct, sharedContext, sh } from './support/product.mjs'
+import { assertInvariant, gitProduct, notifier, sharedContext, sh } from './support/product.mjs'
 
 const BRANCH = 'agent/task-0042-wallet-endpoint'
 const GAUGE = { exit: [{ stage: 'test', command: 'test "$(cat value.txt 2>/dev/null)" = ok' }] }
@@ -42,11 +42,6 @@ function agent(...steps) {
     return (await step(cwd)) ?? answer()
   }
   return { invoke, prompts }
-}
-
-const notifier = () => {
-  const sent = []
-  return { sent, notify: (product, details) => (sent.push(details), { sent: true, via: 'test' }) }
 }
 
 test('the context is at its remote tip before the first turn, and the pointer lands with the task', async () => {
