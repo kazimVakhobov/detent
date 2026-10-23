@@ -5,6 +5,7 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, isAbsolute, join, normalize, resolve, sep } from 'node:path'
+import { validateNotify } from './notify/plan.mjs'
 import { isAgentBranch, refNameProblem } from './refs.mjs'
 import { QUEUE } from './task.mjs'
 
@@ -354,7 +355,12 @@ export function validateProduct(raw, dir = '.') {
 
   const attempts = positiveInteger(raw.attempts, 'attempts', DEFAULTS.attempts, fail)
   const timeout = minutesField(raw.timeout, 'timeout', DEFAULTS.timeout, fail)
-  const notify = raw.notify === undefined ? null : nonEmptyString(raw.notify, 'notify', fail)
+  // Which events reach a person and through which channels, normalised to the
+  // one shape everything downstream reads — a string is still one command on a
+  // pause, and a file that says nothing is still the desktop notifier on one
+  // (ADR 0025). The per-kind rules live with the kinds, including the one that
+  // refuses a token written here.
+  const notify = validateNotify(raw.notify, 'notify', fail)
   const models = validateModels(raw.models, 'models', fail) ?? {}
 
   // The names offered where a model is typed — the shape only, and never the

@@ -12,7 +12,7 @@ import { checkLinks, taskLinks } from '../core/links.mjs'
 import { readJournal } from '../core/journal.mjs'
 import { runTask } from '../core/run.mjs'
 import { readQueue } from '../core/task.mjs'
-import { assertInvariant, gitProduct, sharedContext, sh } from './support/product.mjs'
+import { assertInvariant, gitProduct, notifier, sharedContext, sh } from './support/product.mjs'
 
 const BRANCH = 'agent/task-0042-wallet-endpoint'
 const GAUGE = { exit: [{ stage: 'test', command: 'test "$(cat value.txt 2>/dev/null)" = ok' }] }
@@ -95,11 +95,6 @@ function agents(implement = [(cwd) => writeFileSync(join(cwd, 'value.txt'), 'ok\
     return (await step(cwd)) ?? reply('Commit: feat(wallet): balance')
   }
   return { invoke, calls }
-}
-
-const notifier = () => {
-  const sent = []
-  return { sent, notify: (_, details) => (sent.push(details), { sent: true, via: 'test' }) }
 }
 
 test('a link that resolves is not mentioned anywhere, and the journal says it was checked', async () => {

@@ -7,15 +7,18 @@
 // (ADR 0020 part 1), the strip of what is wrong that no section hides, the
 // stylesheet, the rendering, the queue as cards, one task opened by its number
 // in a drawer over the section it was opened from (ADR 0022),
-// what its agent is saying while it says it (ADR 0021), and the configuration —
+// what its agent is saying while it says it (ADR 0021), the configuration —
 // read until a person says otherwise, and written on request (ADR 0020
-// part 2). They are
+// part 2) — and notifications, which is that same file in a block of its own
+// plus the one control whose value is written and never read back (ADR 0025).
+// They are
 // composed here at import time, so what is served stays one page, one request,
 // no second asset, and the content security policy is unchanged (ADR 0020
 // part 4).
 
 import { CONFIGURATION } from './dashboard/configuration.mjs'
 import { LOG } from './dashboard/log.mjs'
+import { NOTIFICATIONS } from './dashboard/notifications.mjs'
 import { QUEUE } from './dashboard/queue.mjs'
 import { BODY, SHOW } from './dashboard/sections.mjs'
 import { STYLE } from './dashboard/style.mjs'
@@ -43,9 +46,12 @@ export const POLL = { call: 'refresh', every: 3000 }
 // The buttons on the page. Three are the configuration's: the one that asks for
 // the editor, the write, and the way out that is not a write. The fourth is the
 // drawer's way out, beside Escape, because a panel covering content needs one
-// that is visibly a close control (ADR 0022).
+// that is visibly a close control (ADR 0022). The fifth is the one write that
+// does not go into `product.json` — a channel's secret, which is typed on the
+// page and never read back to it (ADR 0025).
 const BUTTONS = [
   ['config-edit', 'openEditor'], ['config-save', 'save'], ['config-discard', 'discard'],
+  ['notify-secret-set', 'sendSecret'],
   ['task-close', 'closeTask'],
 ]
 
@@ -55,7 +61,7 @@ refresh()
 setInterval(${POLL.call}, ${POLL.every})
 `
 
-export const SCRIPT = [SHOW, WARNINGS, VIEW, QUEUE, TASK, LOG, CONFIGURATION, START].join('\n')
+export const SCRIPT = [SHOW, WARNINGS, VIEW, QUEUE, TASK, LOG, CONFIGURATION, NOTIFICATIONS, START].join('\n')
 
 export const PAGE = `<!doctype html>
 <html lang="en">

@@ -1,7 +1,8 @@
 # 0009. Three attempts, then the task is paused and a person is told
 
 - **Date:** 2026-10-06
-- **Status:** accepted — supersedes the escalation rule in 0003
+- **Status:** accepted — supersedes the escalation rule in 0003; the budget
+  narrowed by 0023, the resume by 0024, and notification by 0025
 
 ## Context
 

@@ -13,7 +13,7 @@ import { readJournal } from '../core/journal.mjs'
 import { moveAndRecord, QueueRepositoryError } from '../core/queue.mjs'
 import { readQueue } from '../core/task.mjs'
 import { runTask } from '../core/run.mjs'
-import { assertInvariant, gitProduct, queueRepository, sh } from './support/product.mjs'
+import { assertInvariant, gitProduct, notifier, queueRepository, sh } from './support/product.mjs'
 
 const GAUGE = { exit: [{ stage: 'test', command: 'test "$(cat value.txt 2>/dev/null)" = ok' }] }
 
@@ -43,7 +43,6 @@ function setup({ queue = 'agent-loop/tasks', ids = ['0042'], committed = true } 
 const answer = (extra = {}) => ({ agent: 'claude', ok: true, message: 'Commit: feat(wallet): balance endpoint', model: { requested: 'claude-opus-5', actual: 'claude-opus-5' }, cost: { usd: 0.25, tokens: null }, session: 's', error: null, ms: 10, ...extra })
 const green = async (role, { cwd }) => (writeFileSync(join(cwd, 'value.txt'), 'ok\n'), answer())
 const red = async (role, { cwd }) => (writeFileSync(join(cwd, 'value.txt'), 'no\n'), answer())
-const notify = () => ({ sent: true, via: 'test' })
 
 test('a task reaching done/ is a commit in the queue\'s repository, naming it, and a push', async () => {
   const s = setup()
@@ -55,7 +54,7 @@ test('a task reaching done/ is a commit in the queue\'s repository, naming it, a
   // Work of the person's own, in the queue's repository and not part of a move.
   writeFileSync(join(s.repository.dir, 'notes.md'), 'mine\n')
 
-  const result = await runTask(s.product, s.repo, s.tasks[0], { invoke: green, notify })
+  const result = await runTask(s.product, s.repo, s.tasks[0], { invoke: green, notify: notifier().notify })
 
   assert.equal(result.outcome, 'passed', result.reason)
   assert.ok(existsSync(join(s.dir, 'agent-loop', 'tasks', 'done', '0042-wallet-endpoint.md')))
@@ -73,7 +72,7 @@ test('a task reaching done/ is a commit in the queue\'s repository, naming it, a
 
 test('a paused task is the same: a commit naming it in hold/, pushed', async () => {
   const s = setup()
-  const result = await runTask(s.product, s.repo, s.tasks[0], { invoke: red, notify })
+  const result = await runTask(s.product, s.repo, s.tasks[0], { invoke: red, notify: notifier().notify })
   assert.equal(result.outcome, 'escalated')
   assert.equal(s.repository.subjects().split('\n')[0], 'queue: task 0042 wallet-endpoint → hold')
   assert.equal(s.repository.pushed().split('\n')[0], 'queue: task 0042 wallet-endpoint → hold')

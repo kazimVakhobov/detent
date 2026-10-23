@@ -1,9 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import process from 'node:process'
 import { serve } from '../core/commands/dashboard.mjs'
 import { EDITABLE, NOT_EDITABLE, readConfiguration } from '../core/configure.mjs'
+import { EVENTS, KIND_NAMES } from '../core/notify.mjs'
+import { writeSecret } from '../core/secret.mjs'
 import { PAGE, POLL, SCRIPT } from '../core/dashboard-page.mjs'
 import { LIMITS } from '../core/dashboard/configuration.mjs'
 import { LOG_CLIP, LOG_LINES, LOG_QUIET } from '../core/dashboard/log.mjs'
@@ -98,15 +101,17 @@ test('the page loads nothing from outside and sets every value as text', () => {
 // the test below is that each is in exactly one section and that nothing the
 // page draws is missing from the list.
 // Overview's are listed in the order they are served, which the test below
-// asserts: what is running, what is next, what is waiting, and the figures
-// under those three (§12).
+// asserts: the figures first, because they are what somebody opens the page to
+// see, and then what is running, what is next and what is waiting (§12).
 const BLOCKS = {
-  overview: ['now', 'next-up-order', 'next-up', 'waiting', 'figures'],
+  overview: ['figures', 'now', 'next-up-order', 'next-up', 'waiting'],
   repositories: ['repos', 'by-repo'],
   queue: ['todo-order', 'todo', 'hold', 'done', 'failed', 'queue-how'],
   agents: ['by-model'],
   runs: ['recent'],
-  configuration: ['config', 'fixed'],
+  // Notifications is a block of its own beside the configuration, not a row
+  // among its limits (ADR 0025).
+  configuration: ['config', 'notify', 'fixed'],
 }
 
 // And what is in no section, because it is drawn over one: the drawer a task
@@ -181,8 +186,10 @@ test('the fragment names the section, an unknown one still lands somewhere, and 
   // Nothing is fetched to change section, with two exceptions the fragment
   // itself names: the task, which is not in the snapshot (ADR 0020 part 3),
   // and what its agent is saying, which is not in it either (ADR 0021).
+  // `secret.json` is neither: it is a write, and the only one whose body never
+  // comes back (ADR 0025).
   assert.deepEqual([...SCRIPT.matchAll(/fetch\('([\w.?=]+)/g)].map((m) => m[1]).sort(),
-    ['configuration.json', 'configuration.json', 'log.json?task=', 'state.json', 'task.json?task='])
+    ['configuration.json', 'configuration.json', 'log.json?task=', 'secret.json', 'state.json', 'task.json?task='])
 })
 
 test('the fragment names a section and a task over it, and a fragment that is half wrong still lands on a section', () => {
@@ -393,7 +400,7 @@ test('a task in the queue is a card: the number and its name on one line, and th
   })
 })
 
-test('a card row does not wrap, so the reason a task is in failed/ is on the card and not under the height of a row', async () => {
+test('anything longer than a row is a line, so the reason a task is in failed/ is on the card and not under the height of a row', async () => {
   const s = filled()
   await dashboard(s, async (base) => {
     const page = openPage(base)
@@ -416,11 +423,134 @@ test('a card row does not wrap, so the reason a task is in failed/ is on the car
     assert.match(doubted.textContent, /agent\/task-0006-abandoned-after-a-doubt/)
     assert.deepEqual(doubted.all((n) => n.tag === 'li').map((n) => n.textContent), ['the rounding is still wrong'])
 
-    // What keeps it there: a card's rows do not wrap, so nothing in one
-    // becomes a silent second line, and anything longer than a row is a line.
+    // What keeps it there: anything longer than a row is a line of its own,
+    // full width, and the head is the one row that stays a row.
     assert.match(STYLE, /\.card-head, \.card-head a \{[^}]*flex-wrap: nowrap/)
-    assert.match(STYLE, /\.card \.facts \{[^}]*flex-wrap: nowrap/)
     assert.match(STYLE, /\.card \.line \{[^}]*white-space: normal/)
+  })
+})
+
+test('a card shows its figures whole: the facts wrap rather than scrolling the money off the end of the row', async () => {
+  const s = filled()
+  await dashboard(s, async (base) => {
+    const page = openPage(base)
+    await page.settle()
+
+    // The row is a quarter of the page wide and the cost is at the end of it,
+    // so a row that did not wrap scrolled it out of the card: `$11.51` arrived
+    // as `$1`, which is a plausible figure with nothing to say it was a
+    // fragment. Every fact is in the row, the cost among them, whole.
+    const facts = cardFor(page, 'done', '0005').all((n) => n.className === 'facts')[0]
+    assert.deepEqual(facts.children.map((child) => child.textContent).slice(2, 4), ['2 attempts', '$1.50'])
+    assert.match(STYLE, /\.card \.facts \{[^}]*flex-wrap: wrap/)
+    assert.doesNotMatch(STYLE, /\.card \.facts \{[^}]*nowrap/)
+
+    // A fact breaks between its words and never inside one — a date may take
+    // two lines, a figure never takes two halves — so nothing in a card is cut
+    // at a digit that reads as a value.
+    assert.doesNotMatch(/\.card \.facts \{[^}]*\}/.exec(STYLE)[0], /overflow-wrap/, 'a figure is one word, and stays one')
+    assert.doesNotMatch(STYLE, /\.card \.facts > span/, 'no fact is pinned to one line of its own any more')
+    assert.match(STYLE, /\.status \{[^}]*white-space: nowrap/, 'an icon stays with the word it belongs to')
+
+    // The name still ellipsises: it is an identifier read from its beginning,
+    // and it is on the path line below in full. Only the figures changed.
+    assert.match(STYLE, /\.card-head \.name \{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; \}/)
+    // And the floor that holds the track is untouched: a card stays in its
+    // column, which is what `min-width: 0` is there for.
+    assert.match(STYLE, /\.folders > \*, \.cards > \* \{ min-width: 0; \}/)
+  })
+})
+
+test('the queue is four columns in one row and stays four, and a card never leaves its column', () => {
+  // Four explicit tracks. `repeat(auto-fit, minmax(320px, 1fr))` fitted as
+  // many columns as the width allowed and wrapped the rest, so at an ordinary
+  // window three sat in a row and "Abandoned by hand" dropped under "Queue",
+  // where it read as a fourth thing about the first folder.
+  assert.ok(sectionOf('queue').includes('<div class="folders">'), 'the four folders are not one grid')
+  assert.match(STYLE, /\.folders \{[^}]*grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/)
+  assert.doesNotMatch(/\.folders \{[^}]*\}/.exec(STYLE)[0], /auto-fit|auto-fill/)
+
+  // And its children get the `min-width: 0` that `min-width: auto` was
+  // overriding: a grid item's default minimum is its content's intrinsic one,
+  // and a card's rows do not wrap, so `1fr` stopped being a ceiling and the
+  // card ran under the next column and past the edge of the page.
+  assert.match(STYLE, /\.folders > \*, \.cards > \* \{ min-width: 0; \}/)
+  assert.match(STYLE, /min-width: auto/, 'and the comment says what the default was doing')
+  assert.match(STYLE, /\.cards \{[^}]*grid-template-columns: minmax\(0, 1fr\)/, 'the cards are a track with a floor too')
+
+  // Below one stated width they stack, with the width in the stylesheet beside
+  // the reason: four columns of a phone are not four columns, and a page whose
+  // body scrolls sideways is the thing being avoided. It is the width the
+  // drawer already calls narrow, so the page has one narrow and not two.
+  const narrow = /@media \(max-width: (\d+)px\) \{ \.folders \{ grid-template-columns: minmax\(0, 1fr\); \} \}/.exec(STYLE)
+  assert.ok(narrow, 'the four columns never stack')
+  assert.match(STYLE, new RegExp(`Below ${narrow[1]}px they stack`), 'the breakpoint is not written beside its reason')
+  assert.match(STYLE, new RegExp(String.raw`@media \(max-width: ${narrow[1]}px\) \{ \.drawer \{`))
+
+  // The headings and the sort under each are untouched: this is the grid the
+  // four columns sit in, not what is in them.
+  for (const folder of FOLDERS) assert.ok(sectionOf('queue').includes(`<div class="cards" id="${folder}">`), folder)
+  for (const heading of ['Queue', 'Paused — waiting for you', 'Done', 'Abandoned by hand']) {
+    assert.ok(sectionOf('queue').includes(`<h2>${heading}</h2>`), heading)
+  }
+})
+
+test('a task being run right now is marked in the folder its file is still in, and comes first there', async () => {
+  const s = filled()
+  writeFileSync(where(s, '0007-shared.md'), todoTask('0007'))
+  claim(s.dir, 'acme-api', { task: '0007', branch: 'agent/task-0007-shared' })
+  setAttempt(s.dir, 'acme-api', 2)
+
+  await dashboard(s, async (base) => {
+    const page = openPage(base)
+    await page.settle()
+
+    // First in the column, ahead of the sort: ascending task id — the order
+    // the folder opens in — would put 0003 above it, and a task being worked
+    // on now is not one entry in an ordering of things that have not started.
+    assert.deepEqual(numbersIn(page, 'todo'), ['0007', '0003'])
+
+    // What its line says, from the claim and from nothing else: that it is
+    // running, and which attempt. **Nothing about a phase** — which of the
+    // gauge, the link check, the acceptance pass or the merge is under way is
+    // recorded nowhere (ADR 0017), so the page does not guess at it.
+    const running = cardFor(page, 'todo', '0007')
+    assert.deepEqual(linesOf(running), ['▶running, attempt 2', 'tasks/todo/0007-shared.md'])
+    assert.doesNotMatch(running.textContent, /gauge|acceptance|merge|link|phase|started/)
+
+    // An icon and a word, told apart by more than colour — the rule the
+    // statuses already follow — and the colour repeating what they say.
+    const [mark] = running.all((n) => n.className === 'status running')
+    assert.equal(mark.children[0].getAttribute('aria-hidden'), 'true')
+    assert.equal(mark.children[0].className, 'icon')
+    assert.notEqual(mark.children[0].textContent, '')
+    assert.match(STYLE, /\.status\.running \.icon \{ color: var\(--good\); \}/)
+
+    // And the column stops claiming the journal has never seen it: the line is
+    // written when the run ends, so that sentence was the page saying nothing
+    // had touched a task it was watching an agent work on. The task beside it,
+    // which nothing is running, still says it.
+    assert.doesNotMatch(running.textContent, /the journal has not seen this task/)
+    assert.match(cardFor(page, 'todo', '0003').textContent, /the journal has not seen this task/)
+
+    // No new read and no new endpoint: this is the `active` the page already
+    // has, out of the snapshot it polls.
+    assert.deepEqual(page.reads, ['GET state.json', 'GET configuration.json'])
+  })
+
+  // A claim whose process is gone is not a running task and is not drawn as
+  // one — the rule Running now and the strip above every section follow.
+  const file = join(s.dir, '.detent', 'state.json')
+  const state = JSON.parse(readFileSync(file, 'utf8'))
+  state.repos['acme-api'].pid = 2 ** 22 + 12345 // no such process
+  writeFileSync(file, JSON.stringify(state))
+  await dashboard(s, async (base) => {
+    const page = openPage(base)
+    await page.settle()
+    assert.deepEqual(numbersIn(page, 'todo'), ['0003', '0007'], 'and it is back where the sort puts it')
+    assert.doesNotMatch(page.text('todo'), /running, attempt/)
+    assert.match(cardFor(page, 'todo', '0007').textContent, /the journal has not seen this task/)
+    assert.match(page.text('alerts'), /the run on acme-api is gone — task 0007, attempt 2/)
   })
 })
 
@@ -537,26 +667,35 @@ test('the section says how to make a task and how to run one, in this product ow
   })
 })
 
-// ——— Overview answers "what now": what is running, what is next, what is
-// waiting — and the figures under those three (§12).
+// ——— Overview leads with how the runs have gone, and then answers "what now":
+// what is running, what is next, what is waiting (§12).
 
 const todoTask = (id, barrier = false) =>
   `---\nid: ${id}\nrepo: acme-api\ntouches_contract: ${barrier}\n---\n\n# Acceptance criteria\n\n- [ ] x\n`
 
 const where = (s, name) => join(s.dir, 'tasks', 'todo', name)
 
-test('Overview is the landing screen: what is running, what is next, what is waiting, and the figures under them', async () => {
+test('Overview leads with the figures, under a heading that names them, and then what is running, next and waiting', async () => {
   // In the document in that order, and every block of it inside Overview and
-  // inside no other section — the figures included, which is where they were
-  // and where they stay.
+  // inside no other section. The figures are first: they are the answer
+  // somebody opens the page for, and the three blocks under them keep the
+  // order they have always had — what is running, what runs next, what waits.
   const overview = sectionOf('overview')
   const at = (block) => overview.indexOf(`id="${block}"`)
   for (const block of BLOCKS.overview) assert.notEqual(at(block), -1, block)
   assert.deepEqual([...BLOCKS.overview].sort((a, b) => at(a) - at(b)), BLOCKS.overview,
-    'what is running, what is next, what is waiting, then the figures')
+    'the figures, then what is running, what is next, what is waiting')
   for (const block of BLOCKS.overview) {
     assert.deepEqual(SECTION_IDS.filter((id) => sectionOf(id).includes(`id="${block}"`)), ['overview'], block)
   }
+
+  // And the heading over them says what they are. It asked "Was it worth it" —
+  // a question about whether to regret the figures, over the block a person
+  // opens the page to read, before they had read one of them.
+  const headings = [...overview.matchAll(/<h2>([^<]+)<\/h2>/g)].map((m) => m[1])
+  assert.deepEqual(headings.slice(1), ['Running now', 'Next up', 'Waiting for you'])
+  assert.doesNotMatch(headings[0], /\?|worth/i, 'the heading over the figures is not a question')
+  assert.ok(overview.indexOf(`<h2>${headings[0]}</h2>`) < at('figures'), 'and it is the heading over them')
   // And Repositories keeps its own: this adds a landing screen rather than
   // moving anything into one.
   assert.deepEqual(BLOCKS.repositories, ['repos', 'by-repo'])
@@ -793,7 +932,15 @@ const blocksOf = (page) => page.node('task-detail').children
 const blockNamed = (page, legend) => page.node('task-detail').children
   .find((child) => child.className === 'group' && child.children[0].textContent === legend)
 const recordsIn = (page) => page.node('task-detail').all((node) => node.className === 'run-record')
-const rowsOf = (record) => record.all((node) => node.tag === 'tr').map((row) => row.children.map((cell) => cell.textContent))
+
+// What a run says each pass cost: a block each, and in each the heading and
+// its figures, label and value apart — `Pass / Cost / Tokens / Model` was a
+// table of four columns inside a 680px drawer, and the column holding two
+// model names broke `claude · claude-opus-5` across four lines.
+const passesOf = (record) => record.all((node) => node.className === 'pass').map((pass) => [
+  pass.children[0].textContent,
+  ...pass.children.slice(1).map((figure) => figure.children.map((part) => part.textContent)),
+])
 
 // A run with everything a journal line carries, so the block can be read
 // against it: two passes with a cost and a model each, tokens, the two
@@ -869,21 +1016,28 @@ test('the implementation cost and the acceptance pass are separated, and come ou
     const [, second] = recordsIn(page)
     assert.equal(recordsIn(page).length, 2, 'both of its runs, in the order they happened')
 
-    // Two rows, each with its own cost, its own tokens and the model it ran
+    // Two blocks, each with its own cost, its own tokens and the model it ran
     // on: one number for both would hide what reading the work cost against
-    // what doing it cost.
-    assert.deepEqual(rowsOf(second), [
-      ['Pass', 'Cost', 'Tokens', 'Model'],
-      ['Implementation', '$1.20', '105,000 tok (80,000 in, 25,000 out)', 'claude · claude-opus-5-20260101 (asked for claude-opus-5)'],
-      ['Acceptance', '$0.30', '21,000 tok (20,000 in, 1,000 out)', 'claude · claude-sonnet-5 (requested — the CLI reported no model)'],
+    // what doing it cost. Every figure is labelled, because a card has no
+    // column heading to lend one.
+    assert.deepEqual(passesOf(second), [
+      ['Implementation',
+        ['cost', '$1.20'],
+        ['tokens', '105,000 tok (80,000 in, 25,000 out)'],
+        ['model', 'claude · claude-opus-5-20260101 (asked for claude-opus-5)']],
+      ['Acceptance',
+        ['cost', '$0.30'],
+        ['tokens', '21,000 tok (20,000 in, 1,000 out)'],
+        ['model', 'claude · claude-sonnet-5 (requested — the CLI reported no model)']],
     ])
+    assert.equal(second.all((n) => n.tag === 'table').length, 0, 'and no table, which is what they were')
 
     // And the total the line recorded, beside the two rather than instead of
     // them: $1.20 + $0.30 is the $1.50 the journal has, and 105,000 + 21,000
     // the 126,000 — so a line whose two numbers disagree shows that it does.
     const lines = second.children.filter((child) => child.className === 'line').map((child) => child.textContent)
     assert.equal(lines[0], 'The run: $1.50 · 126,000 tok (100,000 in, 26,000 out)'
-      + ' — the total the line recorded, which the two rows above come out of')
+      + ' — the total the line recorded, which the two passes above come out of')
 
     // Tokens, how long it ran — from `started` and `finished`, not from this
     // machine's clock — how many attempts, and which gauge stage sent it back.
@@ -901,6 +1055,63 @@ test('the implementation cost and the acceptance pass are separated, and come ou
   })
 })
 
+test('the detail is a heading and space between its blocks, not boxes inside boxes', async () => {
+  // The drawer keeps its own edge — that is what makes it a drawer — and the
+  // panel just inside it is gone, with the border off the blocks under it: a
+  // panel, a legend block, a card and a table was three outlines before any
+  // content, and the content is what somebody opened the drawer to read.
+  assert.ok(DRAWER.includes('<div id="task-detail"></div>'), 'the detail is a panel again')
+  assert.match(STYLE, /\.drawer \{[^}]*border-left: 1px solid var\(--line\)/)
+  assert.match(STYLE, /#task-detail > \.group \{ border: 0; border-radius: 0; padding: 0;/)
+
+  const s = ranAgain(queued(setup()))
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: taskHash('queue', '0001') })
+    await page.settle()
+
+    // The blocks are the same blocks in the same order, each still named by
+    // the legend over it: a border came off, and nothing moved.
+    assert.deepEqual(blocksOf(page), ['What its attempts did', 'Frontmatter', 'Goal', 'Acceptance criteria', 'Out of scope'])
+    assert.deepEqual(page.node('task-detail').all((n) => n.className.split(' ').includes('panel')), [])
+
+    // And nothing in a run is boxed again: the figures were a table inside a
+    // box that scrolls inside the record, and they are blocks of it now. What
+    // carries a border here is the record, which is the innermost one.
+    for (const record of recordsIn(page)) {
+      assert.deepEqual(record.all((n) => n.className === 'scroll'), [], 'a box inside the record')
+      assert.deepEqual(record.tags('table'), [])
+    }
+    assert.match(STYLE, /\.run-record \{[^}]*border: 1px solid var\(--line\)/)
+    assert.doesNotMatch(STYLE, /\.pass \{[^}]*border/, 'no block gained a border for one taken off elsewhere')
+    assert.doesNotMatch(STYLE, /\.passes \{[^}]*border/)
+  })
+})
+
+test('a model name is one identifier and does not break inside itself, at the drawer’s narrowest or its widest', async () => {
+  const s = ranAgain(queued(setup()))
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: taskHash('queue', '0001') })
+    await page.settle()
+    const [, second] = recordsIn(page)
+
+    // A hyphen is a break opportunity, which is how one column of a table
+    // became four lines of one word each. Every name is held together — the
+    // one that ran, and the one the parenthetical says was asked for.
+    assert.deepEqual(second.all((n) => n.className === 'id').map((n) => n.textContent),
+      ['claude · claude-opus-5-20260101', 'claude-opus-5', 'claude · claude-sonnet-5'])
+    assert.match(STYLE, /\.pass \.id \{ white-space: nowrap; \}/)
+
+    // So the line breaks between its parts instead, and a name wider than the
+    // block it is in scrolls — the rule a card's row of facts already follows.
+    assert.match(STYLE, /\.pass \.figure \{[^}]*flex-wrap: wrap[^}]*overflow-x: auto/)
+
+    // Two blocks side by side in a drawer 680px wide, one under the other when
+    // the drawer is the screen.
+    assert.match(STYLE, /\.passes \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/)
+    assert.match(STYLE, /@media \(max-width: 560px\) \{ \.passes \{ grid-template-columns: minmax\(0, 1fr\); \} \}/)
+  })
+})
+
 test('a cost, a model or an instant the journal has as null is shown as not reported, never as zero', async () => {
   const s = ranAgain(queued(setup()))
   await dashboard(s, async (base) => {
@@ -912,10 +1123,9 @@ test('a cost, a model or an instant the journal has as null is shown as not repo
     // zero there would be a number nobody recorded, which is the one thing the
     // journal has always refused.
     const [first] = recordsIn(page)
-    assert.deepEqual(rowsOf(first), [
-      ['Pass', 'Cost', 'Tokens', 'Model'],
-      ['Implementation', '$0.10', 'not reported', 'claude · claude-opus-5'],
-      ['Acceptance', 'not reported', 'not reported', 'not reported'],
+    assert.deepEqual(passesOf(first), [
+      ['Implementation', ['cost', '$0.10'], ['tokens', 'not reported'], ['model', 'claude · claude-opus-5']],
+      ['Acceptance', ['cost', 'not reported'], ['tokens', 'not reported'], ['model', 'not reported']],
     ])
     assert.match(first.textContent, /took not reported/)
     assert.doesNotMatch(first.textContent, /\$0\.00|0 tok/)
@@ -934,6 +1144,109 @@ test('a run that was resumed says so, because coming back from hold/ is a differ
     // An icon and a word, never a colour alone.
     const resumed = second.all((n) => n.className === 'status info')[0]
     assert.equal(resumed.children[0].getAttribute('aria-hidden'), 'true')
+  })
+})
+
+// A run that went round three times: red on the gauge, then green and
+// doubted, then green and accepted. One `attempts` count, one `gauge` and one
+// `acceptance` describe only the last of those three, which is what `rounds`
+// is for (ADR 0023).
+function wentRound(s) {
+  appendJournal(s.dir, {
+    kind: 'task',
+    task: '0001',
+    slug: 'first',
+    repo: 'acme-api',
+    started: '2026-10-08T09:00:00Z',
+    finished: '2026-10-08T09:20:00Z',
+    outcome: 'passed',
+    reason: null,
+    resumed: false,
+    attempts: 3,
+    lock: 'enforced',
+    gauge: { profile: 'exit', failedStage: null },
+    models: { implement: { agent: 'claude', requested: 'claude-opus-5', actual: null }, accept: { agent: 'claude', requested: 'claude-sonnet-5', actual: null } },
+    cost: { usd: 0.5, tokens: { input: 3000, output: 300 } },
+    acceptance: { verdict: 'accepted', doubts: [], cost: { usd: 0.2, tokens: { input: 200, output: 20 } } },
+    rounds: [
+      { attempt: 1, gauge: { profile: 'exit', green: false, failedStage: 'test' }, acceptance: null, cost: { usd: 0.1, tokens: { input: 1000, output: 100 } } },
+      {
+        attempt: 2,
+        gauge: { profile: 'exit', green: true, failedStage: null },
+        acceptance: { verdict: 'rejected', doubts: ['no test covers the balance'] },
+        cost: { usd: 0.2, tokens: { input: 1000, output: 100 } },
+      },
+      { attempt: 3, gauge: { profile: 'exit', green: true, failedStage: null }, acceptance: { verdict: 'accepted', doubts: [] }, cost: { usd: 0.2, tokens: { input: 1000, output: 100 } } },
+    ],
+    links: { checked: 0, broken: [] },
+    commit: 'def5678',
+    branch: 'agent/task-0001-first',
+    merged: true,
+  })
+  return s
+}
+
+test('every round of a run is on the page: what the gauge did, what the reviewer said, what it cost', async () => {
+  const s = wentRound(ranAgain(queued(setup())))
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: taskHash('queue', '0001') })
+    await page.settle()
+    const third = recordsIn(page)[2]
+    const lines = linesOf(third)
+
+    // One line per attempt, between the run's total and where it landed, and
+    // the flat `acceptance` is not said a second time under them: the last
+    // round is where the journal wrote it. The head row says "3 attempts";
+    // these say what each of the three did.
+    assert.deepEqual(lines.slice(1), [
+      'attempt 1: !the exit gauge stopped on test · $0.10 · 1,100 tok (1,000 in, 100 out)',
+      'attempt 2: ✓the gauge was green · acceptance: rejectedno test covers the balance · $0.20 · 1,100 tok (1,000 in, 100 out)',
+      'attempt 3: ✓the gauge was green · acceptance: accepted · $0.20 · 1,100 tok (1,000 in, 100 out)',
+      '✓mergedcommit def5678agent/task-0001-first',
+      'links: 0 checked',
+    ])
+    // The doubt is a list item, as a reviewer's doubt is everywhere else.
+    assert.deepEqual(third.all((n) => n.className === 'doubts').flatMap((n) => n.children.map((c) => c.textContent)),
+      ['no test covers the balance'])
+    // A round that never reached the acceptance pass says nothing about it: a
+    // verdict there would be one nobody asked for.
+    assert.doesNotMatch(lines[1], /acceptance|not reported/)
+  })
+})
+
+// A line the journal wrote before `rounds` existed is a run of one round, and
+// the fifty already in this repository's journal have to look exactly as they
+// did. Every line of both runs is named here rather than searched for: a
+// substring assertion passes just as happily when two lines become one, which
+// is a change to the page nobody asked for.
+test('a line written before rounds existed is a run of one round, drawn by the lines a run has always had', async () => {
+  const s = ranAgain(queued(setup()))
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: taskHash('queue', '0001') })
+    await page.settle()
+    for (const record of recordsIn(page)) {
+      assert.doesNotMatch(record.textContent, /attempt \d:/, 'nothing numbers a round there is only one of')
+      assert.doesNotMatch(record.textContent, /the gauge was green/, 'and nothing is said about a gauge the line did not record')
+    }
+    const [first, second] = recordsIn(page)
+
+    // A run with no failed stage: where it landed, then the acceptance pass.
+    assert.deepEqual(linesOf(first), [
+      'The run: $0.10 · not reported — the total the line recorded, which the two passes above come out of',
+      '·not merged',
+      'acceptance: accepted',
+      'links: not reported',
+    ])
+
+    // And one the gauge stopped: that line above the merge, the acceptance
+    // pass below it, each on its own as it has always been.
+    assert.deepEqual(linesOf(second), [
+      'The run: $1.50 · 126,000 tok (100,000 in, 26,000 out) — the total the line recorded, which the two passes above come out of',
+      '!the exit gauge stopped on test',
+      '✓mergedcommit abc1234agent/task-0001-first',
+      'acceptance: accepted',
+      'links: 2 checked',
+    ])
   })
 })
 
@@ -1300,6 +1613,124 @@ test('the page shows the end of the output, and does not grow with the run', asy
   })
 })
 
+// An event detent has no reading for, which is what fills the panel while a
+// model thinks: the stream emits it continuously, and naming it would be
+// inventing a reading of one agent's output. It is here as repetition and
+// nothing else.
+const TOKENS = { type: 'thinking_tokens', count: 12 }
+// And an assistant turn with nothing renderable in it, which prints as the one
+// word the reader of this file has no other use for.
+const MUSING = { type: 'assistant', message: { content: [{ type: 'thinking', thinking: 'hm' }] } }
+const twenty = (event) => Array.from({ length: 20 }, () => event)
+
+test('a line that repeats itself and says nothing is one line and a count, and what the agent says next is under it', async () => {
+  const s = queued(setup())
+  claim(s.dir, 'acme-api', { task: '0003', branch: 'agent/task-0003-next' })
+  setAttempt(s.dir, 'acme-api', 1)
+  const printed = printing(s, '0003', 1, [INIT, SAID, ...twenty(TOKENS)])
+
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: taskHash('queue', '0003') })
+    await page.settle()
+
+    // Twenty events, one line — and the last thing the agent actually said is
+    // still on the screen above it rather than twenty screens up.
+    assert.deepEqual(page.text('task-log').split('\n'), [
+      '· started on claude-opus-5',
+      'Looking at the wallet module.',
+      '· thinking_tokens ×20 · in one read',
+    ])
+
+    // What arrives next is the line under it, not the twenty-fourth line.
+    printed.write(`${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'Found it.' }] } })}\n`)
+    for (const event of twenty(MUSING)) printed.write(`${JSON.stringify(event)}\n`)
+    await page.refresh()
+    await page.settle()
+    const shown = page.text('task-log').split('\n')
+    assert.equal(shown.length, 5)
+    assert.equal(shown[3], 'Found it.')
+    // An assistant turn with nothing renderable in it collapses for the same
+    // reason: the test is that the line carries no content of its own, not
+    // what the event is called.
+    assert.equal(shown[4], '· thinking ×20 · in one read')
+  })
+  printed.close()
+})
+
+test('a collapsed line says when: four minutes of the same nothing is not four seconds of it', async () => {
+  const s = queued(setup())
+  await dashboard(s, async (base) => {
+    const page = openPage(base)
+    await page.settle()
+
+    // The clock is the page's own — when it read a line. The log carries no
+    // times, and asking an event for one would be reading this stream for
+    // meaning (ADR 0021), so these are the two readings a watcher would get
+    // and they are different news for somebody deciding whether to look.
+    const tokens = JSON.stringify(TOKENS)
+    const slow = page.logAdd([], tokens, 0)
+    for (let i = 1; i < 20; i += 1) page.logAdd(slow, tokens, i * 13_000)
+    assert.equal(slow.length, 1, 'still one line')
+    assert.equal(page.logShow(slow[0]), '· thinking_tokens ×20 · over 4m 7s')
+
+    const quick = page.logAdd([], tokens, 0)
+    for (const at of [1000, 2000, 3000, 4000]) page.logAdd(quick, tokens, at)
+    assert.equal(page.logShow(quick[0]), '· thinking_tokens ×5 · over 4s')
+
+    // Lines that arrived together say that rather than a duration of nothing:
+    // the page cannot say how long the agent took over what it had finished
+    // printing before the panel was opened.
+    assert.equal(page.logShow(page.logAdd(page.logAdd([], tokens, 7), tokens, 7)[0]), '· thinking_tokens ×2 · in one read')
+    // And one of a thing is the thing, with no count and no span on it.
+    assert.equal(page.logShow(page.logAdd([], tokens, 0)[0]), '· thinking_tokens')
+  })
+})
+
+test('nothing with content of its own is collapsed, however alike two lines look', async () => {
+  const s = queued(setup())
+  await dashboard(s, async (base) => {
+    const page = openPage(base)
+    await page.settle()
+
+    const twice = (event) => {
+      const raw = typeof event === 'string' ? event : JSON.stringify(event)
+      return page.logAdd(page.logAdd([], raw, 0), raw, 2000)
+    }
+
+    // Two calls to the same tool are two calls; two turns saying the same thing
+    // are two turns. A count on either would be the page deciding that what the
+    // agent did twice happened once.
+    assert.equal(twice({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: 'wallet.js' } }] } }).length, 2)
+    assert.equal(twice(SAID).length, 2)
+    assert.equal(twice({ type: 'user', message: { content: [{ type: 'tool_result', content: 'applied' }] } }).length, 2)
+    assert.equal(twice(INIT).length, 2)
+    assert.equal(twice(DONE).length, 2)
+    // Including a line that will not parse, which is shown as itself and is
+    // never read for anything else (ADR 0021).
+    const unparsed = twice('{ half a line')
+    assert.equal(unparsed.length, 2)
+    assert.equal(page.logShow(unparsed[0]), '{ half a line')
+  })
+})
+
+test('the line cap counts what a person can read: it is applied after the repetition has collapsed', async () => {
+  const s = queued(setup())
+  // Far more repeated events than the cap, with something worth reading before
+  // them: uncollapsed, the first lines were pushed off the top by one word
+  // repeated, which is the panel reporting that nothing is happening.
+  printing(s, '0003', 1, [INIT, SAID, ...Array.from({ length: LOG_LINES * 2 }, () => TOKENS)]).close()
+
+  await dashboard(s, async (base) => {
+    const page = openPage(base, { hash: taskHash('queue', '0003') })
+    await page.settle()
+    const shown = page.text('task-log').split('\n')
+    assert.equal(shown.length, 3, 'three lines, not four hundred')
+    assert.equal(shown[0], '· started on claude-opus-5')
+    assert.equal(shown[1], 'Looking at the wallet module.')
+    assert.equal(shown[2], `· thinking_tokens ×${LOG_LINES * 2} · in one read`)
+  })
+})
+
 // ——— The detail is a drawer over the section somebody was on (ADR 0022).
 
 test('a task opens in a drawer over the section, and closing it gives back the list that was being read', async () => {
@@ -1488,7 +1919,12 @@ test('a write is applied, and what comes back is read off the file rather than a
     assert.deepEqual(configuration.models.implement, { agent: 'claude', model: 'claude-sonnet-5' })
     assert.deepEqual(configuration.attempts, { value: 2, effective: 2 })
     assert.deepEqual(configuration.timeout, { value: 45, effective: 45 })
-    assert.deepEqual(configuration.notify, { value: 'say done', effective: 'say done' })
+    // notify is no longer one value, so it is no longer reported as one: the
+    // string is a command channel on a pause, and the events it would notify
+    // on are said beside the ones the file names (ADR 0025).
+    assert.deepEqual(configuration.notify.events, { value: null, effective: ['paused'] })
+    assert.deepEqual(configuration.notify.channels, [{ kind: 'command', command: 'say done', where: 'say done', secret: null }])
+    assert.equal(configuration.notify.shape, 'command')
     // A cleared role is the key gone, and the page is told whose it is now.
     assert.equal(configuration.repos[0].models.accept, null)
     assert.deepEqual(configuration.repos[0].inherited.accept, { agent: 'claude' })
@@ -1626,8 +2062,12 @@ test('the page offers what ADR 0015 allows, and says why the rest is not editabl
   // And the inputs it builds are the allowed ones and no others. The keys are
   // the module's own data rather than lines of its source: `models` is the
   // fields above them, and these are the rest of EDITABLE in the order drawn.
-  assert.deepEqual(LIMITS.map(([key]) => key), [...EDITABLE].filter((key) => key !== 'models'))
-  assert.deepEqual(LIMITS.map(([key]) => key), ['attempts', 'timeout', 'concurrency', 'notify'])
+  // `models` is the fields above them; `notify` is a block of its own, because
+  // which events and a list of channels is not one value under one key
+  // (ADR 0025).
+  assert.deepEqual(LIMITS.map(([key]) => key), [...EDITABLE].filter((key) => key !== 'models' && key !== 'notify'))
+  assert.deepEqual(LIMITS.map(([key]) => key), ['attempts', 'timeout', 'concurrency'])
+  assert.ok(!PAGE.includes('a command run when a task finishes'), 'the label still says notify is run when a task finishes')
   for (const [key, label, attrs] of LIMITS) {
     assert.match(label, new RegExp(`^${key} — `), `${key} is offered without saying what it is`)
     assert.ok(attrs.type === 'number' || attrs.type === 'text', key)
@@ -1653,6 +2093,11 @@ async function onThePage(s, body) {
 const LABELS = Object.fromEntries(LIMITS.map(([key, label]) => [key, label]))
 
 const editor = (page) => page.node('config-fields')
+
+// The Notifications block's half of the editor, and the label of the one
+// control that used to be the `notify` row (ADR 0025).
+const notifyEditor = (page) => page.node('notify-fields')
+const COMMAND = 'command — the shell command, with the message on stdin'
 
 // One group of the editor, by the legend over it: a role is `accept` in more
 // than one of them, which is the point of the per-repository ones.
@@ -1691,7 +2136,6 @@ test('the configuration is a view by default: what the file says as text, and an
     assert.match(view, /implementclaude claude-opus-5/, 'the product’s own models')
     assert.match(view, new RegExp(`${LABELS.attempts}5`), 'a key the file sets')
     assert.match(view, new RegExp(`${LABELS.timeout}30 — the default`), 'and one it leaves out')
-    assert.match(view, new RegExp(`${LABELS.notify}none`))
 
     // What a repository inherits is shown as inherited and says from where —
     // a repository overrides a role and never "the model" — and the editor's
@@ -1761,7 +2205,7 @@ test('the editor takes a fresh read, so what is edited is what the file currentl
     assert.equal(page.node('config-fields').hidden, false)
     assert.equal(page.node('config-view').hidden, true)
     assert.equal(control(editor(page), LABELS.attempts).value, '9')
-    assert.equal(control(editor(page), LABELS.notify).value, 'say done')
+    assert.equal(control(notifyEditor(page), COMMAND).value, 'say done', 'and the notify the file now says')
     // The buttons swap: there is a way out that is not the write.
     assert.equal(page.node('config-edit').hidden, true)
     assert.equal(page.node('config-save').hidden, false)
@@ -1806,7 +2250,7 @@ test('a write the server refuses leaves the editor open with what was typed in i
   await onThePage(s, async (page) => {
     await page.click('config-edit')
     control(editor(page), LABELS.attempts).value = '0'
-    control(editor(page), LABELS.notify).value = 'say done'
+    control(notifyEditor(page), COMMAND).value = 'say done'
     await page.click('config-save')
 
     // Refused by the validator, whole and by path — the server's own rules,
@@ -1823,7 +2267,7 @@ test('a write the server refuses leaves the editor open with what was typed in i
     assert.equal(page.editing(), true)
     assert.equal(page.node('config-fields').hidden, false)
     assert.equal(control(editor(page), LABELS.attempts).value, '0')
-    assert.equal(control(editor(page), LABELS.notify).value, 'say done', 'the edit that was fine survived too')
+    assert.equal(control(notifyEditor(page), COMMAND).value, 'say done', 'the edit that was fine survived too')
 
     // Fixed in place, from the same editor, and the write goes through.
     control(editor(page), LABELS.attempts).value = '2'
@@ -1933,5 +2377,216 @@ test('leaving the editor discards, and writes nothing', async () => {
     // later: a change accepted and not yet applied is the third state the page
     // exists to avoid (ADR 0015).
     assert.doesNotMatch(SCRIPT, /confirm\(|beforeunload|dialog/)
+  })
+})
+
+// ——— Notifications, and the one value the page writes and never reads back
+// (ADR 0025).
+
+// A product whose notify is the object form, with a channel that needs a
+// credential. The token is in neither this file nor anything the page is served.
+function notifying(extra = {}) {
+  const s = configured()
+  const raw = JSON.parse(readFileSync(file(s), 'utf8'))
+  raw.notify = {
+    events: ['paused', 'passed'],
+    channels: [
+      { kind: 'command', command: 'say it' },
+      { kind: 'telegram', chat: '-1001234567890', thread: 9, tokenEnv: 'DETENT_TEST_PAGE_TOKEN' },
+    ],
+    ...extra,
+  }
+  writeFileSync(file(s), `${JSON.stringify(raw, null, 2)}\n`)
+  return s
+}
+
+test('the configuration reports which events, which channels, and whether a secret is set — never what it is', () => {
+  const s = notifying()
+  delete process.env.DETENT_TEST_PAGE_TOKEN
+  const { notify } = readConfiguration(s.dir)
+
+  assert.equal(notify.shape, 'object')
+  assert.deepEqual(notify.events, { value: ['paused', 'passed'], effective: ['paused', 'passed'] })
+  assert.deepEqual(notify.names, [...EVENTS])
+  assert.deepEqual(notify.kinds.map((k) => k.kind), [...KIND_NAMES])
+  assert.deepEqual(notify.problems, [])
+  assert.equal(notify.secretFile, join('.detent', 'secrets.json'))
+
+  // The channels, each as its kind describes it, and the telegram one's
+  // variable as "named, and not set" rather than as a value.
+  assert.deepEqual(notify.channels[0], { kind: 'command', command: 'say it', where: 'say it', secret: null })
+  assert.deepEqual(notify.channels[1], {
+    kind: 'telegram',
+    chat: '-1001234567890',
+    thread: 9,
+    tokenEnv: 'DETENT_TEST_PAGE_TOKEN',
+    where: 'chat -1001234567890, topic 9',
+    secret: { name: 'DETENT_TEST_PAGE_TOKEN', set: false, where: null, problem: null },
+  })
+
+  // Set, and still no value anywhere in what the page is served. **This is the
+  // one place the page is not shown what the file says**, and it is the whole
+  // point of the design.
+  writeSecret(s.dir, 'DETENT_TEST_PAGE_TOKEN', '123456:AAH-must-never-reach-a-browser')
+  const set = readConfiguration(s.dir)
+  assert.deepEqual(set.notify.channels[1].secret, { name: 'DETENT_TEST_PAGE_TOKEN', set: true, where: join('.detent', 'secrets.json'), problem: null })
+  assert.ok(!JSON.stringify(set).includes('AAH-must-never-reach-a-browser'), 'the token is in what the page is served')
+})
+
+test('a notify the validator would refuse is reported with the file rather than dropped from it', () => {
+  const s = configured()
+  const raw = JSON.parse(readFileSync(file(s), 'utf8'))
+  raw.notify = { events: ['whenever'], channels: [{ kind: 'slack', webhook: 'https://example.com' }] }
+  writeFileSync(file(s), `${JSON.stringify(raw, null, 2)}\n`)
+
+  const { notify } = readConfiguration(s.dir)
+  assert.equal(notify.problems.length, 2)
+  assert.match(notify.problems[0], /^notify\.events\[0\]: "whenever" is not an event/)
+  assert.match(notify.problems[1], /^notify\.channels\[0\]\.kind: "slack" is not a channel detent has/)
+})
+
+test('Notifications is a block of its own: the events as choices, and the channels as a list', async () => {
+  const s = notifying()
+  delete process.env.DETENT_TEST_PAGE_TOKEN
+  await onThePage(s, async (page) => {
+    // The view: text, like the configuration beside it.
+    const view = page.text('notify-view')
+    assert.deepEqual(page.node('notify-view').tags('input', 'select', 'button'), [], 'the view is built out of controls')
+    assert.match(view, /paused — a task paused, or a promotion did not happen — needs a personon/)
+    assert.match(view, /passed — a task passed and landed on the integration branchon/)
+    assert.match(view, /promoted — a batch was promotedoff/)
+    assert.match(view, /Channel 1 — command/)
+    assert.match(view, /Channel 2 — telegram/)
+    assert.match(view, /sends tochat -1001234567890, topic 9/)
+    // And the variable, with set / not set beside it — never what is in it.
+    assert.match(view, /DETENT_TEST_PAGE_TOKEN — named, and not set/)
+    assert.match(page.text('notify-how'), /A token is never in that file/)
+
+    // The choices are in the editor the one Edit button opens, and so are the
+    // channels: one file, one editor, one Save.
+    await page.click('config-edit')
+    assert.equal(page.node('notify-view').hidden, true)
+    assert.equal(page.node('notify-fields').hidden, false)
+    const boxes = notifyEditor(page).all((n) => n.getAttribute('type') === 'checkbox')
+    assert.equal(boxes.length, EVENTS.length, 'every event is a choice')
+    assert.deepEqual(boxes.map((b) => b.checked), EVENTS.map((name) => ['paused', 'passed'].includes(name)))
+    assert.equal(control(notifyEditor(page), COMMAND).value, 'say it')
+    assert.equal(control(notifyEditor(page), 'chat — the id, or @name for a public channel').value, '-1001234567890')
+    assert.equal(control(notifyEditor(page), 'tokenEnv — the variable the bot token is in, never the token').value, 'DETENT_TEST_PAGE_TOKEN')
+    // There is no field for the token, because there is nowhere for it to go.
+    assert.deepEqual(notifyEditor(page).all((n) => n.getAttribute('type') === 'password'), [])
+
+    // Asking for one more event writes the file, and a run would load it.
+    boxes[EVENTS.indexOf('promoted')].checked = true
+    await page.click('config-save')
+    assert.equal(page.editing(), false)
+    assert.deepEqual(page.node('config-problems').children, [])
+    const raw = JSON.parse(readFileSync(file(s), 'utf8'))
+    assert.deepEqual(raw.notify.events, ['paused', 'passed', 'promoted'])
+    assert.deepEqual(raw.notify.channels[1], { kind: 'telegram', chat: '-1001234567890', thread: 9, tokenEnv: 'DETENT_TEST_PAGE_TOKEN' })
+    assert.deepEqual(loadProduct(s.dir).notify.events, ['paused', 'passed', 'promoted'])
+    assert.match(page.text('notify-view'), /promoted — a batch was promotedon/)
+  })
+})
+
+test('a notify that is still the default leaves the key out of the file, and one command stays a command', async () => {
+  const s = configured()
+  await onThePage(s, async (page) => {
+    // Nothing configured: one command channel with no command, which is the
+    // desktop notifier, and a pause.
+    assert.match(page.text('notify-view'), new RegExp(`the desktop notifier on ${process.platform}`))
+    await page.click('config-edit')
+    await page.click('config-save')
+    assert.equal(JSON.parse(readFileSync(file(s), 'utf8')).notify, undefined, 'saving the default writes the key')
+
+    // A command typed into it keeps the shape it has always had, rather than
+    // rewriting a one-line key as an object.
+    await page.click('config-edit')
+    control(notifyEditor(page), COMMAND).value = 'notify-send detent "$DETENT_MESSAGE"'
+    await page.click('config-save')
+    assert.equal(JSON.parse(readFileSync(file(s), 'utf8')).notify, 'notify-send detent "$DETENT_MESSAGE"')
+    assert.deepEqual(loadProduct(s.dir).notify.channels, [{ kind: 'command', command: 'notify-send detent "$DETENT_MESSAGE"' }])
+  })
+})
+
+test('a secret typed on the page goes to a file of its own, 0600, and is never read back', async () => {
+  const s = notifying()
+  delete process.env.DETENT_TEST_PAGE_TOKEN
+  const token = '123456:AAH-typed-on-the-dashboard'
+  await onThePage(s, async (page) => {
+    assert.equal(page.node('notify-secret').hidden, false, 'the control is there, because a channel asks for a secret')
+    assert.deepEqual(page.node('notify-secret-name').children.map((o) => o.getAttribute('value')), ['DETENT_TEST_PAGE_TOKEN'])
+    assert.equal(page.node('notify-secret-value').getAttribute('type'), 'password')
+
+    // An empty field sets nothing: a stray click is not how a working token
+    // gets removed.
+    await page.click('notify-secret-set')
+    assert.match(page.text('notify-secret-note'), /an empty field sets nothing/)
+    assert.ok(!page.reads.includes('POST secret.json'))
+
+    page.node('notify-secret-value').value = token
+    await page.click('notify-secret-set')
+
+    assert.ok(page.reads.includes('POST secret.json'))
+    assert.match(page.text('notify-secret-note'), /DETENT_TEST_PAGE_TOKEN is set in \.detent\/secrets\.json/)
+    assert.match(page.text('notify-secret-note'), /never read back/)
+    assert.equal(page.node('notify-secret-value').value, '', 'the page holds no secret for longer than the request')
+
+    // In the file, 0600, and out of product.json.
+    const secrets = join(s.dir, '.detent', 'secrets.json')
+    assert.deepEqual(JSON.parse(readFileSync(secrets, 'utf8')), { DETENT_TEST_PAGE_TOKEN: token })
+    assert.equal(statSync(secrets).mode & 0o777, 0o600)
+    assert.ok(!readFileSync(file(s), 'utf8').includes(token), 'the token reached product.json')
+
+    // The view now says set, and still carries no value.
+    assert.match(page.text('notify-view'), /DETENT_TEST_PAGE_TOKEN — set, in \.detent\/secrets\.json/)
+    assert.ok(!page.text('notify-view').includes(token))
+  })
+})
+
+test('a secret is written and never served: there is no GET for it, and a name no channel asks for is refused', async () => {
+  const s = notifying()
+  delete process.env.DETENT_TEST_PAGE_TOKEN
+  await dashboard(s, async (base) => {
+    // No reading it back, by construction rather than by omission.
+    const read = await fetch(`${base}/secret.json`)
+    assert.equal(read.status, 405)
+    assert.equal(read.headers.get('allow'), 'POST')
+    assert.match(await read.text(), /written here and never read back/)
+
+    const post = (body, headers = {}) => fetch(`${base}/secret.json`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: base, ...headers },
+      body: JSON.stringify(body),
+    })
+
+    // A name no channel reads is a secret on disk doing nothing.
+    const unknown = await post({ name: 'DETENT_TEST_NOBODY', value: 'x' })
+    assert.equal(unknown.status, 422)
+    assert.match((await unknown.json()).message, /no channel in \.detent\/product\.json asks for DETENT_TEST_NOBODY — DETENT_TEST_PAGE_TOKEN/)
+
+    // A token pasted where the name goes is refused without being echoed.
+    const swapped = await post({ name: '123456:AAHpasted', value: 'x' })
+    assert.equal(swapped.status, 422)
+    assert.match((await swapped.json()).message, /name of an environment variable/)
+
+    // And the same origin rule the configuration has: a page the person did
+    // not open must not replace the token a run sends with.
+    const forged = await fetch(`${base}/secret.json`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'http://example.com' },
+      body: JSON.stringify({ name: 'DETENT_TEST_PAGE_TOKEN', value: 'x' }),
+    })
+    assert.equal(forged.status, 403)
+    assert.throws(() => statSync(join(s.dir, '.detent', 'secrets.json')), /ENOENT/, 'nothing was written by any of them')
+
+    // The write that is allowed, and what comes back: whether it is set, and
+    // the configuration read off disk — with no value in either.
+    const written = await post({ name: 'DETENT_TEST_PAGE_TOKEN', value: 'a-real-looking-token' })
+    assert.equal(written.status, 200)
+    const result = await written.json()
+    assert.equal(result.written, true)
+    assert.deepEqual(result.secret, { name: 'DETENT_TEST_PAGE_TOKEN', set: true, where: join('.detent', 'secrets.json'), problem: null })
+    assert.ok(!JSON.stringify(result).includes('a-real-looking-token'), 'the answer carries the value')
   })
 })

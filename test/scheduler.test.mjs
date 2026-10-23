@@ -9,7 +9,7 @@ import { readQueue } from '../core/task.mjs'
 import { run as runCommand } from '../core/commands/run.mjs'
 import { runTask } from '../core/run.mjs'
 import { readJournal } from '../core/journal.mjs'
-import { assertInvariant, gitProduct, sh } from './support/product.mjs'
+import { assertInvariant, gitProduct, notifier, sh } from './support/product.mjs'
 import { snapshotRefs } from '../core/git.mjs'
 
 const task = (id, repo, touchesContract = false) => ({ id: String(id).padStart(4, '0'), repo, touchesContract })
@@ -139,7 +139,7 @@ test('two repositories run side by side, each returned, each journaled, each lan
   process.env.PATH = `${bin}:${path}`
   let code
   try {
-    code = await runCommand(product, [], {}, { runTask: (p, repo, t) => runTask(p, repo, t, { invoke, notify: () => ({ sent: true }) }) })
+    code = await runCommand(product, [], {}, { runTask: (p, repo, t) => runTask(p, repo, t, { invoke, notify: notifier().notify }) })
   } finally {
     process.stdout.write = write
     process.env.PATH = path

@@ -38,15 +38,35 @@ export async function promote(product, repo, { notify = defaultNotify, now = () 
     merged: false,
   }
 
-  const finish = () => {
+  // A promotion has two occasions of its own (ADR 0025). One that did not
+  // happen needs a person, so it is the same `paused` event a task's pause is —
+  // the default, and what has always been sent. One that *did* happen is
+  // `promoted`, and it is sent to whoever asked for it: a batch reaching
+  // agent/staging is the news a person watching a gate wants, and it was news
+  // nothing told them.
+  const finish = async () => {
     record.finished = now().toISOString()
+    const batch = record.tasks.join(', ')
     if (['red', 'escalated', 'error'].includes(record.outcome)) {
-      record.notified = notify(product, {
+      record.notified = await notify(product, {
+        event: 'paused',
         task: 'promote',
         repo: repo.name,
         outcome: record.outcome,
         branch: staging,
-        message: `promotion of ${repo.name} did not happen — ${record.outcome}: ${record.reason}. The batch (${record.tasks.join(', ')}) stays on ${integration}; nothing was reverted.`,
+        message: `promotion of ${repo.name} did not happen — ${record.outcome}: ${record.reason}. The batch (${batch}) stays on ${integration}; nothing was reverted.`,
+      })
+    } else if (record.outcome === 'passed') {
+      record.notified = await notify(product, {
+        event: 'promoted',
+        task: 'promote',
+        repo: repo.name,
+        outcome: record.outcome,
+        branch: staging,
+        // Named rather than left as "your branch": `compare` is the human
+        // branch this repository is reported against (§2), and the gate is the
+        // one step after a promotion that is a person's.
+        message: `${repo.name} promoted ${record.tasks.length} ${record.tasks.length === 1 ? 'task' : 'tasks'} (${batch}) to ${staging}${record.commit ? ` as ${record.commit.slice(0, 7)}` : ''}. The gate is now ${staging} → ${repo.compare}.`,
       })
     }
     appendJournal(product.dir, record)

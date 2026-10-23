@@ -134,11 +134,31 @@ export function summarise(lines, key) {
 
 // The number the acceptance pass exists to produce (ADR 0004): of the runs the
 // gauge let through and a reviewer read, how many were green and not done.
+//
+// This reads `outcome` and the flat `acceptance`, not `rounds`: a line written
+// before rounds existed has none, and `rejected` still means what it meant —
+// the run ended with a doubt nobody addressed (ADR 0023).
 export function blindSpot(lines) {
   const read = lines.filter(
     (l) => l.kind === 'task' && (l.outcome === 'passed' || l.outcome === 'rejected') && l.acceptance && l.acceptance.verdict !== 'absent',
   )
   return { read: read.length, rejected: read.filter((l) => l.outcome === 'rejected').length }
+}
+
+// The number retrying a doubt has to earn (ADR 0023): of the runs that passed,
+// how many were accepted on a round after the first, having been doubted on an
+// earlier one. Those are the tasks that would have been paused and handed to a
+// person before this existed.
+//
+// Every passed run is in the denominator, the ones with no `rounds` included:
+// a line without them is one round by construction, so it was accepted on its
+// first and the count is right about it. If this stays near zero, the retry is
+// not earning its money and the journal says so without anyone reading lines
+// by hand.
+export function doubtsAddressed(lines) {
+  const passed = lines.filter((l) => l.kind === 'task' && l.outcome === 'passed')
+  const addressed = passed.filter((l) => Array.isArray(l.rounds) && l.rounds.slice(0, -1).some((r) => r.acceptance?.verdict === 'rejected'))
+  return { passed: passed.length, addressed: addressed.length }
 }
 
 // The same number one level up (ADR 0008): of the batches a promote gauge
