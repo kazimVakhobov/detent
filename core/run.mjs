@@ -1,5 +1,7 @@
 // One task, from its file to agent/dev (build steps 4, 5 and 11).
 //
+//   a resumed branch is tried against agent/dev before anything is spent
+//                      → it conflicts: stale, no attempt, nothing paid for
 //   the agent works → the gauge runs on its way out
 //     green            → one commit on the task branch, the acceptance pass,
 //                        then the merge into agent/dev behind the merge profile
@@ -22,7 +24,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { formatGauge, runGauge } from './gauge.mjs'
-import { abortMerge, beginMerge, concludeMerge, currentBranch, deleteBranch, forceCheckout, git, isClean, setRef, snapshotOnto, snapshotRefs, tip } from './git.mjs'
+import { abortMerge, beginMerge, concludeMerge, currentBranch, deleteBranch, forceCheckout, git, isClean, setRef, snapshotOnto, snapshotRefs, tip, wouldConflict } from './git.mjs'
 import { acceptancePrompt, parseVerdict, taskDiff } from './acceptance.mjs'
 import { refreshContext, unpushedContext } from './context.mjs'
 import { checkLinks } from './links.mjs'
@@ -247,6 +249,29 @@ export async function runTask(product, repo, task, { invoke = defaultInvoke, not
           { allowEmpty: true },
         )
 
+      // Before anything at all is spent: whether the base this branch was cut
+      // from is still under it (ADR 0026). A fresh task branches from the
+      // integration tip and has nothing to ask; a resumed one kept the base it
+      // had the day it was cut, which was true then and is a claim about the
+      // world nobody has re-asked since. The merge that finds out otherwise is
+      // at the end of the run, after the attempts, the gauges and the
+      // acceptance pass have all been paid for.
+      //
+      // **Only a conflict is said out loud.** Behind is the ordinary state of
+      // nearly every resumed branch, and a check that fired on staleness would
+      // fire almost every time and be read as noise within a week.
+      if (resumed) {
+        const trial = wouldConflict(cwd, integration, branch)
+        if (trial.conflicts) {
+          record.conflicts = trial.conflicts
+          // Zero, and not the `null` that means nobody reported a number: no
+          // agent was asked for anything, and what this check is worth is the
+          // difference between this line and the one it replaced.
+          record.cost = { usd: 0, tokens: { input: 0, output: 0 } }
+          return pause('stale', `${branch} was cut from an earlier ${integration} and merging into it conflicts in ${trial.conflicts.join(', ')}`)
+        }
+      }
+
       // Before the first turn: the shared context is brought up to date, and
       // the journal records the commit each tracked submodule was at — so the
       // run's record says what the agent read (ADR 0012).
@@ -413,12 +438,14 @@ async function settle(product, task, record, notify) {
       branch: record.branch,
       message: `task ${record.task} (${record.repo}) passed — merged into ${product.branches.integration}${record.commit ? ` as ${record.commit.slice(0, 7)}` : ''} after ${attempts}. Nothing is waiting for you.`,
     })
-  } else if (['escalated', 'rejected', 'error'].includes(record.outcome)) {
+  } else if (['escalated', 'rejected', 'error', 'stale'].includes(record.outcome)) {
     move('hold')
     const file = `${product.queue}/hold/${task.id}-${task.slug}.md`
     // A conflict is the one pause a resume cannot get past by itself: detent
     // never resolves one, and the agent is not let into a merge. So the person
-    // is told the step that is theirs.
+    // is told the step that is theirs — the same step whether the conflict was
+    // found by the trial before the first attempt or by the merge after the
+    // last one (ADR 0026), which is why there is one sentence for both.
     const next = record.conflicts
       ? `Resolve it on the task branch — git switch ${record.branch} && git merge ${product.branches.integration} — then move ${file} back to todo/.`
       : `The work is on ${record.branch}; move ${file} back to todo/ to resume.`

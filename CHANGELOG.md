@@ -6,6 +6,33 @@ Notable changes, newest first. The format follows
 
 ## Unreleased
 
+**A resumed branch is tried against the integration branch before it is worked,
+and a conflict costs nothing.** A fresh task branches from `agent/dev` as it is
+now; a resumed one kept the base it was cut from, and nothing re-asked whether
+that base was still under it. So the conflict was found in `land()` — after the
+attempts, after the gauge had gone green, after the acceptance pass had read the
+diff and accepted it. It happened: a task cut from `agent/dev` at one commit,
+paused while a sibling landed over the same files, resumed on its old base.
+Three attempts, 36 minutes, $17.04, and a merge conflicting in ten files, with
+the fork point named in the reviewer's doubts on the first round and nothing the
+agent was allowed to do about it. **A run whose task branch already exists now
+tries the merge first** — `git merge-tree`, in the object database, touching no
+ref, no index and no file — and a conflict pauses the task before an agent is
+asked for anything. The new outcome is `stale`: the conflicting paths named, the
+same step for the person as the late conflict has always named (merge
+`agent/dev` into the task branch, resolve, commit, move the file back to
+`todo/`), `attempts` at zero and the cost zero rather than `null`, so the
+journal can say what asking early saved. **A branch that is merely behind says
+nothing and runs** — that is the ordinary state of nearly every resumed branch,
+and a check firing almost every time is learned as noise within a week.
+**detent does not resolve and does not merge the integration branch into a task
+branch**, not behind a flag and not when it would be clean; and the merge at the
+end of the run is unchanged, because a branch can go stale between the start of
+a run and its merge. [ADR
+0026](docs/adr/0026-the-base-of-a-resumed-branch-is-re-asked-before-the-work.md)
+records it, including what it rejected: rebasing or merging for the person, and
+warning on staleness rather than on conflict.
+
 **A telegram notification can be turned on from the dashboard, which is what
 the Notifications panel was for.** Everything behind it worked and almost
 nothing about it was discoverable: the panel drew the channels `product.json`

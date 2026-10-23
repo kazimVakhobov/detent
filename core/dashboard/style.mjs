@@ -55,7 +55,7 @@ div.status { white-space: normal; }
    the header's chip is \`.running\` too, and its dot is the thing that reads
    there. */
 .status.running .icon { color: var(--good); }
-.escalated .icon, .look .icon { color: var(--warning); }
+.escalated .icon, .stale .icon, .look .icon { color: var(--warning); }
 .rejected .icon { color: var(--serious); }
 .error .icon { color: var(--critical); }
 .skipped .icon, .info .icon { color: var(--muted); }

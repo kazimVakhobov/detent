@@ -82,9 +82,17 @@ export function readJournal(productDir) {
   return { lines, unreadable }
 }
 
-// The most recent run of a task, or null.
+// The most recent run of a task that asked an agent for something, or null —
+// this is what the next attempt is told about the last one (§5).
+//
+// `skipped` and `stale` are not that run: the gate refused, or the branch was
+// found forked from a superseded base before the first attempt (ADR 0026), and
+// neither says anything about the work. A stale line would also hand the agent
+// the integration branch and a merge, which is the one thing it is never told
+// about (ADR 0013) — what came before it is the run it should hear about.
 export function lastRun(productDir, taskId) {
-  const runs = readJournal(productDir).lines.filter((line) => line.kind === 'task' && Number(line.task) === Number(taskId) && line.outcome !== 'skipped')
+  const askedNobody = new Set(['skipped', 'stale'])
+  const runs = readJournal(productDir).lines.filter((line) => line.kind === 'task' && Number(line.task) === Number(taskId) && !askedNobody.has(line.outcome))
   return runs.at(-1) ?? null
 }
 
