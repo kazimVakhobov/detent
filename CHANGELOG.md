@@ -4,6 +4,217 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
+## Unreleased
+
+**A queue card shows the cost whole, and the live log stops repeating itself.**
+Two places where a line had more to say than it had room for, and both resolved
+it by losing what mattered. **The card:** the facts row did not wrap and
+scrolled inside the card instead, and at a quarter of the page the part hanging
+past the right edge was the money — `$11.51` arrived as `$1`, a plausible
+figure with nothing on the card to say it was a fragment. The facts wrap now,
+and each one breaks between its words and never inside one, so a date may take
+two lines and a figure never takes two halves. The head is still one row and
+the name still ellipsises — it is an identifier read from its beginning, and
+the path below carries it in full — and the `min-width: 0` that keeps a card in
+its column is untouched. **The log:** the stream emits an event continuously
+while a model thinks, and an event detent has no reading for prints as its
+type, so *What the agent is saying* filled with twenty copies of one word while
+the last thing the agent actually said went off the top. Consecutive identical
+lines are one line with a count and over how long, because four minutes of the
+same nothing is not four seconds of it; the span is measured by when the page
+read the lines, since the log carries no times and asking an event for one
+would be reading the stream for meaning. Nothing with content of its own
+collapses — two calls to the same tool are two calls — no event type is named,
+and the line cap now applies after collapsing, so repetition no longer pushes
+content off the top. Still no parsing for the journal: every figure comes from
+the result object, and a line that will not parse is shown as itself
+([ADR 0021](docs/adr/0021-the-agents-output-is-a-stream-written-to-a-file-that-is-not-a-record.md)).
+
+**The dashboard's queue is four columns in one row, and it stays four.** The
+four folders were in a grid of as-many-as-fit, so at an ordinary window three
+sat in a row and **Abandoned by hand** dropped underneath **Queue**, where it
+read as a fourth thing about `todo/` rather than as the fourth folder. The
+tracks are now four, equal, and do not reflow at any desktop width; below the
+width the drawer already calls narrow they stack, because four columns of a
+phone are not four columns. **And a card no longer leaves its column**: a grid
+item's default `min-width` is its content's intrinsic minimum and a card's rows
+do not wrap on purpose, so a long path made the item wider than its track, the
+track stopped being a ceiling, and the card ran under the next column and off
+the right-hand edge of the page. The four children are `min-width: 0`, the
+track is the width, and the content ellipsises or scrolls inside it the way it
+always meant to. The headings and the sort under each are untouched.
+
+**A task that is being run now looks like one.** Its file stays in `todo/`
+until `settle` moves it, so it sat among the tasks nothing had touched, under
+the line *the journal has not seen this task — nothing has run it*, while
+Overview's **Running now** said otherwise in another tab. Its card now carries
+that it is running and which attempt, as an icon and a word like every other
+status, and comes first in its folder whatever the sort is. It says nothing
+about a phase: a claim is a repository, a task, an attempt and a pid, and which
+of the gauge, the link check, the acceptance pass or the merge is under way is
+recorded nowhere. A claim whose process is gone is not a running task and is
+not drawn as one. No new read and no new endpoint — this is the `active` the
+page had already read.
+
+**The task detail loses a level of boxing, and the agent figures become
+blocks.** It was a panel, a legend block inside that, a card inside that and a
+table inside that: three borders before any content, and the content is what
+somebody opened the drawer to read. What separates one block from the next is
+space and a heading now; the drawer keeps its own edge, which is what makes it
+a drawer, and the border left inside is the innermost one. The `Pass / Cost /
+Tokens / Model` table was four columns inside a drawer 680px wide at its
+widest, and it broke `claude · claude-opus-5` across four lines, one word per
+line — it is a block per pass, each with what it cost, its tokens in and out
+and the model that ran it, and a model name no longer breaks mid-identifier.
+Every figure is the figure it was, out of the same two numbers the journal line
+carries.
+
+**Overview leads with the figures, and their heading says what they are.** The
+pass rate, cost per pass, attempts per run, green-but-not-done and paused were
+the last block on the landing screen, under a heading asking *was it worth it*
+— a question about whether to regret the figures, put to somebody who had not
+read one of them yet. The three blocks under them keep their order: what is
+running, what runs next, what is waiting.
+
+**`notify` was one command on one occasion, and the dashboard said it ran "when
+a task finishes" — which is not what the code did: a task that passed was
+settled in silence.** It now accepts an object — which events, and a list of
+channels — and **still accepts a string**, meaning exactly what it meant
+before, so every `product.json` already written keeps working and nothing has
+to be edited to go on behaving as it did. Events are named: `paused`, `passed`
+and `promoted`, plus the raw outcomes, so somebody can ask for `error` alone;
+**a `notify` that does not say which events it wants notifies on a pause and
+nothing else**, which is today's behaviour spelled out. `settle` now sends on
+the `passed` branch too, and a promotion sends `promoted` — a batch reaching
+`agent/staging` is news a person watching the gate wants, and it was news
+nothing told them. Channels are a registry, one module per kind: the command
+channel is what shipped, moved, and `telegram` is new — one POST to the Bot
+API, no dependency, nothing vendored. A kind is added once it has delivered a
+real message, not once its module compiles
+([ADR 0025](docs/adr/0025-a-channel-is-a-kind-and-the-secret-is-not-in-the-configuration.md)).
+
+**A channel that fails is reported and never fails the run — now per channel.**
+One failing does not stop the others, `record.notified` carries a result per
+channel, and `detent run` and `detent promote` print a line for each that did
+not deliver, naming the channel and where it was aimed.
+
+**The token is not in `product.json`, and the reason is not squeamishness: the
+dashboard reads that file back and serves its values to a browser, and nothing
+gitignored it.** A channel names the environment variable its token is in —
+`tokenEnv` — and detent reads it when it sends; a `token` key is refused by
+name with that reason rather than as an unknown key. A secret may also be typed
+on the dashboard, which writes it to `.detent/secrets.json`, created `0600`,
+under the same name; `init` now writes `.detent/.gitignore`, which there was
+none of before. **Whether it is set is reported; what it is never is** — the one
+place the page does not show what the file says, which is a decision and is
+written down as one. Nothing prints, logs or journals a secret: the token is in
+the URL the Bot API is called at, so a failed send is built from the status and
+the API's own sentence, and redacted against the token on the way out.
+
+**Notifications is a block of its own on the dashboard,** not a row among
+`attempts`, `timeout` and `concurrency`: those are one value under one key, and
+a list of channels is not one value. The events are choices, the channels are a
+list, and a telegram channel shows its chat, its topic and the name of its
+variable with `set` or `not set` beside it. It is drawn from the same read and
+written by the same Save, because it is the same file.
+
+**A barrier stops barring the moment it pauses — it did, and now it does not.**
+The scheduler's second rule says a barrier runs alone and nothing starts past
+it, and a barrier that does not pass ends the run with everything behind it
+untouched. All of that was true of the list it was handed, and `run` handed it
+`todo/` alone: the barrier moved to `hold/`, the next invocation found no
+barrier, and it started exactly the work the first run had refused to start,
+against exactly the contract it had refused to start it against. One run
+enforced the rule and the next did not know it existed. Now `run` reads
+`hold/` before anything begins — a paused task with `touches_contract: true`
+bars every queued task with a higher number, in any repository, the run names
+the barrier and why, and `detent run --past <id>` is the way past it for the
+person who knows that contract landed another way. **The barring is not part
+of any question:** a script, a pipeline and a cron line enforce it and report
+it exactly as an interactive run does
+([ADR 0024](docs/adr/0024-a-barrier-bars-until-it-passes-and-a-resume-is-a-decision-not-a-move.md)).
+A paused task that changes no contract bars nothing — it is named in one line
+and the queue runs.
+
+**`detent run 0003` on a paused task used to say `not in tasks/todo/: 0003`,**
+which is what it also said about a number nobody had ever used. A name is now
+answered by where the task actually is: `hold/` says it paused, with the
+outcome and the reason from its last journal line; `done/` says it already
+passed, with the commit; `failed/` says that folder is yours and detent never
+moves a task there. A number in none of the four keeps the old sentence, being
+the only one of the four it is true of. And `todo/` empty while `hold/` is not
+is its own sentence: there is work, it is paused.
+
+**A paused task is offered rather than refused.** With a terminal to ask on,
+`detent run` offers three answers per paused task in id order — leave it,
+resume it now, or open `plan` to change it first. The default is to leave it:
+a bare Enter must never start a run that costs money, and leaving a barrier
+paused leaves it barring, which the run says rather than quietly doing less
+than it was asked to. A resume goes through `moveAndRecord` like every other
+move, so a queue that is a repository gets the commit and the push, and a
+resume that cannot be published fails the way those do; what follows is what
+follows a hand-moved file, unchanged. `plan` opens on the task file where it
+is, with the outcome and the doubts the last run recorded and the job of
+changing that one file in place — no new task, no code — and the file stays in
+`hold/` while it is rewritten. Afterwards the run stops and says what to type
+next, rather than starting an unattended agent on a conversation nobody has
+read yet — and a task resumed earlier in the same pass has still moved, so it
+is queued in `todo/` and waiting, which that line says too. Nothing is
+remembered between runs: the answer depends on what the person has just read.
+
+**What that conversation left is checked, the way `plan` checks its own.** The
+pre-prompt says to change one file and write no code, and a prompt is an
+instruction rather than a guarantee — so the amending session is wrapped in the
+same before-and-after, with the narrower boundary it was given. Whether the
+file changed at all is said, and so is anything else that did: a ref moved, a
+working tree touched, `product.json` written, another task rewritten, a new
+task in `todo/` nobody asked for, or the file itself moved out of `hold/`. Any
+of those exits non-zero, because the one person who could catch it is the one
+who has not read the conversation yet.
+
+**A doubt is an attempt.** `attempts` was a budget for the gauge and for
+nothing else: a task whose gauge went red was handed the failure and asked
+again, and a task whose gauge went *green* and was then doubted by the
+acceptance pass was paused on the spot, after one attempt, to wait for a person
+— even though the agent could have addressed the doubt and the budget was
+untouched. The feedback it needed was already written and only a resume could
+reach it. Now a doubt costs an attempt exactly as a red gauge does: the doubts
+go to the implementer with the one sentence the gauge's retry cannot say — the
+previous attempt passed the gauge and was still not accepted, so turning it
+green again is not what is missing — and the loop goes round. `rejected` is
+what a doubt on the *last* attempt produces, unchanged: the same reason, the
+same empty commit carrying each doubt as a `Doubt:` trailer, `hold/`, the
+notification. The reviewer still never approves; what the budget buys is how
+many times it gets to speak before a person is called
+([ADR 0023](docs/adr/0023-a-doubt-is-an-attempt-and-every-round-is-recorded.md),
+narrowing [0009](docs/adr/0009-three-attempts-then-pause.md) and leaving
+[0004](docs/adr/0004-acceptance-demotes-only.md) where it was).
+
+**A merge conflict, a boundary breach, a verdict nothing can read, an agent
+that failed, and green with nothing changed still pause immediately,** with no
+attempt spent. detent does not resolve conflicts and the agent is not let into
+a merge, so a budget spent on either would be a budget spent on nothing it can
+change. The acceptance pass now answers with one of three named outcomes —
+merge, doubts, stop — rather than a boolean that had to smuggle the third in as
+a second meaning for `false`.
+
+**The journal line gains `rounds`,** one entry per attempt: that attempt's
+gauge result and failed stage, its acceptance verdict and doubts if it reached
+the pass, and what it cost. A run that is red, then green-and-doubted, then
+green-and-doubted again has three stories, and the same doubt three times
+("the criteria are wrong") is different news from a new doubt each time ("the
+reviewer is wandering"). `attempts`, `gauge` and `acceptance` stay as they are,
+holding the last round, because the journal is appended and never rewritten;
+the task detail shows a line per round for a run that went round twice, and
+leaves a run of one round — which is what every line already written is — drawn
+by the lines it has always had. The rejected rounds are on the task branch too,
+a commit each, so `git log` says what was said when.
+
+**`summary` reports what the retry has to earn:** of the runs that passed, how
+many were accepted on a round after the first, having been doubted on an
+earlier one. Near zero and the feature is not paying for itself, which is a
+thing the journal should be able to say without anyone reading lines by hand.
+
 ## 0.7.0 — 2026-10-21
 
 0.6.0 made the dashboard sections and gave it a task to open. This is the

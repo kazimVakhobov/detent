@@ -362,11 +362,45 @@ test('loadProduct reads .detent/product.json and throws a ConfigError naming the
   assert.equal(loadProduct(dir).repos[0].dir, join(dir, 'acme-api'))
 })
 
-test('notify is a command, or absent', () => {
-  assert.equal(validateProduct(minimal()).product.notify, null)
-  assert.equal(validateProduct(minimal({ notify: 'notify-send detent "$DETENT_MESSAGE"' })).product.notify, 'notify-send detent "$DETENT_MESSAGE"')
+test('notify is a command, or which events and a list of channels, or absent (ADR 0025)', () => {
+  const notifyOf = (raw) => validateProduct(minimal(raw)).product.notify
+
+  // Absent is the desktop notifier on a pause — which is what it has always
+  // been, now written down as a channel so there is one code path.
+  assert.deepEqual(notifyOf({}), { events: ['paused'], channels: [{ kind: 'command', command: null }] })
+
+  // **A string means exactly what it means today**: one command, on a pause.
+  // Every product.json already written keeps working, and this says so.
+  assert.deepEqual(notifyOf({ notify: 'notify-send detent "$DETENT_MESSAGE"' }), {
+    events: ['paused'],
+    channels: [{ kind: 'command', command: 'notify-send detent "$DETENT_MESSAGE"' }],
+  })
+
+  assert.deepEqual(
+    notifyOf({ notify: { events: ['paused', 'passed'], channels: [{ kind: 'telegram', chat: -1001234567890, thread: 9, tokenEnv: 'TELEGRAM_BOT_TOKEN' }] } }),
+    { events: ['paused', 'passed'], channels: [{ kind: 'telegram', chat: '-1001234567890', thread: 9, tokenEnv: 'TELEGRAM_BOT_TOKEN' }] },
+  )
+
   assertProblem(minimal({ notify: '' }), /^notify: must be a non-empty string/)
-  assertProblem(minimal({ notify: ['slack'] }), /^notify: must be a non-empty string/)
+  assertProblem(minimal({ notify: ['slack'] }), /^notify: must be a shell command, or \{ events, channels \} — got an array/)
+  assertProblem(minimal({ notify: { every: true } }), /^notify\.every: unknown key — expected one of events, channels/)
+  assertProblem(minimal({ notify: { events: ['finished'] } }), /^notify\.events\[0\]: "finished" is not an event — paused, passed, promoted, escalated, rejected, error, red/)
+  assertProblem(minimal({ notify: { channels: [{ kind: 'slack', webhook: 'x' }] } }), /^notify\.channels\[0\]\.kind: "slack" is not a channel detent has — command, telegram\. A kind is added once it has delivered a real message: docs\/adr\/0025-/)
+  assertProblem(minimal({ notify: { channels: [{ kind: 'telegram', tokenEnv: 'T' }] } }), /^notify\.channels\[0\]\.chat: is required/)
+  assertProblem(minimal({ notify: { channels: [{ kind: 'telegram', chat: '1' }] } }), /^notify\.channels\[0\]\.tokenEnv: is required — the name of the environment variable the bot token is in, never the token/)
+  assertProblem(minimal({ notify: { channels: [{ kind: 'telegram', chat: '1', tokenEnv: 'T', room: 2 }] } }), /^notify\.channels\[0\]\.room: unknown key for a telegram channel — expected one of kind, chat, thread, tokenEnv/)
+})
+
+// The one key the file must never carry, refused by name and with the reason
+// rather than as an unknown key: whoever typed it was doing the obvious thing.
+test('a token written in product.json is refused, and the refusal says why (ADR 0025)', () => {
+  const { problems } = validateProduct(minimal({ notify: { channels: [{ kind: 'telegram', chat: '1', tokenEnv: 'T', token: '123456:AAHreal-looking-token' }] } }))
+  assert.equal(problems.length, 1)
+  assert.match(problems[0], /^notify\.channels\[0\]\.token: is never written in product\.json — the dashboard serves this file to a browser and nothing gitignores it/)
+  assert.match(problems[0], /"tokenEnv": "TELEGRAM_BOT_TOKEN"/)
+  // And the refusal does not quote it back: a problem list is printed, logged
+  // and read over somebody's shoulder.
+  assert.ok(!problems[0].includes('AAHreal-looking-token'))
 })
 
 test('the acceptance pass runs on a different model from the one that implemented', () => {

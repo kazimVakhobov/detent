@@ -9,14 +9,17 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import process from 'node:process'
 import { failures } from '../core/doctor.mjs'
 import { snapshotRefs } from '../core/git.mjs'
 import { attemptLogPath, openAttemptLog } from '../core/log.mjs'
 import { scanProduct } from '../core/scan.mjs'
 import { createQueue, readQueue } from '../core/task.mjs'
 import { readJournal } from '../core/journal.mjs'
+import { run as runCommand } from '../core/commands/run.mjs'
+import { notifyProblems } from '../core/notify.mjs'
 import { runTask } from '../core/run.mjs'
-import { assertInvariant, gitProduct, sh, show } from './support/product.mjs'
+import { assertInvariant, gitProduct, notifier, sh, show } from './support/product.mjs'
 
 const BRANCH = 'agent/task-0042-wallet-endpoint'
 // Green when value.txt says "ok".
@@ -52,11 +55,6 @@ function agent(...steps) {
 }
 
 const write = (value) => (cwd) => writeFileSync(join(cwd, 'value.txt'), `${value}\n`)
-
-function notifier() {
-  const sent = []
-  return { sent, notify: (product, details) => (sent.push(details), { sent: true, via: 'test' }) }
-}
 
 test('green on the first attempt: one commit, merged into agent/dev, the branch deleted, the task done', async () => {
   const s = setup()
@@ -134,6 +132,7 @@ test('red on the last attempt: paused in hold/, work parked with its outcome, th
   assert.ok(!existsSync(join(s.dir, 'tasks', 'todo', '0042-wallet-endpoint.md')))
 
   assert.equal(n.sent.length, 1)
+  assert.equal(n.sent[0].event, 'paused', 'a pause is the event that has always been sent (ADR 0025)')
   assert.equal(n.sent[0].outcome, 'escalated')
   assert.equal(n.sent[0].branch, BRANCH)
   assert.match(n.sent[0].message, /task 0042 \(acme-api\) is paused — escalated: 3 identical failures on test/)
@@ -176,6 +175,8 @@ test('an agent error pauses the task, keeps the work and says why', async () => 
   const result = await runTask(s.product, s.repo, s.task, { invoke: a.invoke, notify: n.notify })
   assert.equal(result.outcome, 'error')
   assert.equal(result.reason, 'the agent failed: usage limit reached')
+  assert.equal(result.attempts, 1, 'an agent that failed is not handed its own failure and asked again')
+  assert.equal(a.prompts.length, 1)
   assert.equal(result.cost.usd, 0.1, 'a failed attempt still cost what it cost')
   assert.match(sh(s.repoDir, 'log', '-1', '--format=%B', BRANCH), /^Outcome: error — the agent failed: usage limit reached$/m)
   assert.equal(show(s.repoDir, BRANCH, 'value.txt'), 'half')
@@ -183,11 +184,14 @@ test('an agent error pauses the task, keeps the work and says why', async () => 
   assertInvariant(s.repoDir, s.before, s.product)
 })
 
-test('green with nothing changed is not a pass', async () => {
+test('green with nothing changed is not a pass, and is not retried', async () => {
   const s = setup({ gauge: { exit: [{ stage: 'test', command: 'true' }] } })
-  const result = await runTask(s.product, s.repo, s.task, { invoke: agent(() => {}).invoke, notify: notifier().notify })
+  const a = agent(() => {})
+  const result = await runTask(s.product, s.repo, s.task, { invoke: a.invoke, notify: notifier().notify })
   assert.equal(result.outcome, 'error')
   assert.equal(result.reason, 'the gauge is green but the agent changed nothing')
+  assert.equal(result.attempts, 1)
+  assert.equal(a.prompts.length, 1, 'the budget was 3, and none of it was spent asking again')
   assert.equal(sh(s.repoDir, 'rev-parse', BRANCH), sh(s.repoDir, 'rev-parse', 'agent/dev'), 'no empty commit left behind')
   assertInvariant(s.repoDir, s.before, s.product)
 })
@@ -222,7 +226,7 @@ test('an agent that commits to agent/dev has it restored, and its commits kept o
   assertInvariant(s.repoDir, s.before, s.product)
 })
 
-test('an agent that moves a human branch is named, and the branch is not touched by detent', async () => {
+test('an agent that moves a human branch is named, the branch is not touched by detent, and nothing is retried', async () => {
   const s = setup()
   const a = agent((cwd) => {
     write('ok')(cwd)
@@ -232,6 +236,10 @@ test('an agent that moves a human branch is named, and the branch is not touched
   const result = await runTask(s.product, s.repo, s.task, { invoke: a.invoke, notify: notifier().notify })
   assert.equal(result.outcome, 'error')
   assert.match(result.reason, /the agent moved refs\/heads\/feature\/human-work — detent does not write outside agent\/, so this is left for you/)
+  // A boundary breach is a pause, never an attempt: what has to happen next is
+  // a person looking at a ref that is theirs (ADR 0023).
+  assert.equal(result.attempts, 1)
+  assert.equal(a.prompts.length, 1)
   assert.equal(sh(s.repoDir, 'log', '-1', '--format=%s', 'feature/human-work'), 'x', 'still where the agent left it: not ours to move back')
 })
 
@@ -432,12 +440,15 @@ test('a conflict with agent/dev is aborted, never resolved, and the task paused 
   execFileSync('mv', [join(s.dir, 'tasks', 'hold', '0042-wallet-endpoint.md'), join(s.dir, 'tasks', 'todo')])
   const [resumed] = readQueue(s.dir, s.product).filter((t) => t.folder === 'todo')
   const n = notifier()
-  const result = await runTask(s.product, s.repo, resumed, {
-    invoke: agent((cwd) => (write('ok')(cwd), writeFileSync(join(cwd, 'notes.txt'), 'from 0042\n'))).invoke,
-    notify: n.notify,
-  })
+  const conflicting = agent((cwd) => (write('ok')(cwd), writeFileSync(join(cwd, 'notes.txt'), 'from 0042\n')))
+  const result = await runTask(s.product, s.repo, resumed, { invoke: conflicting.invoke, notify: n.notify })
   assert.equal(result.outcome, 'escalated')
   assert.equal(result.reason, 'merging into agent/dev conflicts in notes.txt')
+  // Not retried, whatever the budget says: detent never resolves a conflict
+  // and the agent is not let into a merge, so an attempt spent here would be
+  // an attempt spent on nothing it can change (ADR 0023).
+  assert.equal(result.attempts, 1)
+  assert.equal(conflicting.prompts.length, 1)
   assert.equal(sh(s.repoDir, 'rev-parse', 'agent/dev'), devTip)
   assert.ok(sh(s.repoDir, 'branch', '--list', BRANCH), 'the branch is kept for a person to look at')
   assert.match(n.sent[0].message, /conflicts in notes\.txt\. Resolve it on the task branch — git switch agent\/task-0042-wallet-endpoint && git merge agent\/dev — then move tasks\/hold\/0042-wallet-endpoint\.md back to todo\/\./)
@@ -645,6 +656,87 @@ printf '%s' '${JSON.stringify({ type: 'result', subtype: 'success', is_error: fa
     asked = error
   }
   assert.equal(asked.status, 2, 'asking for a task that is not queued is a usage error')
-  assert.match(asked.stderr, /^detent run: not in agent-loop\/tasks\/todo\/: 0042$/m)
+  // 0042 is in done/, and is reported by where it is rather than as a number
+  // nobody used — which is what a number in none of the four folders means,
+  // and only that (ADR 0024).
+  assert.match(asked.stderr, /^detent run: 0042 has already passed — merged into agent\/dev \([0-9a-f]{7}\), and its file is in agent-loop\/tasks\/done\/0042-wallet-endpoint\.md$/m)
+
+  let unknown
+  try {
+    detent('0099')
+  } catch (error) {
+    unknown = error
+  }
+  assert.equal(unknown.status, 2)
+  assert.match(unknown.stderr, /^detent run: not in agent-loop\/tasks\/todo\/: 0099$/m)
   assert.equal(existsSync(join(s.dir, 'tasks')), false, 'and the default queue was never created')
+})
+
+// A task that passed is news too, to whoever asked for it — and to nobody
+// otherwise, which is why every other test in this file sees nothing on a pass
+// (ADR 0025).
+test('a passed task notifies when its event is asked for, and the journal line carries a result per channel', async () => {
+  const s = setup({}, { notify: { events: ['passed'], channels: [{ kind: 'command', command: 'true' }] } })
+  const n = notifier()
+  const result = await runTask(s.product, s.repo, s.task, { invoke: agent(write('ok')).invoke, notify: n.notify })
+
+  assert.equal(result.outcome, 'passed')
+  assert.equal(n.sent.length, 1)
+  assert.equal(n.sent[0].event, 'passed')
+  assert.equal(n.sent[0].outcome, 'passed')
+  assert.match(n.sent[0].message, /^task 0042 \(acme-api\) passed — merged into agent\/dev as [0-9a-f]{7} after 1 attempt\. Nothing is waiting for you\.$/)
+
+  // The journal says what each channel did, which is what the terminal prints
+  // and what a person reads afterwards.
+  assert.equal(result.notified.event, 'passed')
+  assert.equal(result.notified.asked, true)
+  assert.deepEqual(result.notified.channels, [{ kind: 'test', where: 'the test', sent: true, via: 'test' }])
+  const [line] = readFileSync(join(s.dir, 'runs', 'journal.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+  assert.deepEqual(line.notified, result.notified, 'the journal line is the record')
+})
+
+test('a channel that fails is reported per channel and never fails the run', async () => {
+  const s = setup({}, { notify: { channels: [{ kind: 'command', command: 'echo "no route" >&2; exit 7' }, { kind: 'command', command: 'true' }] } })
+  // The real dispatcher, not the stub: what is being asserted is that two
+  // channels are attempted, that the first one's failure is a line rather than
+  // an exception, and that the run's outcome is untouched by either.
+  const result = await runTask(s.product, s.repo, s.task, { invoke: agent(write('no'), write('no'), write('no')).invoke })
+
+  assert.equal(result.outcome, 'escalated', 'the run ended on its own terms')
+  assert.equal(result.notified.channels.length, 2)
+  assert.equal(result.notified.channels[0].sent, false)
+  assert.match(result.notified.channels[0].error, /exit code 7: no route/)
+  assert.equal(result.notified.channels[1].sent, true)
+  assert.deepEqual(notifyProblems(result.notified).length, 1)
+  assert.match(notifyProblems(result.notified)[0], /^could not notify via command \(echo "no route" >&2; exit 7\)/)
+})
+
+test('detent run prints what each channel did, under the task it is about', async () => {
+  const s = setup({}, { notify: { channels: [{ kind: 'command', command: 'echo "no route to chat" >&2; exit 3' }, { kind: 'command', command: 'true' }] } })
+  // `run` refuses on what `doctor` would fail, and doctor asks PATH: a
+  // declared agent nobody installed is a run refused before anything starts.
+  const bin = mkdtempSync(join(tmpdir(), 'detent-bin-'))
+  writeFileSync(join(bin, 'claude'), '#!/bin/sh\n')
+  chmodSync(join(bin, 'claude'), 0o755)
+  const path = process.env.PATH
+  const out = []
+  let code
+  try {
+    process.env.PATH = `${bin}:${path}`
+    code = await runCommand(s.product, [], {}, {
+      runTask: (product, repo, task) => runTask(product, repo, task, { invoke: agent(write('no'), write('no'), write('no')).invoke }),
+      out: { write: (chunk) => (out.push(String(chunk)), true) },
+      err: { write: () => true },
+    })
+  } finally {
+    process.env.PATH = path
+  }
+
+  const printed = out.join('')
+  assert.equal(code, 1, printed)
+  assert.match(printed, /^0042 {2}paused \(escalated\): 3 identical failures on test/m)
+  // One line per channel that did not deliver, and nothing for the one that
+  // did: two channels and one sentence (ADR 0025).
+  assert.match(printed, /^ {6}could not notify via command \(echo "no route to chat" >&2; exit 3\): exit code 3: no route to chat$/m)
+  assert.equal(printed.match(/could not notify/g).length, 1)
 })

@@ -172,26 +172,32 @@ export function taskBranch(product, task) {
   return product.branches.task.replaceAll('{id}', task.id).replaceAll('{slug}', task.slug)
 }
 
+// What a task file says about itself when nothing is judging it: the two
+// facts in its frontmatter that decide what a run may start, and nothing else.
+//
+// `readQueue` holds todo/ to the full shape and reads nothing in the other
+// three, which is right — history is not re-judged. But a paused task's
+// number, its repository and whether it changes a contract are what the
+// scheduler's second rule is about (§8), and that rule outlives the run that
+// paused it (ADR 0024). A task whose criteria are being rewritten in hold/
+// still bars what stands behind it, so nothing here is a problem to report: a
+// file that cannot be read says nothing and bars nothing.
+export function declares(file) {
+  let text
+  try {
+    text = readFileSync(file, 'utf8')
+  } catch {
+    return { repo: null, touchesContract: false }
+  }
+  const { fields } = frontmatter(text)
+  return { repo: fields.repo ?? null, touchesContract: fields.touches_contract === 'true' }
+}
+
 // One task file's text, judged against the identity its file name gives it.
 export function parseTask(text, { id, slug }) {
-  const problems = []
   const source = text.replaceAll('\r\n', '\n')
-
-  const match = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(source)
-  if (!match) return { task: null, problems: ['has no frontmatter — it must open with a --- block'] }
-
-  const fields = {}
-  match[1].split('\n').forEach((line, index) => {
-    if (line.trim() === '' || line.trim().startsWith('#')) return
-    const pair = /^([A-Za-z_][A-Za-z0-9_]*):\s*(.*?)\s*$/.exec(line)
-    if (!pair) return problems.push(`frontmatter line ${index + 1} is not "key: value"`)
-    const [, key, value] = pair
-    if (!FRONTMATTER_KEYS.includes(key)) {
-      return problems.push(`frontmatter key "${key}" is unknown — expected one of ${FRONTMATTER_KEYS.join(', ')}`)
-    }
-    if (Object.hasOwn(fields, key)) return problems.push(`frontmatter key "${key}" appears twice`)
-    fields[key] = unquote(value)
-  })
+  const { fields, problems, body: rest, found } = frontmatter(source)
+  if (!found) return { task: null, problems: ['has no frontmatter — it must open with a --- block'] }
 
   if (fields.id === undefined) problems.push('frontmatter has no id')
   else if (fields.id !== id) {
@@ -209,7 +215,7 @@ export function parseTask(text, { id, slug }) {
   }
 
   // Only the body reaches the agent: the spec written before the work is the prompt.
-  const body = source.slice(match[0].length).replace(/^\n+/, '')
+  const body = rest
   const criteria = section(body, 'acceptance criteria')
     .filter((line) => /^\s*[-*]\s+\[[ xX]\]\s+\S/.test(line))
     .map((line) => line.replace(/^\s*[-*]\s+\[[ xX]\]\s+/, '').trim())
@@ -238,6 +244,30 @@ export function section(body, title) {
     return heading && heading[1].length <= level
   })
   return end === -1 ? rest : rest.slice(0, end)
+}
+
+// The block a task file opens with, and the body under it. Read by the whole
+// parse above and by `declares` on its own, so that one file is read one way
+// wherever the question comes from.
+function frontmatter(source) {
+  const match = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(source)
+  if (!match) return { found: false, fields: {}, problems: [], body: source }
+
+  const problems = []
+  const fields = {}
+  match[1].split('\n').forEach((line, index) => {
+    if (line.trim() === '' || line.trim().startsWith('#')) return
+    const pair = /^([A-Za-z_][A-Za-z0-9_]*):\s*(.*?)\s*$/.exec(line)
+    if (!pair) return problems.push(`frontmatter line ${index + 1} is not "key: value"`)
+    const [, key, value] = pair
+    if (!FRONTMATTER_KEYS.includes(key)) {
+      return problems.push(`frontmatter key "${key}" is unknown — expected one of ${FRONTMATTER_KEYS.join(', ')}`)
+    }
+    if (Object.hasOwn(fields, key)) return problems.push(`frontmatter key "${key}" appears twice`)
+    fields[key] = unquote(value)
+  })
+
+  return { found: true, fields, problems, body: source.slice(match[0].length).replace(/^\n+/, '') }
 }
 
 function unquote(value) {

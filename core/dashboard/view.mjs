@@ -193,15 +193,9 @@ function render(s) {
 
   renderWarnings(s)
 
-  // What is happening, what is next, and what is waiting for a person — the
-  // three questions somebody opens this page with, in that order (§12).
-  document.getElementById('now').replaceChildren(...nowRunning(s, running))
-  nextUp(s)
-  table(document.getElementById('waiting'), [['Task'], ['Repository'], ['Why']],
-    s.queue.hold.map((t) => [queued(t), t.repo || '—', because(t, 'parked by hand')]), 'nothing is waiting for you')
-
-  // And under those three, the figures: they answer "was it worth it", which
-  // is a different question from "what now".
+  // How the runs have gone, first on the landing screen: these are the
+  // figures somebody opens the page to see, and the heading over them says
+  // what they are rather than asking whether they were worth it.
   const n = s.numbers
   const all = n.all
   const figures = document.getElementById('figures')
@@ -215,6 +209,14 @@ function render(s) {
   if (n.batches.checked) {
     figures.append(tile('Red batch', pct(n.batches.red / n.batches.checked), n.batches.red + ' of ' + n.batches.checked + ' batches red with every task green'))
   }
+
+  // And under them, what is happening, what is next, and what is waiting for a
+  // person — the three blocks in the order a person asks them in, which is the
+  // order they have always been in (§12).
+  document.getElementById('now').replaceChildren(...nowRunning(s, running))
+  nextUp(s)
+  table(document.getElementById('waiting'), [['Task'], ['Repository'], ['Why']],
+    s.queue.hold.map((t) => [queued(t), t.repo || '—', because(t, 'parked by hand')]), 'nothing is waiting for you')
 
   // Where each repository stands, and no column for its models: which model it
   // uses is read in the configuration, which is the one place it is written

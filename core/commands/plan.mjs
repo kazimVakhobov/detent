@@ -1,14 +1,13 @@
 // detent plan — discuss a task with an agent; it writes the task files.
 
-import { spawn } from 'node:child_process'
 import process from 'node:process'
 import { AGENTS } from '../agents.mjs'
-import { INTERACTIVE, after, before, nextIds, planPrompt } from '../plan.mjs'
+import { INTERACTIVE, after, before, nextIds, openAgent, planPrompt } from '../plan.mjs'
 import { UsageError } from './usage.mjs'
 
 export const options = { agent: { type: 'string' } }
 
-export async function run(product, words, values, { spawnAgent = interactive } = {}) {
+export async function run(product, words, values, { spawnAgent = openAgent } = {}) {
   // The agents are listed from the table rather than written out here, so the
   // one place a row is added stays the one place (ADR 0018).
   const offered = Object.keys(AGENTS)
@@ -45,14 +44,4 @@ export async function run(product, words, values, { spawnAgent = interactive } =
   }
   process.stdout.write(`${out.join('\n')}\n`)
   return result.problems.length || result.breaches.length ? 1 : 0
-}
-
-// The agent's own interactive session, in this terminal. Resolves to its exit
-// code, or null if it could not be started.
-function interactive(command, args, cwd) {
-  return new Promise((resolve) => {
-    const child = spawn(command, args, { cwd, stdio: 'inherit' })
-    child.on('error', () => resolve(null))
-    child.on('exit', (code) => resolve(code ?? 1))
-  })
 }
