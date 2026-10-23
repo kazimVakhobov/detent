@@ -50,13 +50,17 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-sp
 .status .icon { font-weight: 700; }
 div.status { white-space: normal; }
 .passed .icon { color: var(--good); }
+/* A task being run right now, which is a status like any other: the icon and
+   the word carry it and the colour repeats them. Guarded by \`.status\` because
+   the header's chip is \`.running\` too, and its dot is the thing that reads
+   there. */
+.status.running .icon { color: var(--good); }
 .escalated .icon, .look .icon { color: var(--warning); }
 .rejected .icon { color: var(--serious); }
 .error .icon { color: var(--critical); }
 .skipped .icon, .info .icon { color: var(--muted); }
 ul.doubts { margin: 4px 0 0; padding-left: 18px; color: var(--text-2); }
 .empty { padding: 12px; color: var(--muted); }
-.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 0 24px; }
 code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
 footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
 
@@ -89,25 +93,69 @@ main > section > h2:first-child { margin-top: 8px; }
 .run-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
 #next-up-order { margin: 0 0 8px; }
 
+/* The four folders, in one row of four that stays four.
+
+   **Four explicit tracks, not \`repeat(auto-fit, minmax(320px, 1fr))\`.**
+   \`auto-fit\` fits as many 320px columns as the width allows and wraps the
+   rest, so at an ordinary window three sat in a row and "Abandoned by hand"
+   dropped underneath "Queue" — where it read as a fourth thing about the first
+   folder rather than as the fourth folder. The queue *is* four folders, so the
+   row is four columns at every desktop width.
+
+   **And the four children get \`min-width: 0\`.** A grid item's default is
+   \`min-width: auto\`, which is its content's intrinsic minimum — and a card
+   holds things that cannot break, a long path and a head that does not wrap, so
+   the item was wider than its track, \`1fr\` stopped being a ceiling, and the
+   card ran under the next column and off the right-hand edge of the page. At 0 the track is the width and the content ellipsises or scrolls
+   inside it, which is what \`.card-head .name\` and \`.card .facts\` already
+   intend. The cards inside a column are a grid of their own, so they get the
+   same floor and the same 0: one level down, the default does the same thing.
+   Said here because the next person to meet \`min-width: auto\` should not have
+   to spend the same hour on it.
+
+   **Below 760px they stack.** Four columns of a phone are not four columns,
+   and a page whose body scrolls sideways is the thing being avoided; 760px is
+   the width the drawer already calls narrow, so the page has one narrow rather
+   than two. */
+.folders { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 24px; }
+.folders > *, .cards > * { min-width: 0; }
+@media (max-width: 760px) { .folders { grid-template-columns: minmax(0, 1fr); } }
+
 /* The queue, as cards: one card per task, the number and its name on the one
    row that reads like a title, and every fact on a line under it.
 
-   **A card's rows do not wrap.** flex-wrap: nowrap on both of them, so what is
-   laid out in a row stays in one row rather than silently becoming a second
-   line inside it — which is what the rows this replaces did to "abandoned by
-   hand" in failed/, where it sat under the height of its own row and was never
-   seen. Anything longer than a row is a .line instead, full width, wrapping
-   normally. Nothing is hidden to achieve it: a long name is clipped visibly and
-   is also on the path line below it in full, and a row of facts scrolls. */
-.cards { display: grid; gap: 8px; margin-bottom: 8px; }
+   **The head is one row; the facts are as many as they need.** Both were
+   flex-wrap: nowrap, so what was laid out in a row stayed in one row rather
+   than silently becoming a second line inside it — which is what the rows this
+   replaces did to "abandoned by hand" in failed/, where it sat under the height
+   of its own row and was never seen. Anything longer than a row is a .line
+   instead, full width, wrapping normally.
+
+   **The facts wrap, because the figures are at the end of that row.** nowrap
+   was written when a card had a whole row of the page to itself and the only
+   risk was a card growing taller than its neighbours; four columns that stay
+   four put the row at a quarter of the width, and what then hung past the right
+   edge was the cost — \`$11.51\` arriving as \`$1\`, which is a plausible figure
+   with nothing on the card to say it is a fragment. A card has no height of its
+   own, so a second line of facts makes the card taller and is read: the failure
+   nowrap guarded against needs a row with a fold in it, and there is none here.
+
+   Each fact breaks between its words and never inside one — nothing here sets
+   \`overflow-wrap\`, so a figure is one word and stays whole, and
+   \`.status\`'s own nowrap keeps an icon with the word it belongs to.
+   \`overflow-x\` is the floor under that, for the one fact that cannot break at
+   all — a forty-character repository name — which scrolls rather than painting
+   over the next column. The head keeps its row: a name is an identifier read
+   from its beginning, so it ellipsises, and it is on the path line below in
+   full. */
+.cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-bottom: 8px; }
 .cards .empty { background: var(--raised); border: 1px solid var(--line); border-radius: 8px; }
 .card { background: var(--raised); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
 .card-head, .card-head a { display: flex; flex-wrap: nowrap; align-items: baseline; gap: 6px; min-width: 0; }
 .card-head a { color: var(--accent); text-decoration: none; }
 .card-head .number { font-variant-numeric: tabular-nums; }
 .card-head .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.card .facts { display: flex; flex-wrap: nowrap; align-items: baseline; gap: 4px 14px; overflow-x: auto; margin-top: 4px; }
-.card .facts > span { white-space: nowrap; }
+.card .facts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; overflow-x: auto; margin-top: 4px; }
 .card .line { white-space: normal; overflow-wrap: anywhere; margin-top: 4px; }
 .card .path code { color: var(--muted); }
 #todo-order { margin: 0 0 8px; }
@@ -145,6 +193,18 @@ main > section > h2:first-child { margin-top: 8px; }
 .drawer-head h2 { margin: 0; }
 @media (max-width: 760px) { .drawer { width: 100%; border-left: 0; } }
 
+/* **What separates one block of the detail from the next is space and a
+   heading, not a border.** It was a panel, a legend block inside that, a card
+   inside that and a table inside that: three outlines before any content, and
+   the content is what somebody opened the drawer to read. So the detail is no
+   longer a \`.panel\` — the drawer's own left edge is the border that makes it a
+   drawer, and a second one just inside it said nothing — and a block of it is
+   its legend and the space to the one below. The border that is left is the
+   innermost one, around a run or around a table that scrolls, and nothing
+   gained one to make up for the two that went. */
+#task-detail > .group { border: 0; border-radius: 0; padding: 0; margin-bottom: 24px; }
+#task-detail > .group:last-child { margin-bottom: 0; }
+
 /* Its body is a text node in a <pre> — detent renders no markdown, so a task
    file looks like the text file it is, and wraps rather than scrolling
    sideways.
@@ -158,15 +218,34 @@ table a { color: var(--accent); }
 .task-head .number { font-variant-numeric: tabular-nums; }
 pre.body { white-space: pre-wrap; overflow-wrap: break-word; margin: 0; font: inherit; color: var(--text-2); }
 
-/* What its attempts did, first in the panel (§12): one block per journal line,
-   the head a row of plain facts and anything longer than a row a line of its
-   own — the rule a queue card follows, for the same reason. This head wraps,
-   because the panel is the width of the page rather than a third of it. */
+/* What its attempts did, the first block of the detail (§12): one record per
+   journal line, the head a row of plain facts and anything longer than a row a
+   line of its own — the rule a queue card follows, for the same reason. This
+   head wraps, because the drawer is a column of text rather than a quarter of
+   one. The record's border is the one the detail keeps: it is what separates
+   one run from the next, and there is nothing boxed inside it. */
 .runs { display: grid; gap: 10px; }
 .run-record { background: var(--raised); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
 .run-record .facts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
 .run-record > .line { margin-top: 6px; overflow-wrap: anywhere; }
-.run-record > .scroll { margin-top: 8px; }
+
+/* What each pass cost, as a block each rather than a row each. Pass / Cost /
+   Tokens / Model was a table of four columns in a drawer that is 680px at its
+   widest, and the Model column broke \`claude · claude-opus-5\` across four
+   lines, one word per line.
+
+   **A model name is an identifier and reads as one thing**, so nothing breaks
+   inside one: \`.id\` holds a name together, the parts of the line break
+   between themselves, and a name wider than the block it is in scrolls — the
+   rule \`.card .facts\` already follows, rather than a hyphen becoming a line
+   ending. Two blocks side by side, one each, because what reading the work
+   cost against what doing it cost is a comparison (ADR 0004); below 560px they
+   stack, which is the width \`.field\` already stops being two columns at. */
+.passes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; margin-top: 8px; }
+.passes > * { min-width: 0; }
+.pass .figure { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 6px; overflow-x: auto; }
+.pass .id { white-space: nowrap; }
+@media (max-width: 560px) { .passes { grid-template-columns: minmax(0, 1fr); } }
 
 /* What the agent is saying, under the task it is saying it about (ADR 0021).
    Bounded in height as well as in lines: the end of the output is the part
@@ -179,7 +258,9 @@ pre.log:empty { display: none; }
 
 .panel { background: var(--raised); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
 .group { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
-.group > .legend { color: var(--text-2); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
+/* One heading for a block, wherever a block has one: the editor's groups, the
+   detail's, and a pass inside a run. */
+.group > .legend, .pass > .legend { color: var(--text-2); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
 .field { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 6px 12px; align-items: center; margin-bottom: 8px; }
 .field > label, .field > .name { color: var(--text-2); }
 .field:last-child { margin-bottom: 0; }

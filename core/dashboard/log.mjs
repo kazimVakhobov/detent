@@ -10,11 +10,18 @@
 // looking at: the end of the attempt log, a few seconds behind, which is what
 // watching is.
 //
-// Three things keep it from growing without bound. The server is asked to carry
+// Four things keep it from growing without bound. The server is asked to carry
 // on from the byte the last answer ended at, so a refresh every few seconds
-// does not re-read what the page already has; what arrives is kept as a bounded
-// number of lines and the oldest fall off the top; and each line is clipped,
-// because a tool result the agent read in full is not a line somebody scans.
+// does not re-read what the page already has; a line that repeats the one
+// before it and carries no content of its own is counted on that line rather
+// than drawn again, because a model thinking prints the same event
+// continuously; what is left is kept as a bounded number of lines and the
+// oldest fall off the top; and each line is clipped, because a tool result the
+// agent read in full is not a line somebody scans.
+//
+// The order of those two matters: the cap counts lines after the repetition has
+// been collapsed, so a panel full of one event is not a panel that has pushed
+// the agent's last real sentence off the top.
 //
 // **Every event is read for display and for nothing else.** The verdict, the
 // cost, the tokens and the session come from the result object `agents.mjs`
@@ -51,6 +58,10 @@ const LOG_QUIET = ${LOG_QUIET}
 let logTask = null
 let logAttempt = null
 let logFrom = 0
+// What is on the page, as a line each: its text, whether it carries content of
+// its own, how many of it arrived in a row and when the page read the first and
+// the last of them. A line and a count of that line, because twenty copies of
+// one line are not twenty lines of reading.
 let logLines = []
 // Whether the last line that arrived is the agent's result object — the one
 // event that says its turn is over. Read for the sentence above the lines and
@@ -66,23 +77,71 @@ const clip = (text) => {
   return one.length > LOG_CLIP ? one.slice(0, LOG_CLIP) + '…' : one
 }
 
-// One line of the stream, as a line for a person. An event detent has no
-// reading for is its type, and a line that is not an event at all is itself:
-// this is a view of what the agent printed, so it never refuses to show it.
+// One line of the stream, as a line for a person — and whether it carries
+// content of its own. An event detent has no reading for is its type, and a
+// line that is not an event at all is itself: this is a view of what the agent
+// printed, so it never refuses to show it.
+//
+// **\`bare\` is the test for collapsing, and it is about content rather than
+// about a type.** A line is bare when the event had nothing in it to show: a
+// type detent has no reading for, which prints as the type and nothing else, or
+// an assistant turn with nothing renderable in it. Nothing names an event type
+// here — a reading of one agent's stream is not detent's to invent. Everything
+// the agent actually said or asked a tool for carries content, so two of them
+// are two lines however alike they look: two calls to the same tool are two
+// calls, and two turns are two turns.
 function saying(raw) {
   let event = null
   try {
     event = JSON.parse(raw)
   } catch (error) {
-    return raw
+    return { text: raw, bare: false }
   }
-  if (!event || typeof event !== 'object') return raw
+  if (!event || typeof event !== 'object') return { text: raw, bare: false }
   const content = event.message && Array.isArray(event.message.content) ? event.message.content : []
-  if (event.type === 'system') return '· ' + (event.subtype === 'init' ? 'started' + (event.model ? ' on ' + event.model : '') : event.subtype || 'system')
-  if (event.type === 'assistant') return content.map(said).filter(Boolean).join('\\n') || '· thinking'
-  if (event.type === 'user') return content.map(back).filter(Boolean).join('\\n')
-  if (event.type === 'result') return '· finished: ' + (event.subtype || '—') + (typeof event.total_cost_usd === 'number' ? ' · $' + event.total_cost_usd.toFixed(4) : '')
-  return '· ' + (event.type || raw)
+  if (event.type === 'system') return { text: '· ' + (event.subtype === 'init' ? 'started' + (event.model ? ' on ' + event.model : '') : event.subtype || 'system'), bare: false }
+  if (event.type === 'assistant') {
+    const text = content.map(said).filter(Boolean).join('\\n')
+    return text ? { text, bare: false } : { text: '· thinking', bare: true }
+  }
+  if (event.type === 'user') return { text: content.map(back).filter(Boolean).join('\\n'), bare: false }
+  if (event.type === 'result') return { text: '· finished: ' + (event.subtype || '—') + (typeof event.total_cost_usd === 'number' ? ' · $' + event.total_cost_usd.toFixed(4) : ''), bare: false }
+  return { text: '· ' + (event.type || raw), bare: true }
+}
+
+// A line that has just arrived, added to the lines already on the page — or
+// counted on the last of them. **A bare line that repeats the one before it
+// does not get a line of its own**: the stream prints the same event
+// continuously while a model thinks, so the panel filled with twenty copies of
+// one word and the last thing the agent said went off the top. Nothing with
+// content is ever collapsed, whatever it repeats.
+//
+// \`at\` is when the page *read* the line, not when the agent wrote it: the log
+// carries no times, and asking an event for one would be reading this stream
+// for meaning (ADR 0021). So what a collapsed line can report is the stretch
+// the page watched it over — which is the thing worth knowing about it, because
+// four minutes of the same nothing and four seconds of it are different news
+// for somebody deciding whether to look at the task.
+function logAdd(lines, raw, at) {
+  const line = saying(raw)
+  const last = lines[lines.length - 1]
+  if (line.bare && last && last.bare && last.text === line.text) {
+    last.count += 1
+    last.to = at
+    return lines
+  }
+  lines.push({ text: line.text, bare: line.bare, count: 1, from: at, to: at })
+  return lines
+}
+
+// How a line reads: itself, or itself with how many there were and over how
+// long. Lines that arrived in one read say that rather than a duration of
+// nothing — the page cannot say how long the agent took over what it had
+// already finished printing by the time the panel was opened.
+function logShow(line) {
+  if (line.count < 2) return line.text
+  const over = line.to - line.from
+  return line.text + ' ×' + line.count + ' · ' + (over < 1000 ? 'in one read' : 'over ' + logSince(over))
 }
 
 // What the agent said, or asked a tool for.
@@ -204,12 +263,18 @@ async function refreshLog() {
     logFrom = d.to
     if (d.text) {
       const arrived = d.text.split('\\n').filter(Boolean)
-      logLines = logLines.concat(arrived.map(saying)).slice(-LOG_LINES)
+      // One read is one reading of the clock: every line in it arrived
+      // together, which is what a collapsed line of them says.
+      const at = Date.now()
+      for (const raw of arrived) logAdd(logLines, raw, at)
+      // And the cap counts lines a person can read, so it is applied to what
+      // collapsing left rather than to what arrived.
+      logLines = logLines.slice(-LOG_LINES)
       logDone = isResult(arrived[arrived.length - 1])
     }
     document.getElementById('task-log-state').replaceChildren(logState(d))
     const pre = document.getElementById('task-log')
-    pre.textContent = logLines.join('\\n')
+    pre.textContent = logLines.map(logShow).join('\\n')
     // The end is the part somebody watching wants to be looking at.
     pre.scrollTop = pre.scrollHeight
   } catch (error) {

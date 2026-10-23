@@ -114,7 +114,13 @@ const nothingToCheck = 'no documents repository'
 // terminal, and in the end on an answer that keeps meaning nothing — every one
 // of those carries a `why`, because a default that is not announced is the
 // assumption this question was added to replace.
-async function choose({ asker, question, choices, closing, typed = () => null }) {
+//
+// Exported for the third question detent asks, which is `run`'s about a paused
+// task (ADR 0024). It is asked from somewhere else because it is about
+// something else, and it is asked *this* way because the rule at the top of
+// this file is not negotiable wherever the question lives: nobody on stdin
+// takes the default, and the default is announced.
+export async function choose({ asker, question, choices, closing, typed = () => null }) {
   const fallback = choices.find((choice) => choice.default) ?? choices[0]
   let complaint = null
   for (let attempt = 1; attempt <= TRIES; attempt += 1) {

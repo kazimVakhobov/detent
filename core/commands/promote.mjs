@@ -1,6 +1,7 @@
 // detent promote — agent/dev into agent/staging behind the batch gauge.
 
 import process from 'node:process'
+import { notifyProblems } from '../notify.mjs'
 import { promote } from '../promote.mjs'
 import { UsageError } from './usage.mjs'
 
@@ -30,7 +31,10 @@ export async function run(product, names, _values, { promote: promoteOne = promo
         ok = false
         process.stdout.write(`${repo.name}  not promoted (${r.outcome})${batch}: ${r.reason}\n`)
     }
-    if (r.notified && !r.notified.sent) process.stdout.write(`      could not notify: ${r.notified.error}\n`)
+    // Per channel, and on a promotion that happened as well as one that did
+    // not: `promoted` is an event somebody can ask for, so a channel can fail
+    // on the good news too (ADR 0025).
+    for (const problem of notifyProblems(r.notified)) process.stdout.write(`      ${problem}\n`)
   }
   return ok ? 0 : 1
 }

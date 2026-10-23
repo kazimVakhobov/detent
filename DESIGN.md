@@ -262,16 +262,19 @@ tasks/todo/0042-wallet-endpoint.md
   │   gauge (exit profile)
   │     red   → the agent is handed the stage and the failure text; attempt++
   │     red on the last attempt → escalation, no further attempt
-  └── green → commit
+  │   green → commit
+  │
+  │   acceptance pass, on a different model — may demote, never approve
+  │     a doubt → wip commit carrying each doubt; the agent is handed them
+  └──           and told the gauge was green; attempt++
+        a doubt on the last attempt → rejected, no further attempt
 
-  acceptance pass, on a different model — may demote, never approve
-
-  accepted  → checkout agent/dev → merge → done/
+  no doubt  → checkout agent/dev → merge → done/
               conflict → merge --abort → escalation
   otherwise → wip commit on the task branch → hold/, and a person is told
 
   always    → checkout agent/dev, clean tree
-  always    → one line appended to the journal
+  always    → one line appended to the journal, with a round per attempt
 ```
 
 ### Outcomes
@@ -279,7 +282,7 @@ tasks/todo/0042-wallet-endpoint.md
 | Outcome | Meaning | Branch | Merged |
 |---|---|---|---|
 | `passed` | gauge green, acceptance raised nothing | deleted after merge | yes |
-| `rejected` | **gauge green and the task still was not done** | kept | no |
+| `rejected` | **gauge green and the task still was not done**, on the last of `attempts` attempts | kept | no |
 | `escalated` | the last of `attempts` attempts was red, or the merge conflicted | kept | no |
 | `error` | the run itself broke — quota, crash, exception | kept | no |
 | `skipped` | the gate refused: dirty tree, no `agent/dev` | none | no |
@@ -288,6 +291,14 @@ tasks/todo/0042-wallet-endpoint.md
 exists to produce: the machine checks were green and the work was still not
 done. Folding it into `escalated` would hide exactly the measurement that
 justifies running an acceptance pass at all.
+
+**`attempts` is one budget and a doubt spends it too**
+([ADR 0023](docs/adr/0023-a-doubt-is-an-attempt-and-every-round-is-recorded.md)).
+A doubt before the last attempt hands the doubts to the agent and goes round
+again; `rejected` is the outcome of a doubt on the last one. The reviewer still
+never approves — a round ends in a merge because the gauge was green and no
+doubt was raised — so what the budget bought is how many times the reviewer
+gets to speak before a person is called, and nothing about who grants green.
 
 Failed work never reaches `agent/dev`, so the next task in that repository
 branches from a clean base and does not inherit someone else's mess.
@@ -426,6 +437,19 @@ to `todo/` resumes it on the same branch with a fresh budget and whatever the
 person added to the task. `failed/` is where a person puts a task they abandon;
 detent never moves anything there.
 
+**The decision to resume is a person's; the move need not be.** `detent run`
+offers each paused task three answers — leave it, resume it now, or open `plan`
+to change it first — and the default is to leave it, because a bare Enter must
+never start a run that costs money. Resuming moves the file through the same
+`moveAndRecord` every other move goes through, so a queue that is a repository
+gets its commit and its push (§11); `plan` is opened on the task file where it
+is, with what the last run said about it, and the run stops afterwards rather
+than chaining into one. With nobody on stdin nothing is asked, each paused task
+is named in a line, and everything a paused barrier bars stays barred
+([ADR 0024](docs/adr/0024-a-barrier-bars-until-it-passes-and-a-resume-is-a-decision-not-a-move.md)).
+Nothing about the resumed run itself changes: the same branch, the same fresh
+budget, the same doubts handed to the implementer.
+
 A **conflict** is the one pause a resume cannot get past on its own. detent
 never resolves a conflict, and the agent is not let into a merge either — a
 resolution is a judgement about two pieces of work, one of which the agent has
@@ -433,11 +457,55 @@ never seen. So the notification names the paths and the person's step: merge
 `agent/dev` into the task branch, resolve, commit, and move the task back to
 `todo/`. The next run lands it.
 
-`notify` in `product.json` is a shell command. It gets the message on stdin and
-`DETENT_TASK`, `DETENT_REPO`, `DETENT_OUTCOME`, `DETENT_BRANCH` and
-`DETENT_MESSAGE` in its environment — enough to reach a chat, a phone or a mail
-without detent holding a credential for any of them. Without it, detent tries a
-desktop notification. A notifier that fails is reported, never fatal.
+### Who is told, and how
+
+`notify` in `product.json` is **a shell command, or which events and a list of
+channels**
+([ADR 0025](docs/adr/0025-a-channel-is-a-kind-and-the-secret-is-not-in-the-configuration.md)).
+A string means one command on a pause, which is what it has always meant, so no
+file has to be edited to go on behaving as it did.
+
+```json
+"notify": {
+  "events": ["paused", "passed"],
+  "channels": [
+    { "kind": "command",  "command": "notify-send detent \"$DETENT_MESSAGE\"" },
+    { "kind": "telegram", "chat": "-1001234567890", "thread": 9, "tokenEnv": "TELEGRAM_BOT_TOKEN" }
+  ]
+}
+```
+
+**Events are named, and the default is a pause and nothing else.** `paused` is a
+task that needs a person — or a promotion that did not happen; `passed` is a task
+that landed on the integration branch; `promoted` is a batch that reached
+`agent/staging` (§7). The raw outcomes may be named instead — `escalated`,
+`rejected`, `error`, `red` — so somebody can ask for `error` alone. Present means
+exactly what it says: `"events": []` is silence.
+
+**A channel is a kind, one module per kind** (`core/notify/`). The `command` kind
+gets the message on stdin and `DETENT_EVENT`, `DETENT_TASK`, `DETENT_REPO`,
+`DETENT_OUTCOME`, `DETENT_BRANCH` and `DETENT_MESSAGE` in its environment —
+enough to reach a chat, a phone or a mail with detent holding no credential for
+any of them, which is still the kind that needs nothing. With no command it is
+the desktop notifier, which is what a product that configures nothing gets. The
+`telegram` kind is one POST to the Bot API and needs no dependency: Node 22 has
+`fetch`. A kind is added once it has delivered a real message, not once its
+module compiles — 0018's rule for agents, for the same reason.
+
+**The token is never in `product.json`.** The channel names the environment
+variable it is in and detent reads it at send time; a `token` key is refused by
+name, because that file is read back and served to the dashboard and nothing
+gitignores it. A secret may also be typed on the dashboard, which writes it to
+`.detent/secrets.json`, created `0600` and excluded by the `.detent/.gitignore`
+`init` writes — and the page reports **whether** it is set, never what it is
+(§12). A channel whose variable is unset is reported as "named, and not set".
+Nothing prints, logs or journals a secret: a failed send names the condition.
+
+**A channel that fails is reported and never fatal, per channel.** One failing
+does not stop the others, `record.notified` carries a result per channel, and
+`detent run` and `detent promote` print a line for each that did not deliver. A
+send is attempted once: detent is not a notification router, and the task is
+already paused.
 
 ---
 
@@ -589,6 +657,20 @@ were written for the contract it was meant to replace; starting them against
 the old one is the mistake the barrier exists to prevent. They stay in `todo/`
 for the next run, and the run says which were not started.
 
+**And it goes on barring after that run is over.** A barrier that did not pass
+is in `hold/`, so the next invocation would find no barrier in `todo/` and
+start exactly the work the last one refused to start — against exactly the
+contract it refused to start it against. The rule belongs to the queue rather
+than to one process, so `run` reads `hold/` before anything begins: a paused
+task with `touches_contract: true` bars every task in `todo/` with a higher
+number, in any repository, and what is barred does not start. The run names the
+barrier and why. This holds with a terminal and without one — it is a
+correctness rule, not a convenience — and `detent run --past <id>` is the way
+past it, for the person who knows that contract landed another way
+([ADR 0024](docs/adr/0024-a-barrier-bars-until-it-passes-and-a-resume-is-a-decision-not-a-move.md)).
+A paused task that changes no contract bars nothing: it is named in one line
+and the queue runs.
+
 Tasks for one repository run in id order; a busy repository never holds up
 another. Running side by side, tasks share the journal, so the check that an
 agent did not touch the files judging it allows the journal to grow by lines
@@ -618,10 +700,12 @@ How it runs:
   file that judges the agent changed, what the reviewer wrote is discarded and
   the task is paused as `error`.
 - **The verdict is one line:** `VERDICT: NO DOUBTS`, or `VERDICT: DOUBTS`
-  followed by one `- ` line per doubt. Doubts pause the task as `rejected`, with
-  an empty commit on the branch carrying each one as a `Doubt:` trailer. A
-  verdict detent cannot read is an `error`, never a pass: silence is not the
-  absence of doubt.
+  followed by one `- ` line per doubt. Doubts cost an attempt and put an empty
+  commit on the branch carrying each one as a `Doubt:` trailer — on **every**
+  rejected round, so `git log` on the task branch says what was said each time.
+  Doubts on the last attempt pause the task as `rejected`. A verdict detent
+  cannot read is an `error`, never a pass: silence is not the absence of doubt,
+  and it is not retried either — the pass itself is what went wrong.
 - **No `models.accept`, no pass.** The journal records `"verdict": "absent"`
   and the merge commit says `Acceptance: none declared`.
 - **`implement` and `accept` must differ** — at least in model — or the
@@ -630,11 +714,22 @@ How it runs:
   raise a doubt" carrying more weight than it was meant to. That is the price
   of the one-agent version and it is written down rather than discovered
   ([ADR 0018](docs/adr/0018-one-agent-in-the-first-version-and-what-readmits-another.md)).
-- A rejected task resumed hands the doubts to the implementer, who addresses
-  each one or says why it is wrong.
+- **A doubt is an attempt** ([ADR 0023](docs/adr/0023-a-doubt-is-an-attempt-and-every-round-is-recorded.md)).
+  The doubts go to the implementer, who addresses each one or says why it is
+  wrong, and the loop goes round on the same budget the gauge spends. The
+  wording differs from the gauge's retry on the one point that matters: the
+  previous attempt **passed the gauge** and was still not accepted, so turning
+  it green again is not what is missing. A rejected task a person resumed hands
+  the doubts over the same way, from the journal's last line for that task.
+- **Three outcomes, not two.** The pass answers merge, doubts or stop. `stop`
+  is the pass going wrong rather than the work — a breach, a pass that wrote,
+  a pass that failed, a verdict nothing can read — and it pauses the task
+  without spending an attempt.
 
 `summary` reports the number this exists for: of the green runs a reviewer
-read, how many were not done.
+read, how many were not done. Beside it, the number the retry has to earn: of
+the runs that passed, how many were accepted on a round after the first, having
+been doubted on an earlier one.
 
 ---
 
@@ -697,6 +792,10 @@ concluded, and which tasks went into which batch.
 <product>/
   .detent/product.json       composition, branches, gauge, models
   .detent/state.json         per repository: active task, attempt, started at
+  .detent/secrets.json       0600, gitignored, and never served to the page: a
+                             notification channel's token, if it is not in the
+                             environment (§5)
+  .detent/.gitignore         written by `init`, and the reason it exists
   tasks/{todo,hold,done,failed}/NNNN-<slug>.md      the queue, where `queue` puts it
   runs/journal.jsonl         append-only, one line per run
   runs/logs/NNNN-attempt-N.jsonl   what the agent printed, as it printed it —
@@ -736,7 +835,13 @@ product.
   "concurrency": 3,
   "attempts": 3,
   "timeout": 30,
-  "notify": "notify-send detent \"$DETENT_MESSAGE\"",
+  "notify": {
+    "events": ["paused", "passed"],
+    "channels": [
+      { "kind": "command",  "command": "notify-send detent \"$DETENT_MESSAGE\"" },
+      { "kind": "telegram", "chat": "-1001234567890", "tokenEnv": "TELEGRAM_BOT_TOKEN" }
+    ]
+  },
   "models": {
     "implement": { "agent": "claude", "model": "claude-sonnet-5" },
     "accept":    { "agent": "claude", "model": "claude-opus-5" }
@@ -764,7 +869,7 @@ product.
 }
 ```
 
-Six things about this shape are deliberate:
+Seven things about this shape are deliberate:
 
 - **`queue` is a path inside the product folder, and `tasks` when it is left
   out.** It is validated like `repos[].path`: a value that escapes the product
@@ -820,6 +925,15 @@ Six things about this shape are deliberate:
 - **Every edge carries its `source`.** Edges established by the deterministic
   scan are drawn plain; edges a model proposed are labelled with their kind, so
   a guess never looks like a fact.
+- **`notify` names where to send and never what the secret is.** A string is
+  still one command on a pause, so the key is backwards-compatible by
+  construction; the object says which events and which channels (§5). A channel
+  that needs a credential carries `tokenEnv`, the **name** of an environment
+  variable, and a `token` key is refused by name — this file is read back and
+  served to the dashboard, and nothing gitignores it
+  ([ADR 0025](docs/adr/0025-a-channel-is-a-kind-and-the-secret-is-not-in-the-configuration.md)).
+  The secret itself lives in that variable, or in `.detent/secrets.json`, which
+  is created `0600` and excluded by the `.detent/.gitignore` `init` writes.
 
 ### A journal line
 
@@ -840,6 +954,14 @@ Six things about this shape are deliberate:
     "accept": { "agent": "claude", "requested": "claude-sonnet-5", "actual": "claude-sonnet-5" }
   },
   "acceptance": { "verdict": "accepted", "doubts": [], "cost": { "usd": 0.06, "tokens": { "input": 21004, "output": 312 } } },
+  "rounds": [
+    { "attempt": 1, "gauge": { "profile": "exit", "green": true, "failedStage": null },
+      "acceptance": { "verdict": "rejected", "doubts": ["no test covers the balance"] },
+      "cost": { "usd": 0.18, "tokens": { "input": 90000, "output": 3100 } } },
+    { "attempt": 2, "gauge": { "profile": "exit", "green": true, "failedStage": null },
+      "acceptance": { "verdict": "accepted", "doubts": [] },
+      "cost": { "usd": 0.23, "tokens": { "input": 92044, "output": 3110 } } }
+  ],
   "links": { "checked": 3, "broken": ["shared-docs/adr/0003.md"] },
   "cost": { "usd": 0.41, "tokens": { "input": 182044, "output": 6210 } },
   "branch": "agent/task-0042-wallet-endpoint",
@@ -856,6 +978,18 @@ exists to prevent.
 
 The model that actually ran is recorded alongside the one requested, because a
 silent substitution would quietly corrupt every comparison built on this file.
+
+`rounds` is one entry per attempt
+([ADR 0023](docs/adr/0023-a-doubt-is-an-attempt-and-every-round-is-recorded.md)):
+what the gauge said, what the reviewer said if the attempt reached the
+acceptance pass, and what that attempt cost. A round that never reached the
+pass has `"acceptance": null`, which is not the same fact as a pass that raised
+nothing. **`attempts`, `gauge` and `acceptance` are not computed from it and
+hold the last round**, because the journal is appended and never rewritten: no
+line written before `rounds` existed has one, so every number reported from
+this file goes on reading the flat fields, and a line that has none is a run of
+one round, which the task detail draws from them. The duplication is deliberate
+and is the price of a file nothing migrates.
 
 `links` says what the task's links turned out to be: how many documents were
 looked for at the start of the run, and which of them were not there (§4). It is
@@ -905,7 +1039,7 @@ and the batch it carried:
 detent doctor       whether this product is in the shape detent expects
 detent init         scan the workspace and write product.json
 detent plan         discuss a task with an agent; it writes the task files
-detent run          work the queue
+detent run          work the queue: [id…] [--past ID]
 detent promote      merge agent/dev into agent/staging behind the batch gauge
 detent summary      pass rate, iterations, cost per pass
 detent dashboard    a page that watches this product
@@ -925,9 +1059,9 @@ detent prune        delete agent/task-* branches already merged into agent/dev
 3. **Validation against the scan.** A repository the model invents is dropped
    rather than written, because a gap is visible and an invention is not.
 
-Before those three, two questions — `init` is the one command that asks
+Before those three, two questions — the first of the two places detent asks
 anything itself, and the subsection below is what it asks and what happens when
-there is nobody to answer.
+there is nobody to answer. (The other is `run`, about a task in `hold/`.)
 
 `init` also creates the queue's four folders, `{todo,hold,done,failed}`, if they
 are not there: at the path the first question settled, before any of the three
@@ -970,7 +1104,7 @@ With a `product.json` already there, the proposal keeps every field a person
 wrote, adds only what is new, goes to `.detent/product.proposed.json`, and the
 difference is printed.
 
-### `init` is the one command that asks
+### `init` asks two questions
 
 Two questions, after the scan and before anything is written, because they are
 the two things the scan cannot work out: **which repository holds the queue** —
@@ -1000,9 +1134,11 @@ got — and every answer is written, `"docs": null` included, so a re-run asks
 nothing the file already answers
 ([ADR 0014](docs/adr/0014-init-asks-where-the-queue-and-the-documents-are.md)).
 
-Everything else detent does is either its own work or somebody else's question:
-`plan` is interactive by handing the terminal to the agent, and nothing but
-`init` reads detent's own stdin.
+One other command asks, about one other thing: `run`, about a task in `hold/`
+(below). Everything else detent does is either its own work or somebody else's
+question — `plan` is interactive by handing the terminal to the agent — and
+those two are the whole of what reads detent's own stdin, under the one rule
+both obey: a question nobody is there to answer is not asked.
 
 `gauge` exists so the gauge is useful before any run does: a person sees exactly
 what an agent will be held to — every stage, its time, and for a red one the
@@ -1051,6 +1187,44 @@ nothing; where there is a command that fixes a finding, it prints the command.
   submodule **in** `neverCommit` is detent's to leave alone and has nothing to
   report
 
+### Run, and what it will not start
+
+`detent run [id…] [--past ID]` works `todo/` under the two rules of §8 — and
+reads `hold/` before it starts any of it, because the second of those rules
+outlives the run that paused a barrier. What a paused barrier bars is above;
+what follows is the rest of what `hold/` changes about this command.
+
+**A name that is not in `todo/` is answered by where it actually is**, one
+sentence per folder, because paused, already finished and abandoned by hand are
+three different things to have typed. A number in none of the four keeps the
+old sentence: it is the only one that means the number does not exist.
+
+**A paused task is offered, when there is a terminal to offer it on.** `detent
+run <id>` naming one, and a bare `detent run` that found anything in `hold/`,
+ask about each in id order: leave it, resume it now, or open `plan` to change
+it first. Leaving it is the default and what a pipeline gets. Resuming is a
+`moveAndRecord` back to `todo/` — committed and pushed where the queue lives,
+and the run goes on exactly as it would have after a hand-moved file. `plan`
+opens on that task file where it is, with the outcome and the doubts the last
+run recorded and the instruction to change that one file in place; the file
+stays in `hold/` while it is being rewritten, and the run stops afterwards,
+reports what the conversation left and says what to type next. That report is
+`plan`'s own check with a narrower boundary: whether the file changed, and
+anything else that did — a repository, `product.json`, another task, a new task
+in `todo/`, or the file having left `hold/` — which makes the run exit non-zero,
+because the person it is handed back to is the one who has not read the
+conversation yet. `plan` ends the run, but it does not withdraw an answer
+already given: a task resumed earlier in the same pass has moved, with its
+commit and its push, and the closing line says it is queued in `todo/` and was
+not started
+([ADR 0024](docs/adr/0024-a-barrier-bars-until-it-passes-and-a-resume-is-a-decision-not-a-move.md)).
+
+Nothing else about `run` asks anything: no confirmation before a normal queue,
+no prompt on a dirty tree, and no answer is ever remembered — the question is
+asked because the answer depends on what the person has just read. And
+`todo/` being empty while `hold/` is not is its own sentence: there is work, it
+is paused, and that is not the same as having none.
+
 ### Prune
 
 `detent prune [repo…] [--dry-run]` deletes `agent/task-*` branches whose every
@@ -1093,21 +1267,25 @@ somebody was — no server route, and nothing fetched to change section
 ([ADR 0020](docs/adr/0020-the-dashboard-is-sections-and-the-configuration-is-read-before-it-is-written.md)).
 The sections are:
 
-- **Overview** — what is happening and what is next, because that is what
-  somebody opens the page to find out. **Running now**: which repository, which
-  task, which attempt and how long it has been going, from the claim's
-  `started` against the read's own clock — or, when nothing is running, a
-  sentence saying so, since an empty box reads the same either way. **Next
-  up**: the next few of `todo/` in the order a run would take them, which is
-  ascending task id, and the line above the table says so; a barrier
-  (`touches_contract`) is marked as one, because it runs alone and nothing
-  queued past it starts until it has landed (§8). **Waiting for you**: the
-  paused tasks with why each stopped — the same rows Queue lists and the strip
-  counts, because the strip is a line saying how many and this is the list
-  saying which. Then the figures `summary` computes, from the same code: they
-  answer "was it worth it", which is a different question from "what now" and
-  so reads under those three rather than instead of them. Nothing here is a
-  prediction — no estimate of how long a run has left or what it will cost.
+- **Overview** — how the runs have gone, and then what is happening and what
+  is next. **It leads with the figures** `summary` computes, from the same
+  code: the pass rate, what a pass costs, how many attempts a run takes, how
+  many green runs the reviewer sent back and how many tasks are paused. They
+  were the last block on the landing screen under the heading "was it worth
+  it", which asks whether to regret the figures rather than naming them, of
+  somebody who had not read one yet — so the heading says what they are and
+  the block is first. Then, in the order a person asks them in: **Running
+  now**, which repository, which task, which attempt and how long it has been
+  going, from the claim's `started` against the read's own clock — or, when
+  nothing is running, a sentence saying so, since an empty box reads the same
+  either way. **Next up**: the next few of `todo/` in the order a run would
+  take them, which is ascending task id, and the line above the table says so;
+  a barrier (`touches_contract`) is marked as one, because it runs alone and
+  nothing queued past it starts until it has landed (§8). **Waiting for you**:
+  the paused tasks with why each stopped — the same rows Queue lists and the
+  strip counts, because the strip is a line saying how many and this is the
+  list saying which. Nothing here is a prediction — no estimate of how long a
+  run has left or what it will cost.
 - **Repositories** — where each repository's `agent/dev` stands against its
   `compare` branch (identical, behind — agents cannot see your work — or tasks
   ahead, waiting for your review), and the same numbers per repository. Not
@@ -1115,17 +1293,48 @@ The sections are:
   written, and two renderings of one fact are free to disagree.
 - **Queue** — all four folders: `todo/`, the paused tasks with why each was
   paused and the reviewer's doubts, the `done/` detent has finished with, and
-  the `failed/` a person abandoned. **Each task is a card, not a row.** A
-  folder here has about a third of the width, and a row that narrow could not
+  the `failed/` a person abandoned. **They are one row of four, and it stays
+  four.** The grid fitted as many columns as the width allowed and wrapped the
+  rest, so at an ordinary window the fourth folder sat underneath the first and
+  "Abandoned by hand" read as a fourth thing about `todo/` rather than as the
+  fourth folder; the tracks are four, equal, and do not reflow at any desktop
+  width. Below the width the drawer already calls narrow they stack, because
+  four columns of a phone are not four columns and a page whose body scrolls
+  sideways is worse than four folders read one after another. **A card never
+  leaves its column**: a grid item's default `min-width` is its content's
+  intrinsic minimum, and a card holds things that cannot break, so the track
+  stopped being a ceiling and a long path ran the card under the next column
+  and off the edge of the page — the four children are `min-width: 0`, so the
+  track is the width and the content ellipsises or wraps inside it.
+  **A task being run right now is marked where it sits**, and comes first in
+  its folder whatever the sort is: nothing moves the file until `settle`, so a
+  running task is in `todo/` among the ones nothing has touched, and it was
+  drawn under the line saying the journal had never seen it. Its card says that
+  it is running and which attempt, as an icon and a word like every other
+  status, out of the `active` the page has already read — **and nothing about a
+  phase**, because a claim is a repository, a task, an attempt and a pid, and
+  which of the gauge, the link check, the acceptance pass or the merge is under
+  way is recorded nowhere. A claim whose process is gone is not a running task
+  and is not drawn as one
+  ([ADR 0017](docs/adr/0017-a-claim-locks-the-configuration-only-while-its-run-is-alive.md)). **Each task is a card, not a row.** A
+  folder here has about a quarter of the width, and a row that narrow could not
   hold what the journal already knew about a task — the words "abandoned by
   hand" in `failed/` sat under the height of their own row and were never
   seen. A card is the number and its name on one line, the path under it,
   small, and every fact on a line of its own: the outcome, why it stopped, the
   reviewer's doubts, the branch, and what `Recent runs` says about the same
   journal line — how many attempts, what it cost, when it finished and the
-  acceptance verdict. **A card's rows do not wrap**: what is laid out in a row
-  stays in one row, and anything longer than a row is a line, so nothing is
-  pushed under a fold a row has. **The name is the slug** —
+  acceptance verdict. **Anything longer than a row is a line**, full width, so
+  nothing is pushed under a fold a row has. The head is the one row that stays
+  one — a number and a name, and the name ellipsises, because it is an
+  identifier read from its beginning and the path below carries it in full.
+  **The facts wrap, because the figures are at the end of that row**: a row of
+  them that did not wrap scrolled inside a card a quarter of the page wide, and
+  what hung past the edge was the cost — `$11.51` arrived as `$1`, a plausible
+  figure with nothing on the card to say it was a fragment, which is worse than
+  a figure not shown. A fact breaks between its words and never inside one, so
+  a date may take two lines and a figure never takes two halves. **The name is
+  the slug** —
   `0043 · A task is something you can open`, derived where it is drawn, because
   the slug already *is* the name and a second place to keep it is a second
   place to get it wrong; the frontmatter gains no `title`. A task the journal
@@ -1204,6 +1413,14 @@ to the top so the way out stays reachable. Nothing animates and nothing
 transitions. A drawer is a positioned element and a `hidden` attribute: no
 router, no second asset, and the same one request.
 
+**What separates one block of it from the next is space and a heading.** The
+detail was a panel, a legend block inside that, a card inside that and a table
+inside that: three borders before any content, and the content is what somebody
+opened the drawer to read. The drawer keeps its own edge — that is what makes it
+a drawer — and inside it the border that is left is the innermost one, around a
+run or around a table that scrolls sideways. No block gained one to make up for
+the two that went.
+
 **It leads with its runs.** What its attempts did is the first block, directly
 under the head and before the frontmatter and the body: a person opening a task
 that has run wants "what happened and what did it cost", and the body is what
@@ -1216,13 +1433,28 @@ passed first time and the attempt count alone does not tell them apart. Then
 **what the implementation cost and what the acceptance pass cost, kept apart**,
 each with its tokens and the model it ran on: the name that was requested and,
 when the CLI reported a different one, the name it reported — a request the CLI
-never confirmed says so rather than standing in for a confirmation. The run's
+never confirmed says so rather than standing in for a confirmation. **Those two
+are a block each and not a row each.** `Pass / Cost / Tokens / Model` was four
+columns inside a drawer 680px wide at its widest, and the column holding two
+model names broke `claude · claude-opus-5` across four lines, one word per
+line: a model name is an identifier and reads as one thing, so nothing breaks
+inside one and a name wider than the block it is in scrolls instead. The run's
 own total is shown beside those two rather than instead of them, so a line
 whose numbers disagree with each other shows that it does; the implementation
 figure is the total less the acceptance figure and nothing else is added up to
-reach it. And then which gauge stage sent it back, whether it merged and as
-what commit, the acceptance verdict with its doubts, and whether the task's
-links checked.
+reach it. Then what the gauge stopped on, whether it merged and as what commit,
+what the reviewer said and with which doubts, and whether the task's links
+checked.
+
+A run that went round more than once replaces those first three lines with
+**one line per round** — which gauge stage sent that attempt back, what the
+reviewer said about it, and what the attempt cost — because one run can be red
+on the gauge, then green and doubted, then green and accepted, and the attempt
+count tells none of those three apart. **A run of one round keeps the lines it
+has always had**, and a line with no `rounds` is a run of that shape (§11): the
+flat fields hold its one round, so the runs already in a journal are drawn by
+the code that drew them. Their cost is the run's cost, already above, and the
+same figure twice would read as two.
 
 **Every number there is already in the journal line** (§11) — this reads it and
 records nothing — and **a field the line has as `null` is shown as not
@@ -1250,13 +1482,32 @@ where the output of a running task is read, a few seconds behind, which is what
 watching is
 ([ADR 0021](docs/adr/0021-the-agents-output-is-a-stream-written-to-a-file-that-is-not-a-record.md)).
 It is the end of the newest attempt's log — read from the same file `tail -f`
-would read, on the timer the page already has — and three things keep it from
+would read, on the timer the page already has — and four things keep it from
 growing with the run: the page asks to carry on from the byte its last answer
-ended at, so it never re-reads what it has; what arrives is kept as a bounded
-number of lines, oldest off the top; and each line is clipped, because a tool
-result the agent read in full is not a line somebody scans. Each event is read
-for display and for nothing else, and a line that will not parse is shown as it
-arrived. It lives here and nowhere else: a transcript with no task attached is a
+ended at, so it never re-reads what it has; a line that repeats the one before
+it and carries no content of its own is counted on that line rather than drawn
+again; what is left is kept as a bounded number of lines, oldest off the top;
+and each line is clipped, because a tool result the agent read in full is not a
+line somebody scans. Each event is read for display and for nothing else, and a
+line that will not parse is shown as it arrived.
+
+**Repetition costs one line.** The stream emits an event continuously while a
+model thinks, and an event detent has no reading for prints as its type — so
+the panel filled with twenty copies of one word, the last thing the agent
+actually said went off the top under the line cap, and a person watching
+learned only that something was happening. Consecutive identical lines are one
+line now, with how many there were and **over how long**, because four minutes
+of the same nothing and four seconds of it are different news for somebody
+deciding whether to look at the task. The clock is the page's own — when it
+read a line, not when the agent wrote it: the log carries no times, and asking
+an event for one would be reading this stream for meaning. Lines that arrived
+in one read say that rather than a duration of nothing. **Nothing with content
+of its own is ever collapsed**: two calls to the same tool are two calls and
+two turns are two turns; the test is that the line carries nothing — a type
+with no reading, an assistant turn with nothing renderable — and **no event
+type is named**, because a reading of one agent's stream is not detent's to
+invent. The line cap is applied to what collapsing left, so a panel full of
+repetition is not a panel that has pushed content off the top. It lives here and nowhere else: a transcript with no task attached is a
 log viewer, which is not what this is for. It **moved with the detail** into the
 drawer, and a drawer is where it is drawn rather than a change to how it is
 read: the same one timer, the same request, and the same ask to carry on from
@@ -1337,6 +1588,24 @@ Not `modelSuggestions` either: the model field offers that list, accepts any
 name, and says where the list is — it is shown and used on the page and
 extended in the file (§11).
 
+**`notify` is a block of its own and not a row among the limits**: those are one
+value under one key, and which events and a list of channels is not one value
+([ADR 0025](docs/adr/0025-a-channel-is-a-kind-and-the-secret-is-not-in-the-configuration.md)).
+Notifications shows the events as choices and the channels as a list — for a
+telegram channel its chat, its topic and the name of its variable with `set` or
+`not set` beside it — drawn from the same read and written by the same Save,
+because it is the same file. A channel is added or removed in the file.
+
+**And it holds the one control whose value is written and never read back.** A
+secret typed there goes to `.detent/secrets.json` through a path of its own, and
+`readConfiguration` reports whether it is set and where rather than what it is.
+This is the single exception to "the page shows what the file says", which is
+otherwise the rule this panel is built on: a token read back is a token in a
+browser, which is exactly why it is not in `product.json`. The secret write is
+*not* refused during a run — that refusal exists because `product.json` is
+fingerprinted before each of the agent's turns, this file is not, and a run whose
+channel is missing its token is when somebody needs to supply one.
+
 Three things hold every write.
 
 - **A run is active, and the write is refused** — by the same `state.json`
@@ -1377,7 +1646,8 @@ that arrives later disguised as a mystery.
 - **Push the queue, and nothing else.** detent merges into a local `agent/dev`
   and stops: someone's CI deploys from the branch you did not expect. The queue
   is the exception, and only when it lives in a repository — a task moving to
-  `done/` or `hold/` is detent's own bookkeeping, not anybody's work, and a
+  `done/`, to `hold/` or back to `todo/` on a resume a person asked for is
+  detent's own bookkeeping, not anybody's work, and a
   queue that is never pushed is a queue the next machine reads stale
   ([ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md)).
   Never a product repository, never `agent/dev`, never a tag. A push that fails

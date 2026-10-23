@@ -8,6 +8,7 @@
 // What detent adds is the opening — the format, the repositories, the numbers,
 // the rules — and the check afterwards of everything that changed.
 
+import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
@@ -63,6 +64,44 @@ Rules:
 ${brief ? `\nWhat I want to start from:\n\n${brief}\n` : ''}`
 }
 
+// The other conversation: one task that is already written, is paused, and is
+// being changed before it runs again (ADR 0024). `run` opens this when a
+// person answers `plan` to a paused task, and what it must say that the
+// opening above does not is that the job is one existing file — not a new
+// task, and not code. The file stays in `hold/` while it is edited: a task
+// whose criteria are being rewritten is not ready to run.
+export function amendPrompt(product, task) {
+  const last = task.last
+  const doubts = last?.acceptance?.doubts ?? []
+  return `Task ${task.id} of the product "${product.name}"${product.summary ? ` — ${product.summary}` : ''} is paused, and we are changing the task itself before it runs again.
+
+The file is ${task.where}, relative to this folder. Read it first.
+
+What its last run did:
+${last ? `- it ended ${last.outcome}: ${last.reason}` : '- nothing about it is in the journal'}
+${last?.attempts ? `- ${last.attempts} ${last.attempts === 1 ? 'attempt' : 'attempts'} of ${product.attempts}\n` : ''}${doubts.length ? `- the acceptance pass raised ${doubts.length === 1 ? 'this doubt' : 'these doubts'}:\n${doubts.map((d) => `  - ${d}`).join('\n')}\n` : ''}${last?.branch ? `- the work it did is on the branch ${last.branch}, and a resume continues there\n` : ''}
+A task that was rejected is very often a task whose criteria were wrong: the gauge was green and a reviewer still said it was not done. So the question is what this task should have said.
+
+Your job is to change that one file, in place:
+- Talk it through with me first. Ask what you need to know about why it stopped, and propose the change before writing it.
+- Amend the Goal, the Acceptance criteria and the Out of scope so that what was wrong about it is right. Every criterion must be checkable by reading the diff or running the code.
+- Keep its number, its file name and its place: it stays in ${task.where} while we edit it. Moving a task between folders is detent's to do, not yours.
+- Write no code. Change nothing else — not the repositories, not .detent/, not runs/, and no other task.
+- The shape stays as it is: frontmatter with id, repo and touches_contract, then # Goal, # Acceptance criteria, # Out of scope. Only the body below the frontmatter reaches the implementing agent, so the Goal must stand on its own.
+`
+}
+
+// The agent's own interactive session, in this terminal. Resolves to its exit
+// code, or null if it could not be started. Both conversations open the same
+// way, so both open from here.
+export function openAgent(command, args, cwd) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { cwd, stdio: 'inherit' })
+    child.on('error', () => resolve(null))
+    child.on('exit', (code) => resolve(code ?? 1))
+  })
+}
+
 // Everything plan must not touch, and the queue it may write to, before the
 // conversation — so that afterwards the difference can be named exactly.
 export function before(product) {
@@ -86,15 +125,8 @@ export function after(product, was) {
   }
   for (const file of Object.keys(was.tasks)) if (!(file in now)) outside.push(file)
 
-  const breaches = []
-  if (hash(join(product.dir, PRODUCT_FILE)) !== was.productFile) breaches.push(`${PRODUCT_FILE} changed`)
+  const breaches = untouched(product, was)
   for (const file of outside) breaches.push(`${file} changed — plan writes only new or revised tasks in ${todo}`)
-  for (const repo of product.repos) {
-    const state = repoState(repo.dir)
-    const old = was.repos[repo.name]
-    if (state.refs !== old.refs) breaches.push(`a ref moved in ${repo.name}`)
-    if (state.clean !== old.clean) breaches.push(`${repo.name}'s working tree changed`)
-  }
 
   let problems = []
   let tasks = []
@@ -104,6 +136,48 @@ export function after(product, was) {
     problems = error.problems ?? [error.message]
   }
   return { added, changed, breaches, problems, queued: tasks.filter((t) => t.folder === 'todo') }
+}
+
+// The same check after the other conversation (ADR 0024). `amend` is handed one
+// file that already exists and told to change it in place, so what it may touch
+// is narrower than what `plan` may: that file, and nothing else. The prompt
+// says so, and saying so is not knowing — an agent that wrote code, moved the
+// file out of `hold/` or wrote a new task in `todo/` instead would otherwise go
+// unreported, to the one person who could catch it and has not read the
+// conversation yet.
+export function amended(product, was, task) {
+  const now = taskFiles(product)
+  const mine = relative(product.dir, task.file)
+  const breaches = untouched(product, was)
+
+  // Its place is detent's, not the agent's: the task is edited where it is,
+  // and a file that left `hold/` is a move nobody recorded.
+  const gone = !(mine in now)
+  if (gone) breaches.push(`${task.where} is gone — the task stays in ${product.queue}/${task.folder}/ while it is edited, and moving it is detent's to do`)
+  for (const [file, digest] of Object.entries(now)) {
+    if (file === mine) continue
+    if (!(file in was.tasks)) breaches.push(`${file} was written — amending ${task.id} changes ${task.where} and writes no new task`)
+    else if (was.tasks[file] !== digest) breaches.push(`${file} changed — amending ${task.id} changes ${task.where} and no other task`)
+  }
+  for (const file of Object.keys(was.tasks)) {
+    if (file !== mine && !(file in now)) breaches.push(`${file} is gone — amending ${task.id} changes ${task.where} and no other task`)
+  }
+
+  return { changed: !gone && now[mine] !== was.tasks[mine], gone, breaches }
+}
+
+// What neither conversation may touch. Both say it in the same words, so both
+// ask it in the same place.
+function untouched(product, was) {
+  const breaches = []
+  if (hash(join(product.dir, PRODUCT_FILE)) !== was.productFile) breaches.push(`${PRODUCT_FILE} changed`)
+  for (const repo of product.repos) {
+    const state = repoState(repo.dir)
+    const old = was.repos[repo.name]
+    if (state.refs !== old.refs) breaches.push(`a ref moved in ${repo.name}`)
+    if (state.clean !== old.clean) breaches.push(`${repo.name}'s working tree changed`)
+  }
+  return breaches
 }
 
 export function nextIds(product, count = 3) {

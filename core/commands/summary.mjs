@@ -1,7 +1,7 @@
 // detent summary — pass rate, attempts, cost per pass, from the journal alone.
 
 import process from 'node:process'
-import { batches, blindSpot, byModel, byRepo, readJournal, summarise } from '../journal.mjs'
+import { batches, blindSpot, byModel, byRepo, doubtsAddressed, readJournal, summarise } from '../journal.mjs'
 
 export const options = { repo: { type: 'string' } }
 
@@ -23,6 +23,15 @@ export function run(product, _positionals, { repo }) {
       read === 0
         ? '\ngreen but not done: no run has been read by an acceptance pass yet\n'
         : `\ngreen but not done: ${rejected} of ${read} green ${read === 1 ? 'run' : 'runs'} the acceptance pass read (${Math.round((rejected / read) * 100)}%)\n`,
+    )
+
+    // What retrying a doubt bought (ADR 0023). Near zero and the retry is not
+    // worth what it costs, which is a thing the journal should be able to say.
+    const { passed, addressed } = doubtsAddressed(tasks)
+    process.stdout.write(
+      passed === 0
+        ? '\na doubt addressed: no run has passed yet\n'
+        : `\na doubt addressed: ${addressed} of ${passed} passed ${passed === 1 ? 'run was' : 'runs were'} accepted on a round after the first, having been doubted on an earlier one (${Math.round((addressed / passed) * 100)}%)\n`,
     )
   }
 
