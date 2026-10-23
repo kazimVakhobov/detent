@@ -28,7 +28,13 @@ gave it — `.detent/secrets.json`, created `0600` and gitignored, written after
 never read back to the page. An empty form adds nothing: a telegram channel that
 existed only because a form was drawn would be a send with no chat, failing once
 per event. **A channel can be removed there too**, and its secret goes with it
-unless another channel still asks for that name — the page says which.
+unless another channel still asks for that name — two chats may be the same bot,
+and the token belongs to the bot. The page says which of those it will do before
+you Save and which of them it did afterwards, in one sentence from one place:
+the line under the remove box is said again whenever anything in any channel
+block changes, including a name typed into the add-a-channel form and not yet
+saved, because a box that promises to delete a token and a Save that then
+declines to delete it is a worse answer than either alone.
 
 **And the panel reads as a view rather than as a form that has broken.** The
 events were seven rows reading `on`, `off`, `off` as bare words, with nothing

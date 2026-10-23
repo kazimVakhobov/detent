@@ -1619,8 +1619,14 @@ kind's own answer, not the page's. The name of the variable is defaulted rather
 than demanded; the token typed beside it keeps the path above, written after
 `product.json` and only if that write was accepted, since until the channel is
 in the file nothing asks for the name. Removing a channel takes its secret with
-it unless another channel still asks for that name, and the page says which of
-those happened.
+it unless another channel still asks for that name — two chats may be the same
+bot, and the token belongs to the bot. **Which of those will happen and which of
+them did are one sentence from one function.** The line under the remove box is
+said again whenever anything in any channel block changes, because the answer is
+a fact about the *other* blocks — including a name typed into the add-a-channel
+form and not yet saved — and a box that promises to delete a token followed by a
+Save that declines to delete it is a worse answer than either alone. Two
+channels of one bot, both removed, are one removal and one sentence.
 
 **Entering the editor is visible from either panel and covers both.** The same
 three controls appear under Configuration and under Notifications, wired to the

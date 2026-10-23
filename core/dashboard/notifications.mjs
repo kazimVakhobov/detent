@@ -72,6 +72,32 @@ function secretReads(secret) {
     + '.'
 }
 
+// What removing a channel does to its secret, as one question and two
+// sentences — in one place, because the line beside the checkbox and the line
+// Save says afterwards are the same claim. Computed apart, one of them promised
+// a token would be deleted and the other then declined to delete it, which is a
+// worse answer than neither: two chats may be the same bot, and the token
+// belongs to the bot rather than to one chat.
+//
+// \`asks()\` of a block that is being removed is null, so the question is always
+// "does anything *else* ask for this name" — asked of the blocks as they stand
+// now, including one typed into the add-a-channel form and not yet saved.
+function askedElsewhere(self) {
+  return notifyBlocks.filter((block) => block !== self).map((block) => block.asks()).filter(Boolean)
+}
+
+const secretGoes = (name) => name + ' goes from ' + config.notify.secretFile
+  + ' with it — a value left under a name no channel reads is one nothing here could remove afterwards'
+const secretStays = (name) => name + ' stays in ' + config.notify.secretFile
+  + ' — another channel still asks for that name; a token belongs to the bot rather than to one chat'
+
+// And said again, in every block, whenever anything in any of them changes:
+// whether a removal takes a token with it is a fact about the other blocks, so
+// a name typed into one changes the sentence under another.
+function retellRemovals() {
+  for (const block of notifyBlocks) block.retell(askedElsewhere(block))
+}
+
 const valueReads = (channel, field) => {
   const value = channel[field.key]
   return value === null || value === undefined || value === '' ? 'not set' : String(value)
@@ -187,9 +213,13 @@ async function putSecret(name, value) {
 // A control with what it takes under it rather than inside it. The sentence was
 // in the label, where it competed with the key it was explaining, and in a
 // placeholder, where every width narrower than the sentence cut it in half.
+//
+// A sentence, or the element holding one that gets said again — the line under
+// the remove box is about the other blocks and changes while the editor is open.
 const stacked = (label, control, hint) => el('div', { class: 'field' },
   el('label', {}, label),
-  el('div', { class: 'stack' }, control, hint ? el('span', { class: 'muted hint' }, hint) : null))
+  el('div', { class: 'stack' }, control,
+    typeof hint === 'string' ? el('span', { class: 'muted hint' }, hint) : hint || null))
 
 function notifyFields() {
   const notify = config.notify
@@ -236,6 +266,9 @@ function notifyFields() {
   }
 
   notifyBlocks = blocks
+  // Once they all exist, because each one's removal sentence is about the
+  // others — and this is the same call their controls make from then on.
+  retellRemovals()
   fields.push({ write: (patch) => { patch.notify = readNotify(chosen, blocks) } })
   node.replaceChildren(...groups)
 }
@@ -282,21 +315,39 @@ function channelBlock(kind, legendText, channel) {
   // own: a control that writes the moment it is clicked would be a second
   // write over one file, which is the thing this block does not have.
   let remove = null
+  let removeHint = null
   if (channel !== null) {
     remove = el('input', { type: 'checkbox' })
-    // A \`notify\` the file does not mention is the desktop notifier, which is
-    // one channel and not one the file lists — so removing it is not a key
-    // going from the file, it is an empty list of channels being written, and
-    // an empty list is silence. Said as what it is rather than as what the
-    // other case is.
-    group.append(stacked('remove', remove, config.notify.shape === 'absent'
+    // Empty here and filled by \`retell\` below, which is also what says it
+    // again later: what this removal does to the secret depends on the blocks
+    // beside it, and those are still being built.
+    removeHint = el('span', { class: 'muted hint' })
+    group.append(stacked('remove', remove, removeHint))
+  }
+
+  // What removing this channel would do, as the editor currently stands, in the
+  // words \`applyNotifySecrets\` will use for what it did.
+  //
+  // A \`notify\` the file does not mention is the desktop notifier, which is one
+  // channel and not one the file lists — so removing it is not a key going from
+  // the file, it is an empty list of channels being written, and an empty list
+  // is silence. Said as what it is rather than as what the other case is.
+  const retell = (asked) => {
+    if (removeHint === null) return
+    removeHint.textContent = config.notify.shape === 'absent'
       ? 'nothing is sent at all after you Save: this is the channel a product that configures nothing gets, and taking it away writes an empty list of channels.'
       : 'this channel goes from ' + config.file + ' when you Save'
         + (channel.secret
-          ? ', and ' + channel.secret.name + ' goes from ' + config.notify.secretFile + ' with it — a value left under a name no channel reads is one nothing here could remove afterwards'
+          ? ', and ' + (asked.includes(channel.secret.name) ? secretStays(channel.secret.name) : secretGoes(channel.secret.name))
           : '')
-        + '.'))
+        + '.'
   }
+
+  // Which is why every control in the block asks for all of them to be said
+  // again: a variable renamed here, a chat filled in that makes this block a
+  // channel, a box ticked — each changes what some other block's removal does.
+  for (const [, input] of inputs) input.addEventListener('input', retellRemovals)
+  if (remove !== null) remove.addEventListener('change', retellRemovals)
 
   const read = () => {
     if (remove !== null && remove.checked) return null
@@ -316,6 +367,7 @@ function channelBlock(kind, legendText, channel) {
   return {
     node: group,
     channel: read,
+    retell: retell,
     // The name this block's channel will ask for once the file is written, or
     // null. What keeps one block's removal from taking a token another block
     // still needs.
@@ -342,16 +394,24 @@ function channelBlock(kind, legendText, channel) {
 // is there no channel asks for the name and the server refuses a value for it.
 // What comes back is a sentence per write, which Save says beside its own.
 async function applyNotifySecrets() {
-  const asked = notifyBlocks.map((block) => block.asks()).filter(Boolean)
   const said = []
+  const removed = []
   for (const block of notifyBlocks) {
     const write = block.secret()
     if (write === null) continue
-    // A removal whose name a surviving channel still asks for is not one: two
-    // chats may be the same bot, and the token belongs to the bot.
-    if (write.value === null && asked.includes(write.name)) {
-      said.push(write.name + ' stays — another channel still asks for it.')
-      continue
+    if (write.value === null) {
+      // A removal whose name a surviving channel still asks for is not one —
+      // the same question the line beside the checkbox answered, asked the same
+      // way and answered in the same words, so that what was promised is what
+      // is reported.
+      if (askedElsewhere(block).includes(write.name)) {
+        said.push(secretStays(write.name) + '.')
+        continue
+      }
+      // And two channels of one bot, both going, are one removal and one
+      // sentence rather than two of each under the same name.
+      if (removed.includes(write.name)) continue
+      removed.push(write.name)
     }
     try {
       const result = await putSecret(write.name, write.value)

@@ -2131,6 +2131,17 @@ function control(root, label, tag = 'input') {
   return node
 }
 
+// And the line beside that control: what the field takes, or — under the remove
+// box — what removing the channel would do, which is read on its own because it
+// changes while the editor is open.
+function hint(root, label) {
+  const [field] = root.all((n) => n.className === 'field' && n.children[0]?.textContent === label)
+  assert.ok(field, `the editor drew no field labelled "${label}"`)
+  const [said] = field.all((n) => (n.className ?? '').includes('hint'))
+  assert.ok(said, `the field "${label}" has no line beside it`)
+  return said.textContent
+}
+
 test('the configuration is a view by default: what the file says as text, and an inherited value says where from', async () => {
   const s = configured()
   await onThePage(s, async (page) => {
@@ -2833,6 +2844,111 @@ test('a channel is removed from the page too, and its secret goes with it rather
     assert.match(page.text('config-note'), /DETENT_TEST_PAGE_TOKEN is removed from \.detent\/secrets\.json/)
     assert.doesNotMatch(page.text('notify-view'), /DETENT_TEST_PAGE_TOKEN/)
     assert.equal(page.node('notify-secret-field').hidden, true, 'and no control is left with nothing to apply to')
+  })
+})
+
+// Two chats of one bot: the same `tokenEnv` under two channels, which is the
+// normal shape of it — a token belongs to the bot, and one bot posts into a
+// group and into a topic of it. So a removal here is the other half of the
+// promise the line beside the box makes, and the two halves have to agree.
+function sharing() {
+  return notifying({
+    channels: [
+      { kind: 'command', command: 'say it' },
+      { kind: 'telegram', chat: '-1001234567890', thread: 9, tokenEnv: 'DETENT_TEST_PAGE_TOKEN' },
+      { kind: 'telegram', chat: '-1009999999999', tokenEnv: 'DETENT_TEST_PAGE_TOKEN' },
+    ],
+  })
+}
+
+test('two channels asking for one token: removing either says the secret stays, before Save in the same words as after', async () => {
+  const s = sharing()
+  delete process.env.DETENT_TEST_PAGE_TOKEN
+  const token = '123456:AAH-one-bot-two-chats'
+  writeSecret(s.dir, 'DETENT_TEST_PAGE_TOKEN', token)
+  const secrets = join(s.dir, '.detent', 'secrets.json')
+  await onThePage(s, async (page) => {
+    await page.click('notify-edit')
+    const two = block(page, 'Channel 2 — telegram')
+    const three = block(page, 'Channel 3 — telegram')
+    const added = block(page, 'Another telegram channel')
+
+    // Neither removal takes the token, because the other channel still asks for
+    // it — said before anything is clicked, which is when it is read.
+    for (const one of [two, three]) {
+      assert.match(hint(one, REMOVE), /DETENT_TEST_PAGE_TOKEN stays in \.detent\/secrets\.json/)
+      assert.doesNotMatch(hint(one, REMOVE), /goes from \.detent\/secrets\.json/)
+    }
+
+    // And it is said again when the answer changes: both of them going is
+    // nothing left asking for the name, so the token goes with them.
+    for (const one of [two, three]) {
+      control(one, REMOVE).checked = true
+      await control(one, REMOVE).fire('change')
+    }
+    for (const one of [two, three]) {
+      assert.match(hint(one, REMOVE), /DETENT_TEST_PAGE_TOKEN goes from \.detent\/secrets\.json with it/)
+    }
+
+    // Including a channel that is not in the file yet: a name typed into the
+    // add-a-channel form is a channel that will ask for it, so the token stays.
+    control(added, CHAT).value = '-1005555555555'
+    control(added, TOKEN_ENV).value = 'DETENT_TEST_PAGE_TOKEN'
+    await control(added, TOKEN_ENV).fire('input')
+    for (const one of [two, three]) {
+      assert.match(hint(one, REMOVE), /DETENT_TEST_PAGE_TOKEN stays in \.detent\/secrets\.json/)
+    }
+    // Emptied, that form adds nothing and asks for nothing.
+    control(added, CHAT).value = ''
+    await control(added, CHAT).fire('input')
+    for (const one of [two, three]) {
+      assert.match(hint(one, REMOVE), /DETENT_TEST_PAGE_TOKEN goes from \.detent\/secrets\.json with it/)
+    }
+
+    // One of the two goes, then: the surviving channel still asks for the name.
+    control(three, REMOVE).checked = false
+    await control(three, REMOVE).fire('change')
+    const promised = hint(two, REMOVE).split(', and ')[1].replace(/\.$/, '')
+    assert.match(promised, /^DETENT_TEST_PAGE_TOKEN stays in \.detent\/secrets\.json/)
+    await page.click('notify-save')
+
+    // The channel is gone from the file and the token is still on disk, under
+    // the name the channel that stayed declares.
+    assert.deepEqual(JSON.parse(readFileSync(file(s), 'utf8')).notify.channels, [
+      { kind: 'command', command: 'say it' },
+      { kind: 'telegram', chat: '-1009999999999', tokenEnv: 'DETENT_TEST_PAGE_TOKEN' },
+    ])
+    assert.deepEqual(JSON.parse(readFileSync(secrets, 'utf8')), { DETENT_TEST_PAGE_TOKEN: token })
+    assert.equal(statSync(secrets).mode & 0o777, 0o600)
+    assert.deepEqual(page.reads.filter((r) => r === 'POST secret.json'), [], 'a removal was sent for a name still asked for')
+
+    // **And what Save says is what the box promised**, word for word: the two
+    // were computed apart once, and one said the token would be deleted while
+    // the other declined to delete it.
+    assert.ok(page.text('config-note').includes(promised),
+      `Save said "${page.text('config-note')}", the box promised "${promised}"`)
+    assert.match(page.text('notify-view'), /DETENT_TEST_PAGE_TOKEN — set, in \.detent\/secrets\.json/)
+    assert.ok(!page.text('notify-view').includes(token))
+  })
+})
+
+test('both channels of one bot removed at once takes the token with them', async () => {
+  const s = sharing()
+  delete process.env.DETENT_TEST_PAGE_TOKEN
+  writeSecret(s.dir, 'DETENT_TEST_PAGE_TOKEN', '123456:AAH-nothing-asks-for-it-now')
+  await onThePage(s, async (page) => {
+    await page.click('notify-edit')
+    for (const legend of ['Channel 2 — telegram', 'Channel 3 — telegram']) {
+      control(block(page, legend), REMOVE).checked = true
+    }
+    await page.click('notify-save')
+
+    assert.deepEqual(JSON.parse(readFileSync(file(s), 'utf8')).notify.channels, [{ kind: 'command', command: 'say it' }])
+    assert.throws(() => statSync(join(s.dir, '.detent', 'secrets.json')), /ENOENT/, 'the secret stayed behind')
+    // One removal, not one per channel: the second asks for a name the first
+    // already took away.
+    assert.deepEqual(page.reads.filter((r) => r === 'POST secret.json'), ['POST secret.json'])
+    assert.match(page.text('config-note'), /DETENT_TEST_PAGE_TOKEN is removed from \.detent\/secrets\.json/)
   })
 })
 
