@@ -255,6 +255,10 @@ tasks/todo/0042-wallet-endpoint.md
   git checkout -b agent/task-0042-wallet-endpoint agent/dev
         (or the existing branch, when a paused task is resumed)
 
+  a branch that already existed: the merge into agent/dev, tried on nothing
+        ──→ it conflicts: stale — the task is paused, no agent is asked,
+            nothing is spent; merely behind says nothing and runs
+
   the shared context to its remote's tip — every submodule outside neverCommit
         ──→ one that cannot be reached: the task is paused, no agent is asked
 
@@ -284,6 +288,7 @@ tasks/todo/0042-wallet-endpoint.md
 | `passed` | gauge green, acceptance raised nothing | deleted after merge | yes |
 | `rejected` | **gauge green and the task still was not done**, on the last of `attempts` attempts | kept | no |
 | `escalated` | the last of `attempts` attempts was red, or the merge conflicted | kept | no |
+| `stale` | **a resumed branch would conflict with `agent/dev`, found before the first attempt** | kept | no |
 | `error` | the run itself broke — quota, crash, exception | kept | no |
 | `skipped` | the gate refused: dirty tree, no `agent/dev` | none | no |
 
@@ -299,6 +304,14 @@ again; `rejected` is the outcome of a doubt on the last one. The reviewer still
 never approves — a round ends in a merge because the gauge was green and no
 doubt was raised — so what the budget bought is how many times the reviewer
 gets to speak before a person is called, and nothing about who grants green.
+
+**`stale` is the pause that cost nothing**
+([ADR 0026](docs/adr/0026-the-base-of-a-resumed-branch-is-re-asked-before-the-work.md)).
+It is the same conflict `escalated` reports and the same step for the person,
+found at the other end of the run: `attempts` is `0`, `rounds` is empty, and
+the cost is zero rather than `null`, because no model was asked for anything.
+Folding it into `escalated` would hide the one number this check exists to
+produce — what asking early saved.
 
 Failed work never reaches `agent/dev`, so the next task in that repository
 branches from a clean base and does not inherit someone else's mess.
@@ -448,14 +461,32 @@ than chaining into one. With nobody on stdin nothing is asked, each paused task
 is named in a line, and everything a paused barrier bars stays barred
 ([ADR 0024](docs/adr/0024-a-barrier-bars-until-it-passes-and-a-resume-is-a-decision-not-a-move.md)).
 Nothing about the resumed run itself changes: the same branch, the same fresh
-budget, the same doubts handed to the implementer.
+budget, the same doubts handed to the implementer — and the branch keeps the
+base it was cut from, which is the one thing a resumed run now asks about
+before it starts.
+
+**The base of a resumed branch is re-asked before the work**
+([ADR 0026](docs/adr/0026-the-base-of-a-resumed-branch-is-re-asked-before-the-work.md)).
+A fresh task branches from `agent/dev` as it is now; a resumed one was cut from
+`agent/dev` as it was, and what landed meanwhile may conflict with it. So a run
+whose branch already exists **tries the merge first**, with `merge-tree` — in
+the object database, touching no ref, no index and no file — and a conflict
+pauses the task as `stale` before an agent is asked for anything. **Only a
+conflict is said out loud:** a branch that is merely behind `agent/dev`, which
+is the ordinary state of nearly every resumed branch, says nothing and runs.
+The merge in `land()` is unchanged and still runs, because a branch can go
+stale between the start of a run and its merge, and because the agent's own
+commits can conflict with something that was clean when the run began. Early is
+cheaper; it is not instead.
 
 A **conflict** is the one pause a resume cannot get past on its own. detent
 never resolves a conflict, and the agent is not let into a merge either — a
 resolution is a judgement about two pieces of work, one of which the agent has
 never seen. So the notification names the paths and the person's step: merge
 `agent/dev` into the task branch, resolve, commit, and move the task back to
-`todo/`. The next run lands it.
+`todo/`. The next run lands it. That step and that sentence are the same
+whether the conflict was found by the trial before the first attempt or by the
+merge after the last one.
 
 ### Who is told, and how
 
@@ -479,7 +510,7 @@ file has to be edited to go on behaving as it did.
 task that needs a person — or a promotion that did not happen; `passed` is a task
 that landed on the integration branch; `promoted` is a batch that reached
 `agent/staging` (§7). The raw outcomes may be named instead — `escalated`,
-`rejected`, `error`, `red` — so somebody can ask for `error` alone. Present means
+`rejected`, `error`, `red`, `stale` — so somebody can ask for `error` alone. Present means
 exactly what it says: `"events": []` is silence.
 
 **A channel is a kind, one module per kind** (`core/notify/`). The `command` kind
@@ -1708,7 +1739,12 @@ that arrives later disguised as a mystery.
   read Y is the unchecked claim this whole project is against. A submodule in
   `neverCommit` is not fetched, not moved and not committed.
 - **Never resolve a merge conflict.** `merge --abort`, escalate, let a person
-  look at it.
+  look at it. And never merge the integration branch into a task branch — not
+  automatically, not behind a flag, not when it would be clean. detent asks
+  whether it would conflict, before the work rather than after it, and reports
+  ([ADR 0026](docs/adr/0026-the-base-of-a-resumed-branch-is-re-asked-before-the-work.md));
+  what arrives on the agent's branch from the integration branch arrives there
+  by a person's hand.
 - **Never work in a dirty repository.** Skip it, say so, continue elsewhere.
   Stashing is how work gets lost.
 

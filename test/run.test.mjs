@@ -423,8 +423,16 @@ test('a green merge gauge is part of the merge commit', async () => {
 
 test('a conflict with agent/dev is aborted, never resolved, and the task paused with the paths named', async () => {
   const s = setup()
-  // Task 0042 is paused; meanwhile task 0043 lands a different value.txt.
-  await runTask(s.product, s.repo, s.task, { invoke: agent(write('no'), write('no'), write('no')).invoke, notify: notifier().notify })
+  // The conflict this test is about is the one the merge at the end finds, and
+  // it is the agent's own work that makes it: the trial before the first
+  // attempt (ADR 0026) has to be clean, or the run would stop there instead.
+  // So 0042's first run pauses having changed nothing, which leaves its branch
+  // where agent/dev was.
+  await runTask(s.product, s.repo, s.task, {
+    invoke: agent(() => answer('', { ok: false, error: 'usage limit reached', cost: { usd: 0.1, tokens: null } })).invoke,
+    notify: notifier().notify,
+  })
+  // Meanwhile task 0043 lands value.txt and a notes.txt of its own.
   writeFileSync(
     join(s.dir, 'tasks', 'todo', '0043-other.md'),
     '---\nid: 0043\nrepo: acme-api\n---\n\n# Acceptance criteria\n\n- [ ] value.txt says ok\n',

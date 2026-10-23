@@ -61,6 +61,16 @@ function tryGit(cwd, args) {
   }
 }
 
+// git where a non-zero status is an answer rather than a failure — `-1` for a
+// command that never ran at all.
+function ran(cwd, args) {
+  try {
+    return { status: 0, stdout: execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }) }
+  } catch (error) {
+    return { status: typeof error.status === 'number' ? error.status : -1, stdout: error.stdout ?? '' }
+  }
+}
+
 // --- reading: never restricted -------------------------------------------------
 
 export function isRepository(cwd) {
@@ -112,6 +122,37 @@ export function snapshotRefs(cwd) {
     refs.set(name, object)
   }
   return refs
+}
+
+// Whether merging `branch` into `into` would conflict — asked of the object
+// database and nothing else (ADR 0026). `merge-tree` computes the merge and
+// reports it: no ref moves, HEAD stays where it is, and the index and the
+// working tree are untouched, which is what lets this be asked before a run
+// spends anything. `beginMerge` answers the same question by checking out a
+// detached HEAD, and that is a write.
+//
+// Returns `{ conflicts }` — the paths — or `{ clean: true }`. **Never a
+// conflict that is not there.** No commit in common, nothing on `into` that
+// this branch does not already have, or a git that will not answer all come
+// back clean: the merge at the end of the run asks for real, so the cost of
+// saying nothing here is one run, and the cost of a false alarm is a person
+// sent to resolve a conflict that does not exist.
+export function wouldConflict(cwd, into, branch) {
+  const ours = `refs/heads/${into}`
+  const theirs = `refs/heads/${branch}`
+  // Unrelated histories: git refuses to merge them without being told to, and
+  // nothing here is going to tell it to.
+  if (tryGit(cwd, ['merge-base', ours, theirs]) === null) return { clean: true }
+  // Already a descendant — the ordinary state of a branch cut a moment ago, and
+  // of one a person has just merged into. There is nothing to bring in.
+  if (ran(cwd, ['merge-base', '--is-ancestor', ours, theirs]).status === 0) return { clean: true }
+  const trial = ran(cwd, ['merge-tree', '--write-tree', '--name-only', '--no-messages', ours, theirs])
+  // 0 is a clean merge, 1 is a conflicted one, and anything else is a git that
+  // did not understand the question.
+  if (trial.status !== 1) return { clean: true }
+  // The first line is the merged tree it wrote; the rest are the paths that
+  // conflicted. The tree is unreferenced and is nobody's to collect but git's.
+  return { conflicts: trial.stdout.split('\n').filter(Boolean).slice(1) }
 }
 
 // --- writing: agent/ only -------------------------------------------------------
