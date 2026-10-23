@@ -4,7 +4,7 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
-## Unreleased
+## 0.8.0 — 2026-10-23
 
 **A queue card shows the cost whole, and the live log stops repeating itself.**
 Two places where a line had more to say than it had room for, and both resolved
