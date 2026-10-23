@@ -49,8 +49,12 @@ class StubNode {
   replaceChildren(...nodes) { this.children = nodes.map(adopt) }
   addEventListener(type, handler) { this.handlers.set(type, [...(this.handlers.get(type) ?? []), handler]) }
 
-  // What a click does, awaited: the handlers the page wired are async.
-  click() { return Promise.all((this.handlers.get('click') ?? []).map((handler) => handler())) }
+  // What the page wired for an event, run and awaited: the handlers are async.
+  // Setting `value` or `checked` fires nothing in a browser either, so a test
+  // that means "and then somebody typed in it" says both.
+  fire(type) { return Promise.all((this.handlers.get(type) ?? []).map((handler) => handler())) }
+
+  click() { return this.fire('click') }
 
   get textContent() { return this.children.map((child) => child.textContent).join('') }
   set textContent(value) { this.children = value === '' || value === null || value === undefined ? [] : [new StubText(value)] }

@@ -14,6 +14,16 @@
 // nobody had finished, and a queue of changes to apply later is the third
 // state 0015 rejected.
 //
+// **It is entered from either panel it covers, and says so from both.** One
+// editor spans this panel and Notifications, because they are one file — and
+// the Notifications block is far enough down the page that the only way into it
+// was to scroll back to a button that did not mention it, which made a panel
+// that is read-only on purpose look like a panel whose controls had stopped
+// working. So `PANELS` below is the two of them, each with the same three
+// controls wired to the same three handlers, and while the editor is open each
+// carries a line saying so. Still one mode: two editors over one `product.json`
+// would be two sets of pending changes where the last Save wins silently.
+//
 // **The view refreshes; an open editor never does.** The rule this narrows was
 // written as a comment rather than as an ADR: the configuration is fetched
 // once and after a write and never polled, because "a form whose values move
@@ -65,10 +75,24 @@ let fields = []
 
 const LIMITS = ${JSON.stringify(LIMITS)}
 
-const note = (text) => { document.getElementById('config-note').textContent = text }
+// The two panels one editor covers, and the three controls each of them
+// carries: \`<panel>-edit\`, \`-save\`, \`-discard\`, plus the line that says a
+// run is active and the line that says this is being edited. Entering and
+// leaving is visible from either, because the Notifications block is far enough
+// down the page that the only way into it was to scroll back to a button that
+// did not say it came here too (ADR 0025).
+const PANELS = ['config', 'notify']
+
+// Said in both, because a note about a write that covers both panels belongs
+// wherever the person who asked for it is looking.
+function note(text) {
+  for (const panel of PANELS) document.getElementById(panel + '-note').textContent = text
+}
 
 function problems(list) {
-  document.getElementById('config-problems').replaceChildren(...list.map((p) => el('li', {}, el('code', {}, p))))
+  const items = () => list.map((p) => el('li', {}, el('code', {}, p)))
+  document.getElementById('config-problems').replaceChildren(...items())
+  document.getElementById('notify-save-problems').replaceChildren(...items())
 }
 
 // A repository overrides a role and never "the model" (§11), so a role it does
@@ -223,12 +247,29 @@ function mode() {
   // file, entered and left in one place (ADR 0025).
   document.getElementById('notify-view').hidden = editing
   document.getElementById('notify-fields').hidden = !editing
+  // The sentence about the view, with the view: it says nothing below it is a
+  // control, which stops being true the moment the editor is open.
+  document.getElementById('notify-how').hidden = editing
+  // And the secret control, which belongs to the view: while the editor is
+  // open the token is typed in the block it belongs to, and two inputs for one
+  // value would be two places to type it and one of them ignored (ADR 0025).
+  document.getElementById('notify-secret').hidden = editing
   // With the inputs it is about, and only while they are there: the view has
   // no model to type into.
   document.getElementById('config-models-note').hidden = !editing
-  document.getElementById('config-edit').hidden = editing
-  document.getElementById('config-save').hidden = !editing
-  document.getElementById('config-discard').hidden = !editing
+  for (const panel of PANELS) {
+    document.getElementById(panel + '-edit').hidden = editing
+    document.getElementById(panel + '-save').hidden = !editing
+    document.getElementById(panel + '-discard').hidden = !editing
+    // **And while editing, the page says it is editing** — in both panels,
+    // because one editor spanning two of them is not obvious from a form
+    // appearing where text was.
+    const says = document.getElementById(panel + '-editing')
+    says.hidden = !editing
+    says.replaceChildren(el('span', { class: 'icon', 'aria-hidden': 'true' }, '✎'),
+      'Editing — Configuration and Notifications are one editor over ' + (config ? config.file : 'the configuration') +
+      ', and one Save writes both. Nothing is written until then, and Discard writes nothing.')
+  }
   lockEditing()
 }
 
@@ -236,14 +277,22 @@ function mode() {
 // beside it stays readable — reading the configuration during a run was never
 // the thing that had to be stopped. The explanation is part of the feature
 // rather than a nicety, and the server refuses the write regardless.
+//
+// In both panels, like the button: a refusal shown next to one of two ways in
+// is a refusal half the people who meet it do not see.
 function lockEditing() {
   const active = running.length > 0
-  document.getElementById('config-edit').disabled = active
-  const node = document.getElementById('config-lock')
-  if (!active) return node.replaceChildren()
   const what = running.map((a) => a.repo + ' on task ' + a.task + ', attempt ' + a.attempt).join('; ')
-  node.replaceChildren(el('span', { class: 'icon', 'aria-hidden': 'true' }, '▲'),
-    'A run is active — ' + what + '. The configuration is read while a run is active and written between runs, and the server refuses a write now whatever this page allows.')
+  for (const panel of PANELS) {
+    document.getElementById(panel + '-edit').disabled = active
+    const node = document.getElementById(panel + '-lock')
+    if (!active) {
+      node.replaceChildren()
+      continue
+    }
+    node.replaceChildren(el('span', { class: 'icon', 'aria-hidden': 'true' }, '▲'),
+      'A run is active — ' + what + '. The configuration is read while a run is active and written between runs, and the server refuses a write now whatever this page allows.')
+  }
 }
 
 // ——— Reading, opening, leaving, writing.
@@ -296,6 +345,7 @@ async function openEditor() {
 function closeEditor() {
   editing = false
   fields = []
+  notifyBlocks = []
   document.getElementById('config-fields').replaceChildren()
   document.getElementById('notify-fields').replaceChildren()
   problems([])
@@ -327,10 +377,16 @@ async function save() {
     note(result.message || '')
     if (response.ok) {
       config = result.configuration
+      // And then the one write that does not go into this file: a channel's
+      // token, under the name the file now declares (ADR 0025). In that order
+      // and only now — until the channel is in the file, nothing asks for the
+      // name and the server is right to refuse a value for it. It replaces
+      // \`config\` with what it is answered, so the view says what is set.
+      const also = await applyNotifySecrets()
       closeEditor()
       viewConfig()
       renderFixed()
-      note('saved — this is what ' + config.file + ' now says')
+      note(['saved — this is what ' + config.file + ' now says', ...also].join(' '))
     } else {
       // Refused — by the run, by the validator, or by the origin. The editor
       // stays open with what was typed still in it and the problems against
