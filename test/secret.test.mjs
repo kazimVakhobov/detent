@@ -24,18 +24,28 @@ test('the environment is the first place, and the file is the second', () => {
   delete process.env[NAME]
 
   assert.equal(readSecret(dir, NAME), null, 'set nowhere')
-  assert.deepEqual(secretState(dir, NAME), { name: NAME, set: false, where: null, problem: null })
+  assert.deepEqual(secretState(dir, NAME), { name: NAME, set: false, where: null, shadowed: false, problem: null })
 
   writeSecret(dir, NAME, 'from-the-file')
   assert.equal(readSecret(dir, NAME), 'from-the-file')
-  assert.deepEqual(secretState(dir, NAME), { name: NAME, set: true, where: SECRETS_FILE, problem: null })
+  assert.deepEqual(secretState(dir, NAME), { name: NAME, set: true, where: SECRETS_FILE, shadowed: false, problem: null })
 
   // The environment wins, because it is the one a person can change for one
   // run without editing anything.
+  //
+  // **And the state says the file has one too**, which is the one fact beyond
+  // "set, and where" worth answering: somebody who typed a token into the
+  // dashboard while a variable was exported is having a different one sent than
+  // the one they typed, and that is a mystery a failed send explains badly.
+  // `shadowed` is a boolean about where, not a value.
   process.env[NAME] = 'from-the-environment'
   try {
     assert.equal(readSecret(dir, NAME), 'from-the-environment')
-    assert.deepEqual(secretState(dir, NAME), { name: NAME, set: true, where: ENVIRONMENT, problem: null })
+    assert.deepEqual(secretState(dir, NAME), { name: NAME, set: true, where: ENVIRONMENT, shadowed: true, problem: null })
+
+    writeSecret(dir, NAME, null)
+    assert.deepEqual(secretState(dir, NAME), { name: NAME, set: true, where: ENVIRONMENT, shadowed: false, problem: null },
+      'nothing of the file is left to be shadowed')
   } finally {
     delete process.env[NAME]
   }

@@ -2094,10 +2094,24 @@ const LABELS = Object.fromEntries(LIMITS.map(([key, label]) => [key, label]))
 
 const editor = (page) => page.node('config-fields')
 
-// The Notifications block's half of the editor, and the label of the one
-// control that used to be the `notify` row (ADR 0025).
+// The Notifications block's half of the editor, and the labels of the controls
+// in it (ADR 0025). A label is the key the field writes; what the field takes
+// is a line beside it rather than part of the label, so `chat` is found by the
+// name of the key a person is filling in.
 const notifyEditor = (page) => page.node('notify-fields')
-const COMMAND = 'command — the shell command, with the message on stdin'
+const COMMAND = 'command'
+const CHAT = 'chat'
+const TOKEN_ENV = 'tokenEnv'
+const TOKEN = 'the token'
+const REMOVE = 'remove'
+
+// One group of the Notifications editor, by the legend over it — the add-a-
+// channel block is found the same way a channel the file declares is.
+function block(page, legend) {
+  const [found] = notifyEditor(page).all((n) => n.className === 'group' && n.children[0]?.textContent === legend)
+  assert.ok(found, `the editor drew no block called "${legend}"`)
+  return found
+}
 
 // One group of the editor, by the legend over it: a role is `accept` in more
 // than one of them, which is the point of the per-repository ones.
@@ -2421,16 +2435,39 @@ test('the configuration reports which events, which channels, and whether a secr
     thread: 9,
     tokenEnv: 'DETENT_TEST_PAGE_TOKEN',
     where: 'chat -1001234567890, topic 9',
-    secret: { name: 'DETENT_TEST_PAGE_TOKEN', set: false, where: null, problem: null },
+    secret: { name: 'DETENT_TEST_PAGE_TOKEN', set: false, where: null, shadowed: false, problem: null },
   })
+
+  // Which field names a kind's secret, and the form the page offers for a
+  // channel of that kind nothing has declared — read off the kind rather than
+  // written on the page, so a third kind composes itself there too.
+  const kinds = Object.fromEntries(notify.kinds.map((k) => [k.kind, k]))
+  assert.equal(kinds.command.secretKey, null)
+  assert.equal(kinds.command.offer, null, 'a page does not compose a shell command to run')
+  assert.equal(kinds.telegram.secretKey, 'tokenEnv')
+  assert.equal(kinds.telegram.offer.requires, 'chat')
+  assert.equal(kinds.telegram.offer.defaults.tokenEnv, 'TELEGRAM_BOT_TOKEN', 'the variable is named, not demanded')
+  assert.equal(notify.environment, 'the environment')
 
   // Set, and still no value anywhere in what the page is served. **This is the
   // one place the page is not shown what the file says**, and it is the whole
   // point of the design.
   writeSecret(s.dir, 'DETENT_TEST_PAGE_TOKEN', '123456:AAH-must-never-reach-a-browser')
   const set = readConfiguration(s.dir)
-  assert.deepEqual(set.notify.channels[1].secret, { name: 'DETENT_TEST_PAGE_TOKEN', set: true, where: join('.detent', 'secrets.json'), problem: null })
+  assert.deepEqual(set.notify.channels[1].secret, { name: 'DETENT_TEST_PAGE_TOKEN', set: true, where: join('.detent', 'secrets.json'), shadowed: false, problem: null })
   assert.ok(!JSON.stringify(set).includes('AAH-must-never-reach-a-browser'), 'the token is in what the page is served')
+
+  // And the environment winning over the file is reported as what it is: a
+  // variable exported in a shell beats what was typed on the page, so the panel
+  // can say that rather than leaving it to a message from the wrong bot. Still
+  // two booleans and a place; still no value.
+  process.env.DETENT_TEST_PAGE_TOKEN = 'exported-and-not-the-one-typed'
+  try {
+    const shadowed = readConfiguration(s.dir).notify.channels[1].secret
+    assert.deepEqual(shadowed, { name: 'DETENT_TEST_PAGE_TOKEN', set: true, where: 'the environment', shadowed: true, problem: null })
+  } finally {
+    delete process.env.DETENT_TEST_PAGE_TOKEN
+  }
 })
 
 test('a notify the validator would refuse is reported with the file rather than dropped from it', () => {
@@ -2452,40 +2489,111 @@ test('Notifications is a block of its own: the events as choices, and the channe
     // The view: text, like the configuration beside it.
     const view = page.text('notify-view')
     assert.deepEqual(page.node('notify-view').tags('input', 'select', 'button'), [], 'the view is built out of controls')
-    assert.match(view, /paused — a task paused, or a promotion did not happen — needs a personon/)
-    assert.match(view, /passed — a task passed and landed on the integration branchon/)
-    assert.match(view, /promoted — a batch was promotedoff/)
+    // **On and off are a status, not a bare word.** Seven rows reading `off`
+    // read as controls that stopped working; an icon and a word are what every
+    // other status on this page is, and the colour only repeats them.
+    assert.match(view, /paused — a task paused, or a promotion did not happen — needs a person✓on — you are told/)
+    assert.match(view, /promoted — a batch was promoted–off — you are not told/)
     assert.match(view, /Channel 1 — command/)
     assert.match(view, /Channel 2 — telegram/)
     assert.match(view, /sends tochat -1001234567890, topic 9/)
     // And the variable, with set / not set beside it — never what is in it.
     assert.match(view, /DETENT_TEST_PAGE_TOKEN — named, and not set/)
-    assert.match(page.text('notify-how'), /A token is never in that file/)
 
-    // The choices are in the editor the one Edit button opens, and so are the
+    // The sentence that explains the panel comes before what it explains, and
+    // says that this is the file and where it is changed.
+    const how = page.text('notify-how')
+    assert.match(how, /This is what \.detent\/product\.json says, as text — nothing below is a control/)
+    assert.match(how, /A channel is added and removed there too/)
+    assert.match(how, /A token is never in that file/)
+    assert.ok(PAGE.indexOf('id="notify-how"') < PAGE.indexOf('id="notify-view"'),
+      'the sentence that explains the panel is still underneath what it explains')
+
+    // The choices are in the editor either Edit button opens, and so are the
     // channels: one file, one editor, one Save.
-    await page.click('config-edit')
+    await page.click('notify-edit')
     assert.equal(page.node('notify-view').hidden, true)
     assert.equal(page.node('notify-fields').hidden, false)
-    const boxes = notifyEditor(page).all((n) => n.getAttribute('type') === 'checkbox')
+    assert.equal(page.node('config-fields').hidden, false, 'the other panel is the same editor')
+    const boxes = block(page, 'Which events reach you').all((n) => n.getAttribute('type') === 'checkbox')
     assert.equal(boxes.length, EVENTS.length, 'every event is a choice')
     assert.deepEqual(boxes.map((b) => b.checked), EVENTS.map((name) => ['paused', 'passed'].includes(name)))
     assert.equal(control(notifyEditor(page), COMMAND).value, 'say it')
-    assert.equal(control(notifyEditor(page), 'chat — the id, or @name for a public channel').value, '-1001234567890')
-    assert.equal(control(notifyEditor(page), 'tokenEnv — the variable the bot token is in, never the token').value, 'DETENT_TEST_PAGE_TOKEN')
-    // There is no field for the token, because there is nowhere for it to go.
-    assert.deepEqual(notifyEditor(page).all((n) => n.getAttribute('type') === 'password'), [])
+    const declared = block(page, 'Channel 2 — telegram')
+    assert.equal(control(declared, CHAT).value, '-1001234567890')
+    assert.equal(control(declared, TOKEN_ENV).value, 'DETENT_TEST_PAGE_TOKEN')
 
     // Asking for one more event writes the file, and a run would load it.
     boxes[EVENTS.indexOf('promoted')].checked = true
-    await page.click('config-save')
+    await page.click('notify-save')
     assert.equal(page.editing(), false)
     assert.deepEqual(page.node('config-problems').children, [])
     const raw = JSON.parse(readFileSync(file(s), 'utf8'))
     assert.deepEqual(raw.notify.events, ['paused', 'passed', 'promoted'])
     assert.deepEqual(raw.notify.channels[1], { kind: 'telegram', chat: '-1001234567890', thread: 9, tokenEnv: 'DETENT_TEST_PAGE_TOKEN' })
     assert.deepEqual(loadProduct(s.dir).notify.events, ['paused', 'passed', 'promoted'])
-    assert.match(page.text('notify-view'), /promoted — a batch was promotedon/)
+    assert.match(page.text('notify-view'), /promoted — a batch was promoted✓on — you are told/)
+  })
+})
+
+test('one editor, two ways in, and the page says while it is open that it is open', async () => {
+  const s = notifying()
+  delete process.env.DETENT_TEST_PAGE_TOKEN
+  await onThePage(s, async (page) => {
+    // The control is in both panels, so the one that is under the block a
+    // person is reading is the one they use. Neither is a second mode.
+    for (const panel of ['config', 'notify']) {
+      assert.equal(page.node(panel + '-edit').hidden, false)
+      assert.equal(page.node(panel + '-save').hidden, true)
+      assert.equal(page.node(panel + '-discard').hidden, true)
+      assert.equal(page.node(panel + '-editing').hidden, true)
+      assert.match(PAGE, new RegExp(`id="${panel}-edit">Edit configuration and notifications`), 'the button says what it covers')
+    }
+
+    await page.click('notify-edit')
+    assert.equal(page.editing(), true)
+    for (const panel of ['config', 'notify']) {
+      assert.equal(page.node(panel + '-edit').hidden, true)
+      assert.equal(page.node(panel + '-save').hidden, false)
+      assert.equal(page.node(panel + '-discard').hidden, false)
+      assert.equal(page.node(panel + '-editing').hidden, false)
+      assert.match(page.text(panel + '-editing'), /Editing — Configuration and Notifications are one editor over \.detent\/product\.json/)
+      assert.match(page.text(panel + '-editing'), /one Save writes both/)
+    }
+    // And the two halves that belong to the view go with it: the sentence
+    // saying nothing below is a control, and the secret control, whose value is
+    // typed in the block it belongs to while the editor is open.
+    assert.equal(page.node('notify-how').hidden, true)
+    assert.equal(page.node('notify-secret').hidden, true)
+
+    // Leaving from the other panel is the same leaving, and it writes nothing.
+    await page.click('config-discard')
+    assert.equal(page.editing(), false)
+    for (const panel of ['config', 'notify']) assert.equal(page.node(panel + '-editing').hidden, true)
+    assert.equal(page.node('notify-secret').hidden, false)
+    assert.ok(!page.reads.includes('POST configuration.json'), 'discarding wrote nothing')
+  })
+})
+
+test('the run that refuses the editor refuses it from either panel, and says so in both', async () => {
+  const s = notifying()
+  claim(s.dir, 'acme-api', { task: '0003', branch: 'agent/task-0003-next' })
+  await onThePage(s, async (page) => {
+    for (const panel of ['config', 'notify']) {
+      assert.equal(page.node(panel + '-edit').disabled, true)
+      const lock = page.text(panel + '-lock')
+      assert.match(lock, /A run is active — acme-api on task 0003, attempt 0/)
+      assert.match(lock, /the server refuses a write now whatever this page allows/)
+    }
+    // The view stays readable in both: reading during a run was never what had
+    // to be stopped (ADR 0020 part 2).
+    assert.equal(page.node('notify-view').hidden, false)
+    assert.match(page.text('notify-view'), /Channel 2 — telegram/)
+
+    await page.click('notify-edit')
+    assert.equal(page.editing(), false)
+    assert.deepEqual(page.node('notify-fields').children, [], 'no editor was built')
+    assert.match(page.text('notify-note'), /a run is active/)
   })
 })
 
@@ -2586,7 +2694,205 @@ test('a secret is written and never served: there is no GET for it, and a name n
     assert.equal(written.status, 200)
     const result = await written.json()
     assert.equal(result.written, true)
-    assert.deepEqual(result.secret, { name: 'DETENT_TEST_PAGE_TOKEN', set: true, where: join('.detent', 'secrets.json'), problem: null })
+    assert.deepEqual(result.secret, { name: 'DETENT_TEST_PAGE_TOKEN', set: true, where: join('.detent', 'secrets.json'), shadowed: false, problem: null })
     assert.ok(!JSON.stringify(result).includes('a-real-looking-token'), 'the answer carries the value')
+
+    // **Removing one is never refused**, whatever the channels say. The rule
+    // above is about collecting values nothing reads, and a removal collects
+    // nothing — a channel removed from the page takes its secret with it, and
+    // by then no channel asks for the name. Refused, the token would sit on
+    // disk with nothing on this page able to get rid of it.
+    const gone = await post({ name: 'DETENT_TEST_NOBODY', value: null })
+    assert.equal(gone.status, 200)
+    assert.match((await gone.json()).message, /DETENT_TEST_NOBODY is removed from \.detent\/secrets\.json/)
+  })
+})
+
+// ——— A channel is added from the page, which is what the panel is for
+// (task 0056). The form is drawn whether or not the file declares one: a
+// telegram channel is a chat id, an optional topic and the name of a variable,
+// and a page can make all three.
+
+test('the telegram block is offered when no telegram channel is declared, and saving it creates one', async () => {
+  const s = configured()
+  delete process.env.TELEGRAM_BOT_TOKEN
+  const token = '123456:AAH-typed-into-an-empty-form'
+  await onThePage(s, async (page) => {
+    // Nothing configured: the desktop notifier, and no secret to set — so the
+    // control that would have nothing to apply to is not drawn, and the panel
+    // says why instead of showing an empty dropdown.
+    assert.match(page.text('notify-view'), new RegExp(`the desktop notifier on ${process.platform}`))
+    assert.equal(page.node('notify-secret').hidden, false, 'the block says why')
+    assert.equal(page.node('notify-secret-field').hidden, true, 'and draws no control that can do nothing')
+    assert.deepEqual(page.node('notify-secret-name').children, [])
+    assert.match(page.text('notify-secret-how'), /Nothing to set: no channel here asks detent for a secret/)
+    assert.match(page.text('notify-secret-how'), /A telegram channel names the variable its token is in/)
+
+    await page.click('notify-edit')
+    const form = block(page, 'A telegram channel')
+    // What each one takes, beside the control rather than inside it.
+    assert.match(form.textContent, /-100… for a group, a positive number for a person, @name for a public channel/)
+    assert.match(form.textContent, /a forum topic, when the group has topics/)
+    assert.equal(control(form, CHAT).getAttribute('type'), 'text', 'an id is text, not a number')
+    assert.equal(control(form, 'thread').getAttribute('type'), 'number')
+    // The variable is defaulted, not demanded, and still editable.
+    assert.equal(control(form, TOKEN_ENV).value, 'TELEGRAM_BOT_TOKEN')
+    assert.equal(control(form, TOKEN).getAttribute('type'), 'password')
+
+    // An empty form, saved, adds nothing: a channel that existed only because
+    // the page drew a form would be a send with no chat, failing once per
+    // event. The desktop notifier a product that configures nothing gets is
+    // what it still gets.
+    await page.click('notify-save')
+    assert.equal(JSON.parse(readFileSync(file(s), 'utf8')).notify, undefined, 'an empty form wrote a channel')
+    assert.deepEqual(loadProduct(s.dir).notify.channels, [{ kind: 'command', command: null }])
+    assert.throws(() => statSync(join(s.dir, '.detent', 'secrets.json')), /ENOENT/)
+
+    // And filled in, it is a channel plus a secret — nothing edited by hand.
+    await page.click('notify-edit')
+    const filled = block(page, 'A telegram channel')
+    control(filled, CHAT).value = '-1009876543210'
+    control(filled, TOKEN).value = token
+    await page.click('notify-save')
+
+    assert.deepEqual(page.node('config-problems').children, [])
+    const raw = JSON.parse(readFileSync(file(s), 'utf8'))
+    assert.deepEqual(raw.notify.channels, [
+      { kind: 'command' },
+      { kind: 'telegram', chat: '-1009876543210', tokenEnv: 'TELEGRAM_BOT_TOKEN' },
+    ], 'the thread is left out rather than written as null')
+    // The validator is the same one a run loads with, so this is a channel
+    // that would send.
+    assert.deepEqual(loadProduct(s.dir).notify.channels[1], { kind: 'telegram', chat: '-1009876543210', thread: null, tokenEnv: 'TELEGRAM_BOT_TOKEN' })
+
+    // The token kept the path ADR 0025 gave it: the other file, 0600, never
+    // product.json, and never back to the page.
+    const secrets = join(s.dir, '.detent', 'secrets.json')
+    assert.deepEqual(JSON.parse(readFileSync(secrets, 'utf8')), { TELEGRAM_BOT_TOKEN: token })
+    assert.equal(statSync(secrets).mode & 0o777, 0o600)
+    assert.ok(!readFileSync(file(s), 'utf8').includes(token), 'the token reached product.json')
+    assert.ok(!JSON.stringify(readConfiguration(s.dir)).includes(token), 'the token is in what the page reads back')
+    for (const id of ['notify-view', 'notify-fields', 'notify-secret-how', 'config-note']) {
+      assert.ok(!page.text(id).includes(token), `the token is in #${id}`)
+    }
+    assert.equal(control(filled, TOKEN).value, '', 'the page holds no secret for longer than the request')
+
+    // And the panel says the same two things it says about every secret:
+    // whether it is set, and where.
+    assert.match(page.text('notify-view'), /TELEGRAM_BOT_TOKEN — set, in \.detent\/secrets\.json/)
+    assert.match(page.text('config-note'), /TELEGRAM_BOT_TOKEN is set in \.detent\/secrets\.json/)
+    assert.equal(page.node('notify-secret-field').hidden, false, 'and now there is a name to set it under')
+
+    // The order is the whole of it: the file is written first, because until
+    // the channel is in it no channel asks for the name and the server refuses
+    // a value for one.
+    const writes = page.reads.filter((r) => r.startsWith('POST'))
+    assert.deepEqual(writes, ['POST configuration.json', 'POST configuration.json', 'POST secret.json'])
+  })
+})
+
+test('adding a channel is refused while a run is active, like every other configuration write', async () => {
+  const s = configured()
+  claim(s.dir, 'acme-api', { task: '0003', branch: 'agent/task-0003-next' })
+  const before = readFileSync(file(s), 'utf8')
+  await dashboard(s, async (base) => {
+    // The same write, with a channel in it rather than a number: a channel is
+    // `notify`, `notify` is `product.json`, and `product.json` is fingerprinted
+    // before each of the agent's turns (ADR 0015).
+    const { response, result } = await write(base, {
+      notify: { events: ['paused'], channels: [{ kind: 'telegram', chat: '-1009876543210', tokenEnv: 'TELEGRAM_BOT_TOKEN' }] },
+    })
+    assert.equal(response.status, 409)
+    assert.equal(result.refused, 'running')
+    assert.match(result.message, /a run is active — acme-api on task 0003/)
+    assert.equal(readFileSync(file(s), 'utf8'), before, 'nothing was written')
+
+    // And nothing was written beside it either: the secret goes after the
+    // file, so a refused file is a refused channel and no token on disk.
+    assert.throws(() => statSync(join(s.dir, '.detent', 'secrets.json')), /ENOENT/)
+  })
+})
+
+test('a channel is removed from the page too, and its secret goes with it rather than silently staying', async () => {
+  const s = notifying()
+  delete process.env.DETENT_TEST_PAGE_TOKEN
+  writeSecret(s.dir, 'DETENT_TEST_PAGE_TOKEN', '123456:AAH-to-be-removed-with-its-channel')
+  await onThePage(s, async (page) => {
+    await page.click('notify-edit')
+    const declared = block(page, 'Channel 2 — telegram')
+    // The page says which of the two it does, before it is asked to do it.
+    assert.match(declared.textContent, /DETENT_TEST_PAGE_TOKEN goes from \.detent\/secrets\.json with it/)
+    assert.match(declared.textContent, /nowDETENT_TEST_PAGE_TOKEN — set, in \.detent\/secrets\.json/)
+
+    control(declared, REMOVE).checked = true
+    await page.click('notify-save')
+
+    const raw = JSON.parse(readFileSync(file(s), 'utf8'))
+    assert.deepEqual(raw.notify.channels, [{ kind: 'command', command: 'say it' }])
+    assert.throws(() => statSync(join(s.dir, '.detent', 'secrets.json')), /ENOENT/, 'the secret stayed behind')
+    assert.match(page.text('config-note'), /DETENT_TEST_PAGE_TOKEN is removed from \.detent\/secrets\.json/)
+    assert.doesNotMatch(page.text('notify-view'), /DETENT_TEST_PAGE_TOKEN/)
+    assert.equal(page.node('notify-secret-field').hidden, true, 'and no control is left with nothing to apply to')
+  })
+})
+
+test('removing the channel a product that configures nothing gets writes silence, and says that is what it does', async () => {
+  const s = configured()
+  await onThePage(s, async (page) => {
+    await page.click('notify-edit')
+    const desktop = block(page, 'Channel 1 — command')
+    // Not "this goes from the file": a `notify` the file does not mention is
+    // the desktop notifier, so what Save writes is an empty list of channels.
+    assert.match(desktop.textContent, /nothing is sent at all after you Save/)
+    assert.match(desktop.textContent, /writes an empty list of channels/)
+
+    control(desktop, REMOVE).checked = true
+    await page.click('notify-save')
+
+    // Present means exactly what it says: `channels: []` is silence, not the
+    // default (`core/notify/plan.mjs`).
+    assert.deepEqual(JSON.parse(readFileSync(file(s), 'utf8')).notify, { events: ['paused'], channels: [] })
+    assert.deepEqual(loadProduct(s.dir).notify.channels, [])
+    assert.match(page.text('notify-view'), /nothing is sent — \.detent\/product\.json lists no channels/)
+  })
+})
+
+test('the environment wins over the file, and the panel says so rather than leaving it to a failed send', async () => {
+  const s = notifying()
+  writeSecret(s.dir, 'DETENT_TEST_PAGE_TOKEN', '123456:AAH-typed-into-the-page')
+  process.env.DETENT_TEST_PAGE_TOKEN = '123456:AAH-exported-in-the-shell'
+  try {
+    await onThePage(s, async (page) => {
+      const view = page.text('notify-view')
+      assert.match(view, /DETENT_TEST_PAGE_TOKEN — set, in the environment, which is what a send uses/)
+      assert.match(view, /\.detent\/secrets\.json holds one under that name too and the variable wins over it, so a token typed here is not the one being sent/)
+      assert.ok(!view.includes('AAH-'), 'neither of the two is on the page')
+      // And the option says where the one that counts is, for the same reason.
+      assert.match(page.node('notify-secret-name').textContent, /DETENT_TEST_PAGE_TOKEN — set, in the environment/)
+    })
+  } finally {
+    delete process.env.DETENT_TEST_PAGE_TOKEN
+  }
+})
+
+test('no placeholder on the notifications panel is a sentence: what a field takes is a line beside it', async () => {
+  const s = notifying()
+  delete process.env.DETENT_TEST_PAGE_TOKEN
+  await onThePage(s, async (page) => {
+    await page.click('notify-edit')
+    const inputs = [...notifyEditor(page).tags('input'), page.node('notify-secret-value')]
+    assert.ok(inputs.length > 4)
+    for (const input of inputs) {
+      const placeholder = input.getAttribute('placeholder') ?? ''
+      // An example of a value, never an explanation: a placeholder is clipped
+      // at the width of its input, and `the token — written to a` is what the
+      // explanation that used to be there arrived as.
+      assert.ok(!placeholder.includes('—'), `the placeholder "${placeholder}" is a sentence`)
+      assert.ok(placeholder.length <= 40, `the placeholder "${placeholder}" is too long to survive a narrow panel`)
+    }
+    // And the sentences themselves are drawn, as lines of their own.
+    const hints = notifyEditor(page).all((n) => (n.className ?? '').includes('hint'))
+    assert.ok(hints.length >= 4, 'what each field takes is said somewhere')
+    for (const hint of hints) assert.ok(hint.textContent.length > 20)
   })
 })

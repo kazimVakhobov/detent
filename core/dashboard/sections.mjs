@@ -118,16 +118,25 @@ export const SECTIONS = [
     // written by the same Save — one file, one editor. The secret beside it is
     // the exception that writes somewhere else, and the only control on this
     // page whose value is never read back.
+    //
+    // **One editor, entered from either panel.** Both carry the same three
+    // controls wired to the same three handlers, because the editor covers both
+    // and the Notifications block is far enough down the page that the only way
+    // into it was to scroll back up and find a button that did not say it came
+    // here too. Two editors over one `product.json` would be two sets of
+    // pending changes where the last Save wins silently, so this is one mode
+    // with two ways in — and while it is open, both panels say so.
     markup: `<h2>Configuration</h2>
 <div class="panel" id="config">
   <div class="status look lock" id="config-lock"></div>
+  <div class="status info mode" id="config-editing" hidden></div>
   <div id="config-view"></div>
   <div id="config-fields" hidden></div>
   <datalist id="model-names"></datalist>
   <p class="muted" id="config-models-note" hidden></p>
   <div class="actions">
-    <button type="button" id="config-edit">Edit configuration</button>
-    <button type="button" id="config-save" hidden>Save configuration</button>
+    <button type="button" id="config-edit">Edit configuration and notifications</button>
+    <button type="button" id="config-save" hidden>Save configuration and notifications</button>
     <button type="button" id="config-discard" class="quiet" hidden>Discard</button>
     <span id="config-note" class="muted"></span>
   </div>
@@ -135,16 +144,31 @@ export const SECTIONS = [
 </div>
 <h2>Notifications</h2>
 <div class="panel" id="notify">
+  <div class="status look lock" id="notify-lock"></div>
+  <div class="status info mode" id="notify-editing" hidden></div>
+  <p class="muted" id="notify-how"></p>
   <div id="notify-view"></div>
   <div id="notify-fields" hidden></div>
   <ul class="problems" id="notify-problems"></ul>
-  <p class="muted" id="notify-how"></p>
-  <div class="actions" id="notify-secret" hidden>
-    <label for="notify-secret-value">Its secret</label>
-    <select id="notify-secret-name"></select>
-    <input type="password" id="notify-secret-value" placeholder="the token — written to a file of its own, never read back">
-    <button type="button" id="notify-secret-set">Set it</button>
-    <span id="notify-secret-note" class="muted"></span>
+  <div class="actions">
+    <button type="button" id="notify-edit">Edit configuration and notifications</button>
+    <button type="button" id="notify-save" hidden>Save configuration and notifications</button>
+    <button type="button" id="notify-discard" class="quiet" hidden>Discard</button>
+    <span id="notify-note" class="muted"></span>
+  </div>
+  <ul class="problems" id="notify-save-problems"></ul>
+  <div class="group" id="notify-secret">
+    <div class="legend">Its secret</div>
+    <p class="muted" id="notify-secret-how"></p>
+    <div class="field" id="notify-secret-field">
+      <label for="notify-secret-value">the token</label>
+      <div class="pair">
+        <select id="notify-secret-name"></select>
+        <input type="password" id="notify-secret-value" placeholder="the bot token">
+        <button type="button" id="notify-secret-set">Set it</button>
+      </div>
+    </div>
+    <p class="muted" id="notify-secret-note"></p>
   </div>
 </div>
 <h2>Shown here, changed on disk</h2>

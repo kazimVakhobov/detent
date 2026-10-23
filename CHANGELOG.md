@@ -4,6 +4,48 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
+## Unreleased
+
+**A telegram notification can be turned on from the dashboard, which is what
+the Notifications panel was for.** Everything behind it worked and almost
+nothing about it was discoverable: the panel drew the channels `product.json`
+declared, a product that declared none got `Channel 1 — command` and nothing
+else, and the one note about it said a channel is added in the file without
+saying what to write — so `kind`, `chat`, `thread` and `tokenEnv` were
+discoverable only by reading `core/notify/telegram.mjs`. **The form is now drawn
+whether or not the file declares a channel**, with what each field takes beside
+it: a chat id is text — `-100…` for a group, a positive number for a person,
+`@name` for a public channel — and a thread is a forum topic, left empty when
+the chat is not a forum. Saving it writes the channel through the same write
+every configuration change goes through: refused while a run is active,
+validated whole, nothing written if anything fails. The name of the environment
+variable is filled in rather than demanded, because somebody with a chat id and
+a token has no reason to have an opinion about it. The token typed beside it
+keeps the path [ADR
+0025](docs/adr/0025-a-channel-is-a-kind-and-the-secret-is-not-in-the-configuration.md)
+gave it — `.detent/secrets.json`, created `0600` and gitignored, written after
+`product.json` and only if that write was accepted, never in `product.json` and
+never read back to the page. An empty form adds nothing: a telegram channel that
+existed only because a form was drawn would be a send with no chat, failing once
+per event. **A channel can be removed there too**, and its secret goes with it
+unless another channel still asks for that name — the page says which.
+
+**And the panel reads as a view rather than as a form that has broken.** The
+events were seven rows reading `on`, `off`, `off` as bare words, with nothing
+beside them to say they were values being shown; each is now an icon and a word
+like every other status on the page. The sentence explaining that this is what
+the file says, and where it is changed, was underneath everything it explained
+and is now above it. **Entering the editor is visible from either panel**: the
+same Edit, Save and Discard appear under Configuration and under Notifications,
+wired to the same handlers, and while it is open both panels say it is open —
+one mode over one file, with two ways in rather than one that needed scrolling
+back to find. **The secret control no longer draws a dropdown with nothing in
+it**: when no channel asks for a secret the input is absent and the panel says
+why, and the placeholder that arrived as `the token — written to a` is three
+words, with the sentence it was trying to be a line beside the control. The
+panel also says when a variable exported in a shell is winning over the file,
+which `core/secret.mjs` has always done and nothing said out loud.
+
 ## 0.8.0 — 2026-10-23
 
 **A queue card shows the cost whole, and the live log stops repeating itself.**

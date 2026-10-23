@@ -500,6 +500,11 @@ gitignores it. A secret may also be typed on the dashboard, which writes it to
 `init` writes — and the page reports **whether** it is set, never what it is
 (§12). A channel whose variable is unset is reported as "named, and not set".
 Nothing prints, logs or journals a secret: a failed send names the condition.
+**The environment wins over the file**, because it is the one a person can
+change for one run without editing anything — and the page says so when it
+does, naming the place rather than leaving somebody who typed a token into it
+to discover from a message arriving from the wrong bot that a variable was
+exported.
 
 **A channel that fails is reported and never fatal, per channel.** One failing
 does not stop the others, `record.notified` carries a result per channel, and
@@ -1594,7 +1599,36 @@ value under one key, and which events and a list of channels is not one value
 Notifications shows the events as choices and the channels as a list — for a
 telegram channel its chat, its topic and the name of its variable with `set` or
 `not set` beside it — drawn from the same read and written by the same Save,
-because it is the same file. A channel is added or removed in the file.
+because it is the same file. In the view an event that is on and one that is off
+are an icon and a word like every other status here, and the sentence saying
+that this is the file and where it is changed is above what it explains: seven
+rows reading `on`, `off`, `off` as bare words, under a note that came after
+them, read as a set of controls that had stopped working rather than as values
+being shown.
+
+**A channel is added and removed on the page**, which is what `NOT_EDITABLE`
+turns on: `repos`, `queue`, `docs` and `branches` are shown and not editable
+there because a page cannot make a clone, four folders, a repository or a ref,
+and a telegram channel is a chat id, an optional topic and the name of a
+variable. So the form for a kind that can be composed is drawn whether or not
+the file declares one — the panel exists to answer how a telegram notification
+is turned on, and naming a file was not an answer — and left empty it adds
+nothing, because a channel that existed only because a form was drawn would be a
+send with no chat failing once per event. Which kinds may be composed is the
+kind's own answer, not the page's. The name of the variable is defaulted rather
+than demanded; the token typed beside it keeps the path above, written after
+`product.json` and only if that write was accepted, since until the channel is
+in the file nothing asks for the name. Removing a channel takes its secret with
+it unless another channel still asks for that name, and the page says which of
+those happened.
+
+**Entering the editor is visible from either panel and covers both.** The same
+three controls appear under Configuration and under Notifications, wired to the
+same three handlers, and while it is open both panels say it is open: the block
+is far enough down that the only way in was to scroll back to a button that did
+not say it came there too. It is still one mode over one file — two editors over
+one `product.json` would be two sets of pending changes where the last Save wins
+silently.
 
 **And it holds the one control whose value is written and never read back.** A
 secret typed there goes to `.detent/secrets.json` through a path of its own, and
@@ -1604,7 +1638,12 @@ otherwise the rule this panel is built on: a token read back is a token in a
 browser, which is exactly why it is not in `product.json`. The secret write is
 *not* refused during a run — that refusal exists because `product.json` is
 fingerprinted before each of the agent's turns, this file is not, and a run whose
-channel is missing its token is when somebody needs to supply one.
+channel is missing its token is when somebody needs to supply one. **No control
+is drawn that cannot do anything**: when no channel asks for a secret the input
+is absent and the panel says why, because an empty dropdown beside a label that
+did not finish is a control that can do nothing with nothing saying which of
+those is the reason. What a field takes is a line beside it rather than a
+placeholder, which is clipped at the width of its input.
 
 Three things hold every write.
 

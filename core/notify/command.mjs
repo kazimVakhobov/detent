@@ -25,8 +25,24 @@ export const command = {
   // page has no opinion about what a shell command is, and a third kind draws
   // itself without the dashboard being touched.
   fields: Object.freeze([
-    Object.freeze({ key: 'command', label: 'command — the shell command, with the message on stdin', type: 'text' }),
+    Object.freeze({
+      key: 'command',
+      label: 'command',
+      type: 'text',
+      placeholder: 'notify-send detent "$DETENT_MESSAGE"',
+      help: 'run with the message on stdin and the details in its environment. Left empty it is the desktop notifier.',
+    }),
   ]),
+
+  // Nothing of detent's, so there is no name for the page to offer an input
+  // against: a command carries its own credentials wherever it keeps them.
+  secretKey: null,
+
+  // And no form for adding one. A product that declares no channel already has
+  // this kind — the desktop notifier is a command channel with no command — and
+  // a *second* one is a shell command typed into a page and run by detent,
+  // which is a decision of its own and not this feature's.
+  offer: null,
 
   validate(entry, path, fail) {
     if (entry.command === undefined || entry.command === null) return { kind: 'command', command: null }
