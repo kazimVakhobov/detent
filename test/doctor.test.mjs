@@ -5,6 +5,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, sta
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { FAIL, INFO, LOOK, OK, diagnose, failed, failures } from '../core/doctor.mjs'
+import { PRODUCT_FILE } from '../core/product.mjs'
 import { scanProduct } from '../core/scan.mjs'
 import { FOLDERS } from '../core/task.mjs'
 
@@ -140,6 +141,87 @@ test('worth a look: no gauge, no reviewer, agent/dev tracking a remote', () => {
   assert.equal(api.find((c) => c.condition === 7).status, LOOK)
   assert.equal(find(report.product, /api has no acceptance pass/).status, LOOK)
   assert.equal(failed(report), 0, 'none of these stops a run')
+})
+
+// A gauge is written once and a repository that gains a check afterwards gains
+// it silently: the whole of the answer is a line in doctor that a person may
+// ignore.
+test('a declared check no stage runs is worth a look, names the script and what to do, and blocks nothing', () => {
+  const scripts = { lint: 'eslint .', test: 'vitest run' }
+  const gauge = { exit: [{ stage: 'lint', command: 'npm run lint' }] }
+  const dir = product({ ...healthy, repos: [{ name: 'api', compare: 'dev', gauge }] }, (d) => repo(d, 'api', { files: { 'package.json': JSON.stringify({ scripts }) } }))
+  const report = diagnose(dir, scan(dir))
+  const check = find(report.repos.api, /declares test/)
+  assert.equal(check.status, LOOK)
+  assert.equal(check.text, 'package.json declares test and no gauge stage runs it — a green gauge here says nothing about it')
+  assert.equal(check.fix, `add a stage running npm test to gauge.exit in ${PRODUCT_FILE}, or leave it out deliberately`)
+  assert.equal(find(report.repos.api, /declares lint/), undefined, 'the one the gauge runs says nothing')
+
+  // A person who left a check out on purpose must not have to argue with the
+  // tool about it: it fails nothing, refuses no run, and the report is ready.
+  assert.equal(failed(report), 0)
+  assert.deepEqual(failures(dir, scan(dir), ['api']), [])
+  const bin = mkdtempSync(join(tmpdir(), 'detent-agents-'))
+  writeFileSync(join(bin, 'claude'), '#!/bin/sh\n')
+  chmodSync(join(bin, 'claude'), 0o755)
+  const out = execFileSync(process.execPath, [cli, 'doctor', '--product', dir], { encoding: 'utf8', env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } })
+  assert.match(out, /^ {2}! {4}package\.json declares test and no gauge stage runs it/m)
+  assert.match(out, /^ready, 1 worth a look, 1 not checkable$/m)
+})
+
+// What is read is the commands, never a stage's name: the story this exists for
+// is a gauge of lint and typecheck beside a test script nothing ran.
+test('a stage that runs the script runs it however it is spelled, and a stage named for it does not', () => {
+  const quiet = (scripts, gauge) => {
+    const dir = product({ ...healthy, repos: [{ name: 'api', compare: 'dev', gauge }] }, (d) => repo(d, 'api', { files: { 'package.json': JSON.stringify({ scripts }) } }))
+    return diagnose(dir, scan(dir)).repos.api.filter((c) => /no gauge stage runs it/.test(c.text)).map((c) => c.text)
+  }
+
+  // Named by a stage called something else, run with the arguments of the day,
+  // reached through another script, or run as the command the script itself is.
+  assert.deepEqual(quiet({ test: 'vitest run' }, { exit: [{ stage: 'checks', command: 'npm test' }] }), [])
+  assert.deepEqual(quiet({ test: 'vitest run' }, { exit: [{ stage: 'checks', command: 'CI=1 npm run test -- --reporter=dot' }] }), [])
+  assert.deepEqual(quiet({ test: 'vitest run', ci: 'npm run lint && npm test', lint: 'eslint .' }, { exit: [{ stage: 'all', command: 'npm run ci' }] }), [])
+  assert.deepEqual(quiet({ test: 'node --test' }, { exit: [{ stage: 'unit', command: 'node --test' }] }), [])
+  assert.deepEqual(quiet({ test: 'tsc --noEmit && node --test' }, { exit: [{ stage: 'types', command: 'tsc --noEmit' }, { stage: 'unit', command: 'node --test' }] }), [])
+  // A check run at promotion is a check that runs.
+  assert.deepEqual(quiet({ build: 'tsup' }, { exit: [{ stage: 'unit', command: 'true' }], promote: [{ stage: 'build', command: 'npm run build' }] }), [])
+
+  // And a stage named test that runs something else runs no test.
+  assert.deepEqual(quiet({ test: 'vitest run' }, { exit: [{ stage: 'test', command: 'npm run lint' }] }), [
+    'package.json declares test and no gauge stage runs it — a green gauge here says nothing about it',
+  ])
+})
+
+// Where it cannot be decided, nothing is said: a check reported as unrun when
+// the gauge in fact runs it is an argument with a person who did nothing wrong.
+test('nothing is reported where the gauge cannot be read, where it covers everything, or where nothing is declared', () => {
+  const api = (scripts, gauge, files = {}) =>
+    product({ ...healthy, repos: [{ name: 'api', compare: 'dev', gauge }] }, (d) => repo(d, 'api', { files: { 'a.txt': 'a\n', ...files, ...(scripts ? { 'package.json': JSON.stringify({ scripts }) } : {}) } }))
+  const looks = (dir) => diagnose(dir, scan(dir)).repos.api.filter((c) => /no gauge stage runs it/.test(c.text))
+
+  for (const command of ['make check', 'sh -c "npm test"', 'npm test | tee out.log', 'pnpm -r test', 'npm run test --workspaces']) {
+    const dir = api({ lint: 'eslint .', test: 'vitest run' }, { exit: [{ stage: 'checks', command }] })
+    assert.deepEqual(looks(dir), [], `a gauge detent cannot read says nothing: ${command}`)
+  }
+
+  // A gauge that covers what the repository declares, and a repository that
+  // declares nothing a gauge could run: both quiet.
+  assert.deepEqual(looks(api({ lint: 'eslint .', test: 'vitest run' }, { exit: [{ stage: 'lint', command: 'npm run lint' }, { stage: 'test', command: 'npm test' }] })), [])
+  assert.deepEqual(looks(api({ dev: 'vite', start: 'node server.mjs' }, { exit: [{ stage: 'unit', command: 'true' }] })), [])
+  assert.deepEqual(looks(api({ test: 'echo "Error: no test specified" && exit 1' }, { exit: [{ stage: 'unit', command: 'true' }] })), [], 'the script npm init writes checks nothing')
+
+  // The same answer whether the repository is a Node package or not: one with
+  // no declared scripts at all is a repository with no declared scripts.
+  assert.deepEqual(looks(api(null, { exit: [{ stage: 'unit', command: 'cargo test' }] }, { 'Cargo.toml': '[package]\nname = "api"\n' })), [])
+  assert.deepEqual(looks(api(null, { exit: [{ stage: 'unit', command: 'true' }] })), [])
+
+  // And a repository with no gauge at all is told it has no lock, once:
+  // condition 4 is the whole of that, and a list of what the nothing does not
+  // run would be the same sentence four times.
+  const none = api({ lint: 'eslint .', test: 'vitest run' }, undefined)
+  assert.deepEqual(looks(none), [])
+  assert.equal(diagnose(none, scan(none)).repos.api.find((c) => c.condition === 4).status, LOOK)
 })
 
 // ADR 0012: one list, read two ways. Outside neverCommit is the deliberate

@@ -12,7 +12,7 @@ export const VIEW = `const NEXT_UP = ${NEXT_UP}
 
 const OUTCOME = {
   passed: ['✓', 'passed'], rejected: ['⚑', 'rejected'], escalated: ['▲', 'escalated'],
-  error: ['✕', 'error'], skipped: ['–', 'skipped'],
+  error: ['✕', 'error'], skipped: ['–', 'skipped'], stale: ['▲', 'stale'],
 }
 
 function el(tag, attrs, ...children) {
