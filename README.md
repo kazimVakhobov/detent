@@ -1,5 +1,11 @@
 # detent
 
+[![npm](https://img.shields.io/npm/v/@kazimvakhobov/detent)](https://www.npmjs.com/package/@kazimvakhobov/detent)
+[![verify](https://github.com/kazimVakhobov/detent/actions/workflows/verify.yml/badge.svg)](https://github.com/kazimVakhobov/detent/actions/workflows/verify.yml)
+![node 22](https://img.shields.io/badge/node-22-339933)
+![dependencies: zero](https://img.shields.io/badge/dependencies-zero-success)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 **Run coding agents against a queue of tasks, and let nothing finish until your
 own checks pass.**
 
@@ -20,6 +26,10 @@ npm i -g @kazimvakhobov/detent
 
 Node 22, macOS or Linux, and Claude Code installed and signed in. detent drives
 the agent you already pay for and ships none of its own. Zero dependencies.
+
+**[See the dashboard live](https://kazimvakhobov.github.io/detent/demo/)** — the
+real `detent dashboard`, built from this version's code against a made-up
+product, with a task running in it.
 
 ## The three claims
 
@@ -88,6 +98,24 @@ What not to do while you are in there.
 Save it as `tasks/todo/0001-wallet-endpoint.md` and run `detent run`. Then, for
 up to `attempts` rounds (default three):
 
+```mermaid
+flowchart LR
+  todo["tasks/todo/<br/>0001-wallet-endpoint.md"] --> agent["the agent's turn<br/><small>a prompt and a directory</small>"]
+  agent --> gauge{"exit gauge"}
+  gauge -- "red: the failure text<br/>one round spent" --> agent
+  gauge -- green --> accept{"acceptance pass"}
+  accept -- "a doubt<br/>one round spent" --> agent
+  accept -- "no doubt" --> dev[("agent/dev<br/>one merge commit")]
+  agent -. "out of rounds, a conflict,<br/>a broken run" .-> hold["tasks/hold/<br/>branch kept, work parked"]
+  hold --> told(["you are told"])
+  hold -. "you move the file back" .-> todo
+
+  classDef ok stroke:#1f7a4d,stroke-width:2px
+  classDef stop stroke:#9a6100,stroke-width:2px
+  class dev ok
+  class hold,told stop
+```
+
 1. **the agent's turn** — a prompt and a working directory, and nothing else
 2. **the exit gauge** — the repository's own checks. Red hands back the failure
    text and costs one round
@@ -102,21 +130,36 @@ back**, and the next run hands the agent what stopped the last one.
 
 Nothing has touched a branch of yours.
 
+## Where a task file goes
+
+The queue is four folders, and the folder a file is in is the task's state.
+detent moves a file out of `todo/`; everything else is a person's move.
+
+```mermaid
+stateDiagram-v2
+  direction LR
+  [*] --> todo: you write it, or detent plan does
+  todo --> done: green and undoubted, merged to agent/dev
+  todo --> hold: out of rounds, a conflict, a broken run
+  hold --> todo: you move it back, and the next run hears why it stopped
+  hold --> failed: you give up on it
+```
+
 ## The line agents do not cross
 
-```
-       human                   │                     agents
-  ─────────────────────────────┼──────────────────────────────────────────
-  dev → staging → main         │   agent/task-<id>-<slug>
-  feature/*, hotfix/*          │         │ merge, when the gauge is green
-                               │         ▼
-                               │   agent/dev
-                               │         │ promote, when the batch is green
-                               │         ▼   (optional)
-                               │   agent/staging
-                               │
-  dev → agent/dev  ────────────┼──→  here is my work, take it into account
-  agent/staging → dev  ←───────┼───  I accept yours
+```mermaid
+flowchart TB
+  subgraph human["human"]
+    direction TB
+    feature["feature/#42;, hotfix/#42;"] --> hdev["dev"] --> staging["staging"] --> main["main"]
+  end
+  subgraph agents["agents: refs/heads/agent/#42;"]
+    direction TB
+    task["agent/task-#lt;id#gt;-#lt;slug#gt;"] -- "merge, when the gauge is green" --> adev["agent/dev"]
+    adev -. "promote, when the batch<br/>is green (optional)" .-> astaging["agent/staging"]
+  end
+  hdev == "a person: here is my work,<br/>take it into account" ==> adev
+  astaging == "a person: I accept yours" ==> hdev
 ```
 
 detent reads and writes refs under `refs/heads/agent/` and nothing else — one
