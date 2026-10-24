@@ -26,6 +26,15 @@
 const API = 'https://api.telegram.org'
 const TIMEOUT = 15_000
 
+// The name the page offers for the variable, so nobody has to invent one.
+//
+// **Defaulted, not demanded.** Somebody filling this in has a chat id and a
+// token from BotFather and no opinion about environment variables; being asked
+// to name one before anything can be saved is a question they have no reason to
+// have an answer to. detent picks this, shows it, and lets somebody who does
+// have an opinion type theirs over it.
+const DEFAULT_TOKEN_ENV = 'TELEGRAM_BOT_TOKEN'
+
 // A chat is an id — `-1001234567890` for a group, a positive number for a
 // person — or an `@name` for a public channel. Both arrive as text, because a
 // group id is beyond what JSON guarantees about a number only by luck.
@@ -47,12 +56,66 @@ export const telegram = {
   },
 
   // What the page draws, and every one of them an address or a name: there is
-  // no field here for the token, because there is nowhere for it to go.
+  // no field here for the token, because there is nowhere in `product.json` for
+  // it to go.
+  //
+  // **The label is the key and the sentence is beside it, not inside it.** What
+  // each field takes was in the label, and a label is also what the page shows
+  // a *value* against — so the view read `chat — the id, or @name for a public
+  // channel` against `-1001234567890` and the editor put the explanation where
+  // the eye looks for a name. `help` is the sentence, drawn under the control;
+  // `placeholder` is an example short enough that no width cuts it in half.
   fields: Object.freeze([
-    Object.freeze({ key: 'chat', label: 'chat — the id, or @name for a public channel', type: 'text' }),
-    Object.freeze({ key: 'thread', label: 'thread — a forum topic, optional', type: 'number' }),
-    Object.freeze({ key: 'tokenEnv', label: 'tokenEnv — the variable the bot token is in, never the token', type: 'text' }),
+    Object.freeze({
+      key: 'chat',
+      label: 'chat',
+      type: 'text',
+      placeholder: '-1001234567890',
+      // Text, not a number, and the reason is in `CHAT` below: a group id is
+      // beyond what JSON guarantees about a number only by luck, and `@name` is
+      // not a number at all.
+      help: 'the chat to send to, as text: -100… for a group, a positive number for a person, @name for a public channel.',
+    }),
+    Object.freeze({
+      key: 'thread',
+      label: 'thread',
+      type: 'number',
+      placeholder: 'optional',
+      help: 'a forum topic, when the group has topics. Left empty when the chat is not a forum, which most are not.',
+    }),
+    Object.freeze({
+      key: 'tokenEnv',
+      label: 'tokenEnv',
+      type: 'text',
+      placeholder: DEFAULT_TOKEN_ENV,
+      help: `the name of the environment variable the bot token is in — never the token. detent fills in ${DEFAULT_TOKEN_ENV}; change it if you keep yours somewhere else.`,
+    }),
   ]),
+
+  // Which field holds the name of the variable, so the page can offer an input
+  // for the value beside it without knowing that a telegram token is a telegram
+  // token. `null` for a kind that asks detent for no credential.
+  secretKey: 'tokenEnv',
+
+  // What the page offers for a channel of this kind that nothing has declared.
+  //
+  // **A telegram channel names nothing on disk**, which is the whole reason it
+  // can be composed on a page at all: `repos`, `queue`, `docs` and `branches`
+  // are not editable there because a page cannot make a clone, four folders, a
+  // repository or a ref — and this is a chat id, an optional topic and the name
+  // of a variable. So the form is always drawn, whether or not a channel exists
+  // to fill it from.
+  //
+  // `requires` is the field that decides whether the block means anything. An
+  // empty form must add nothing: a telegram channel with no chat would be a
+  // send with no address, failing once per event and reported every time, which
+  // is a worse page than the one with no form on it.
+  offer: Object.freeze({
+    what: 'telegram channel',
+    requires: 'chat',
+    defaults: Object.freeze({ tokenEnv: DEFAULT_TOKEN_ENV }),
+    how: 'A chat id is all this needs. The variable is named for you, and the token goes to a file of its own — left empty, the block adds nothing.',
+  }),
 
   validate(entry, path, fail) {
     let chat = null

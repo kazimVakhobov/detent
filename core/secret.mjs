@@ -69,17 +69,25 @@ export function readSecret(productDir, name) {
 
 // Whether it is set, and where — and never what it is. This is what the
 // dashboard is served and what a failed send reports.
+//
+// **`shadowed` is the one thing beyond "set, and where" worth answering**, and
+// it is still not a value: the environment wins, so somebody who typed a token
+// into the page while a variable was exported is having a different one sent
+// than the one they typed. That is a mystery a failed send explains badly and
+// a panel can explain exactly, so the state says the file has one too and that
+// the variable beats it. Both halves are booleans; neither is a secret.
 export function secretState(productDir, name) {
   const problem = secretNameProblem(name)
-  if (problem) return { name: String(name), set: false, where: null, problem }
+  if (problem) return { name: String(name), set: false, where: null, shadowed: false, problem }
+  const { secrets, error } = readSecrets(productDir)
+  const stored = secrets[name]
+  const inFile = typeof stored === 'string' && stored !== ''
   const fromEnvironment = process.env[name]
   if (typeof fromEnvironment === 'string' && fromEnvironment !== '') {
-    return { name, set: true, where: ENVIRONMENT, problem: null }
+    return { name, set: true, where: ENVIRONMENT, shadowed: inFile, problem: null }
   }
-  const { secrets, error } = readSecrets(productDir)
-  const value = secrets[name]
-  if (typeof value === 'string' && value !== '') return { name, set: true, where: SECRETS_FILE, problem: null }
-  return { name, set: false, where: null, problem: error }
+  if (inFile) return { name, set: true, where: SECRETS_FILE, shadowed: false, problem: null }
+  return { name, set: false, where: null, shadowed: false, problem: error }
 }
 
 // Typed on the dashboard, written to a file of its own. `null` or an empty

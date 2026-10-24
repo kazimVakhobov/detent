@@ -20,8 +20,18 @@
 //   kind       the name in `product.json`
 //   keys       the keys it allows on a channel, `kind` included
 //   refused    keys refused by name, each with why — where a mistake is likely
-//   fields     what the dashboard draws for it: `{ key, label, type }`, so the
+//   fields     what the dashboard draws for it:
+//              `{ key, label, type, placeholder, help }` — the label is the
+//              key, because the page draws it against a *value* as well as
+//              against a control, and `help` is the sentence beside it. So the
 //              page has no opinion about what a chat id is
+//   secretKey  which field holds the name of the variable, or null — so the
+//              page can offer an input for the value without knowing what kind
+//              of credential it is
+//   offer      what the page offers for a channel of this kind that nothing has
+//              declared: `{ what, requires, defaults, how }`, or null for a
+//              kind a page does not compose. A kind is addable when what it
+//              names exists nowhere but in the file
 //   validate   (entry, path, fail) → the normalised channel, or null
 //   describe   (channel) → the one line a report and the page show. Never a
 //              secret: a channel says where it sends, not what it sends with

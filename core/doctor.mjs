@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { operationInProgress, remoteBranchesContaining, submoduleCheckedOut, submoduleCommit } from './git.mjs'
 import { AGENT_NAMES, PRODUCT_FILE, queueOf, readConfig, validateProduct } from './product.mjs'
 import { PLAIN, publishing } from './queue.mjs'
+import { declaredChecks } from './scan.mjs'
 import { FOLDERS, missingQueue } from './task.mjs'
 
 export const OK = 'ok'
@@ -161,6 +162,25 @@ export function diagnose(dir, scan, { repos: only = null } = {}) {
     if (repo.gauge.exit.length) say(checks, OK, 4, `gauge: ${repo.gauge.exit.map((s) => s.stage).join(', ')}${repo.gauge.merge.length ? `; merge: ${repo.gauge.merge.map((s) => s.stage).join(', ')}` : ''}`)
     else say(checks, LOOK, 4, 'no exit stages — no lock: the agent may stop whenever it likes, and the summary shows a dash', `declare gauge.exit stages, then try them with detent gauge ${repo.name}`)
 
+    // A check the repository declares that no stage of its gauge runs. The
+    // gauge was written once and a repository that gains a check afterwards
+    // gains it silently, so an agent can be told to write tests, write them,
+    // and be let go by a gauge that never ran one — green, and telling the
+    // truth. It is a look and never a failure: slow, flaky and needs a
+    // database are all reasons a person leaves a check out, and a tool that
+    // argues about it has decided something ADR 0003 left to them. Nothing is
+    // said about a repository with no gauge at all — condition 4 above says
+    // the whole of that already.
+    for (const check of unrun(repo.gauge, found)) {
+      say(
+        checks,
+        LOOK,
+        null,
+        `package.json declares ${check.script} and no gauge stage runs it — a green gauge here says nothing about it`,
+        `add a stage running ${check.command} to gauge.${check.profile} in ${PRODUCT_FILE}, or leave it out deliberately`,
+      )
+    }
+
     // 5 — a clean tree
     const operation = operationInProgress(repo.dir)
     if (operation) say(checks, FAIL, 5, `a ${operation} is in progress — a run skips this repository`, `finish or abort the ${operation}`)
@@ -191,6 +211,77 @@ export function diagnose(dir, scan, { repos: only = null } = {}) {
 
 export function failed(report) {
   return [report.product, ...Object.values(report.repos)].flat().filter((c) => c.status === FAIL).length
+}
+
+// --- a declared check against the gauge that runs it ---------------------------
+
+// Which scripts a command invokes, however it is spelled: `npm test`, `pnpm run
+// test`, `CI=1 yarn lint`. Asked for by name after `run` it is a script
+// whatever it is called; asked for bare it is a script unless it is one of the
+// package manager's own subcommands — `npm run ci` is the script, `npm ci` is
+// an install.
+const INVOKES = /(?:^|\s)(?:npm|pnpm|yarn|bun)(?:\s+(?:run|run-script)\s+([\w:.@-]+)|\s+([\w:.@-]+))/g
+const SUBCOMMANDS = ['install', 'i', 'ci', 'exec', 'dlx', 'x', 'add', 'run', 'run-script']
+
+// A command detent cannot read, so what it runs cannot be decided: a make
+// target (no Makefile body is read here), a shell handed a string, a
+// substitution or a pipe, or a package manager fanned out over workspaces. One
+// of these anywhere in a gauge and nothing is reported about that repository at
+// all — naming a check as unrun when the gauge in fact runs it is an argument
+// with a person who did nothing wrong, and worse than a line left unsaid.
+const UNREADABLE = [/(?:^|\s)make(?:\s|$)/, /(?:^|\s)(?:sh|bash|zsh|dash)\s+-c(?:\s|$)/, /[|`]|\$\(/, /--workspaces?\b|--recursive\b|--filter\b|(?:^|\s)-r(?:\s|$)/]
+
+// Spellings of the same command: a prefix that changes nothing about what runs.
+const RUNNERS = /^(?:npx|pnpm\s+(?:exec|dlx)|yarn\s+dlx|bun\s+x)\s+/
+
+// The declared checks (ADR 0003's surface, read by the same code `init`
+// proposes from) that no stage of this gauge runs. A stage name is not read:
+// the story this exists for is a gauge of lint and typecheck beside a `test`
+// script, and a stage named `checks` that runs `npm test` runs the tests as
+// surely as one named `test` does. What is read is the commands — every
+// profile, because a check run at promotion is a check that runs.
+function unrun(gauge, found) {
+  const stages = [...gauge.exit, ...gauge.merge, ...gauge.promote]
+  if (!stages.length) return []
+  const scripts = found.scripts
+  const ran = new Set()
+  const commands = []
+  let readable = true
+
+  // A stage command is read for the scripts it invokes, and each of those for
+  // the scripts it invokes in turn: a stage that runs `npm run ci` runs
+  // everything `ci` runs. The commands themselves are kept alongside the
+  // names, because a stage that runs a script's own command runs that check
+  // without ever naming the script.
+  const walk = (command) => {
+    for (const part of pieces(command)) {
+      if (UNREADABLE.some((pattern) => pattern.test(part))) {
+        readable = false
+        continue
+      }
+      commands.push(part)
+      for (const [, named, bare] of part.matchAll(INVOKES)) {
+        const name = named ?? bare
+        if ((bare && SUBCOMMANDS.includes(bare)) || ran.has(name) || typeof scripts[name] !== 'string') continue
+        ran.add(name)
+        walk(scripts[name])
+      }
+    }
+  }
+  for (const stage of stages) walk(stage.command)
+  if (!readable) return []
+
+  const run = (part) => commands.some((command) => command === part || command.startsWith(`${part} `))
+  return declaredChecks(found).filter(({ script }) => !ran.has(script) && !pieces(scripts[script]).every(run))
+}
+
+// A command as the parts that each run something, normalised so that two
+// spellings of one command compare equal.
+function pieces(command) {
+  return command
+    .split(/&&|\|\||;|\n/)
+    .map((part) => part.trim().replace(/\s+/g, ' ').replace(RUNNERS, ''))
+    .filter(Boolean)
 }
 
 // What doctor calls a failure in `names`, each with the repository it is about

@@ -81,24 +81,37 @@ export function proposeCompare(repo) {
   return COMPARE_CANDIDATES.find((name) => repo.branches.includes(name)) ?? repo.branches.find((b) => !isAgentBranch(b) && b !== 'agent') ?? null
 }
 
+// The scripts a check is proposed from, and the profile each is proposed into.
+// The one list of script names in this product, read twice: `proposeGauge`
+// turns what a repository has into stages, and `doctor` asks whether a gauge
+// somebody wrote runs them — so neither holds an opinion the other does not.
+const CHECK_SCRIPTS = [
+  { stage: 'lint', profile: 'exit', names: ['lint'] },
+  { stage: 'typecheck', profile: 'exit', names: ['typecheck', 'type-check', 'types', 'tsc'] },
+  { stage: 'test', profile: 'exit', names: ['test', 'test:unit'] },
+  { stage: 'build', profile: 'merge', names: ['build'] },
+]
+
+// The checks a repository declares, as { stage, profile, script, command },
+// with the command spelled the way this repository's package manager runs the
+// script. Declared scripts only: nothing here opens a directory looking for a
+// check a repository never advertised, which is the surface ADR 0003 settled
+// on. A repository that declares no scripts declares no checks.
+export function declaredChecks(repo) {
+  const scripts = repo.scripts
+  return CHECK_SCRIPTS.flatMap(({ stage, profile, names }) => {
+    const script = names.find((n) => typeof scripts[n] === 'string' && !isPlaceholder(scripts[n]))
+    return script ? [{ stage, profile, script, command: runScript(repo.packageManager, script) }] : []
+  })
+}
+
 // Stages from scripts a repository already declares (ADR 0003: discovery is
 // good enough to propose, where a person reviews the result, and not to run
 // unattended). Nothing is invented for a repository that declares nothing.
 export function proposeGauge(repo) {
   const exit = []
   const merge = []
-  const run = (script) => runScript(repo.packageManager, script)
-  const scripts = repo.scripts
-
-  const pick = (names) => names.find((n) => typeof scripts[n] === 'string' && !isPlaceholder(scripts[n]))
-  const lint = pick(['lint'])
-  const typecheck = pick(['typecheck', 'type-check', 'types', 'tsc'])
-  const test = pick(['test', 'test:unit'])
-  const build = pick(['build'])
-  if (lint) exit.push({ stage: 'lint', command: run(lint) })
-  if (typecheck) exit.push({ stage: 'typecheck', command: run(typecheck) })
-  if (test) exit.push({ stage: 'test', command: run(test) })
-  if (build) merge.push({ stage: 'build', command: run(build) })
+  for (const { stage, profile, command } of declaredChecks(repo)) (profile === 'merge' ? merge : exit).push({ stage, command })
 
   if (exit.length === 0) {
     if (repo.manifests.includes('Cargo.toml')) exit.push({ stage: 'test', command: 'cargo test' })
