@@ -6,6 +6,36 @@ Notable changes, newest first. The format follows
 
 ## Unreleased
 
+**`doctor` says when a repository declares a check its gauge does not run.**
+The gauge is whatever `product.json` says it is, and `product.json` was written
+once: `init` proposes stages from the scripts a repository declares and nothing
+asks the question a second time, so a repository that gains a check afterwards
+gains it silently. It happened. A repository whose exit gauge is `lint +
+typecheck` was given a task asking for specs; the agent wrote 881 lines of them
+and a `test` script to run them with, and nothing ran them — not on that
+attempt and not on any other. The commit trailer said `Gauge: lint ✓ typecheck
+✓` and was telling the truth, which is the problem: a gauge that passes while
+the thing it was asked to check never executes is the decorative green this
+product exists to refuse. **`doctor` now compares what each repository declares
+against what its gauge runs**, from the same scripts `init` proposes stages
+from ([ADR
+0003](docs/adr/0003-declared-gauge-stages.md)) — so it holds no list of its own
+and reads nothing the repository has not declared. Whether a stage runs a check
+is decided by the command, never by the stage's name: a stage called `checks`
+that runs `npm test` runs the tests, as does one that reaches them through
+another script or runs the script's own command, and a stage called `test` that
+runs the linter does not. **It is worth a look and never a failure** — slow,
+flaky and needs a database are all reasons to leave a check out of a gauge
+deliberately, so no run is blocked by it, `failures` leaves it out and the
+report still answers `ready` with it outstanding. The line names the script and
+says a stage is added in `product.json`; detent adds nothing to anybody's
+gauge. **Where a gauge command cannot be read** — a `make` target, a shell
+handed a string, a pipe, a fan-out over workspaces — **nothing is reported
+about that repository at all**, because naming a check as unrun when the gauge
+in fact runs it is an argument with somebody who did nothing wrong. A gauge
+that covers what its repository declares says nothing, and neither does a
+repository with no such scripts, whether or not it is a Node package.
+
 **A resumed branch is tried against the integration branch before it is worked,
 and a conflict costs nothing.** A fresh task branches from `agent/dev` as it is
 now; a resumed one kept the base it was cut from, and nothing re-asked whether

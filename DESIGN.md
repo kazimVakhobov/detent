@@ -1188,10 +1188,11 @@ scan can see, and is said to be one rather than skipped. A failure is anything
 that would stop a run or make it skip a repository, or that leaves the product
 in a shape its own `product.json` does not describe; worth a look is anything
 that lets a run go ahead with less than it could have: no gauge, no reviewer,
-an `agent/dev` that tracks a remote. It exits 1 on a failure and writes
-nothing; where there is a command that fixes a finding, it prints the command.
+an `agent/dev` that tracks a remote, a declared check no stage of the gauge
+runs. It exits 1 on a failure and writes nothing; where there is a command that
+fixes a finding, it prints the command.
 
-### Six things `doctor` checks beyond the nine conditions
+### Seven things `doctor` checks beyond the nine conditions
 
 - **the queue exists** — `tasks/{todo,hold,done,failed}` (§11); a product with
   nowhere to put a task is not ready, whatever else the report says. `init`
@@ -1214,6 +1215,32 @@ nothing; where there is a command that fixes a finding, it prints the command.
   configuration can aim detent at a human branch
 - **`gauge.promote` declared with no `branches.staging`** — a declared check
   that nothing ever runs is the same invented green as a missing gauge (§6)
+- **a check the repository declares that no stage of its gauge runs** — the
+  gauge is whatever `product.json` says it is and `product.json` was written
+  once, so a repository that gains a `test` script afterwards gains it
+  silently: an agent can be told to write tests, write them, and be let go by a
+  gauge that never ran one — green, and telling the truth. The checks are the
+  scripts `init` proposes stages from, read by the same code
+  ([ADR 0003](docs/adr/0003-declared-gauge-stages.md)),
+  so `doctor` holds no list of its own and nothing is read beyond what the
+  repository declares. Whether a stage runs one is decided by **what its
+  command runs, never by what the stage is called**: a stage named `checks`
+  that runs `npm test` runs the tests, through another script if that is how it
+  is spelled, as does one that runs the script's own command — and a stage
+  named `test` that runs the linter does not. It is **worth a look and never a
+  failure**: slow, flaky and needs a database are all reasons a person leaves
+  a check out of the gauge, and a tool that argues about it has decided
+  something ADR 0003 left to them — so `failures` leaves it out, no run is
+  blocked by it, and the report still answers `ready` with it outstanding. The
+  line names the script and that a stage is added in `product.json`; adding one
+  is the person's, and `doctor` writes nothing. Where a gauge command cannot be
+  read — a `make` target, a shell handed a string, a pipe, a fan-out over
+  workspaces — **nothing is reported about that repository at all**, because
+  naming a check as unrun when the gauge in fact runs it is an argument with
+  somebody who did nothing wrong. A gauge that covers what its repository
+  declares says nothing, a repository that declares no such scripts says
+  nothing, and a repository with no gauge at all is told it has no lock once,
+  by condition 4
 - **every tracked submodule is one everybody else can see** — a submodule
   outside `neverCommit` is a deliberate configuration and is reported as
   tracked, with the note that its pointer is committed with the task once
