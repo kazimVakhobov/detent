@@ -44,13 +44,20 @@ export const POLL = { call: 'refresh', every: 3000 }
 // only when somebody asks for it.
 //
 // The buttons on the page. Three are the configuration's: the one that asks for
-// the editor, the write, and the way out that is not a write. The fourth is the
-// drawer's way out, beside Escape, because a panel covering content needs one
-// that is visibly a close control (ADR 0022). The fifth is the one write that
-// does not go into `product.json` — a channel's secret, which is typed on the
-// page and never read back to it (ADR 0025).
+// the editor, the write, and the way out that is not a write — and they appear
+// twice, once in each panel the editor covers, wired to the same three
+// handlers. **Two ways in, one mode**: two editors over one `product.json`
+// would be two sets of pending changes where the last Save wins silently, and
+// the Notifications block is far enough down the page that the only way into it
+// was to scroll back to a button that did not say it came there too (ADR 0025).
+// Then the drawer's way out, beside Escape, because a panel covering content
+// needs one that is visibly a close control (ADR 0022). And last the one write
+// that does not go into `product.json` — a channel's secret, which is typed on
+// the page and never read back to it (ADR 0025).
 const BUTTONS = [
-  ['config-edit', 'openEditor'], ['config-save', 'save'], ['config-discard', 'discard'],
+  ...['config', 'notify'].flatMap((panel) => [
+    [`${panel}-edit`, 'openEditor'], [`${panel}-save`, 'save'], [`${panel}-discard`, 'discard'],
+  ]),
   ['notify-secret-set', 'sendSecret'],
   ['task-close', 'closeTask'],
 ]

@@ -4,6 +4,124 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
+## 0.9.0 — 2026-10-24
+
+**The README leads with what detent does, and with what it has measured on
+itself.** It opened on a sentence about a catch in a mechanism and a status
+paragraph that ran fifteen lines without stopping, and the question a reader
+arrives with — what is this for — was answered four screens down. It now says
+in its first line that it runs coding agents against a queue and lets nothing
+finish until the project's checks pass, and the third section is this
+repository's own journal: 39 runs, 72% pass rate, $10.52 for a task that
+landed, and **22% of the green runs the reviewer read had not done the task.**
+A product whose claim is that it measures this shows its own measurement.
+The retry loop a doubt now costs an attempt in, the commands as a table rather
+than as a clause in that long sentence, and the status moved to the end where a
+status belongs.
+
+**`doctor` says when a repository declares a check its gauge does not run.**
+The gauge is whatever `product.json` says it is, and `product.json` was written
+once: `init` proposes stages from the scripts a repository declares and nothing
+asks the question a second time, so a repository that gains a check afterwards
+gains it silently. It happened. A repository whose exit gauge is `lint +
+typecheck` was given a task asking for specs; the agent wrote 881 lines of them
+and a `test` script to run them with, and nothing ran them — not on that
+attempt and not on any other. The commit trailer said `Gauge: lint ✓ typecheck
+✓` and was telling the truth, which is the problem: a gauge that passes while
+the thing it was asked to check never executes is the decorative green this
+product exists to refuse. **`doctor` now compares what each repository declares
+against what its gauge runs**, from the same scripts `init` proposes stages
+from ([ADR
+0003](docs/adr/0003-declared-gauge-stages.md)) — so it holds no list of its own
+and reads nothing the repository has not declared. Whether a stage runs a check
+is decided by the command, never by the stage's name: a stage called `checks`
+that runs `npm test` runs the tests, as does one that reaches them through
+another script or runs the script's own command, and a stage called `test` that
+runs the linter does not. **It is worth a look and never a failure** — slow,
+flaky and needs a database are all reasons to leave a check out of a gauge
+deliberately, so no run is blocked by it, `failures` leaves it out and the
+report still answers `ready` with it outstanding. The line names the script and
+says a stage is added in `product.json`; detent adds nothing to anybody's
+gauge. **Where a gauge command cannot be read** — a `make` target, a shell
+handed a string, a pipe, a fan-out over workspaces — **nothing is reported
+about that repository at all**, because naming a check as unrun when the gauge
+in fact runs it is an argument with somebody who did nothing wrong. A gauge
+that covers what its repository declares says nothing, and neither does a
+repository with no such scripts, whether or not it is a Node package.
+
+**A resumed branch is tried against the integration branch before it is worked,
+and a conflict costs nothing.** A fresh task branches from `agent/dev` as it is
+now; a resumed one kept the base it was cut from, and nothing re-asked whether
+that base was still under it. So the conflict was found in `land()` — after the
+attempts, after the gauge had gone green, after the acceptance pass had read the
+diff and accepted it. It happened: a task cut from `agent/dev` at one commit,
+paused while a sibling landed over the same files, resumed on its old base.
+Three attempts, 36 minutes, $17.04, and a merge conflicting in ten files, with
+the fork point named in the reviewer's doubts on the first round and nothing the
+agent was allowed to do about it. **A run whose task branch already exists now
+tries the merge first** — `git merge-tree`, in the object database, touching no
+ref, no index and no file — and a conflict pauses the task before an agent is
+asked for anything. The new outcome is `stale`: the conflicting paths named, the
+same step for the person as the late conflict has always named (merge
+`agent/dev` into the task branch, resolve, commit, move the file back to
+`todo/`), `attempts` at zero and the cost zero rather than `null`, so the
+journal can say what asking early saved. **A branch that is merely behind says
+nothing and runs** — that is the ordinary state of nearly every resumed branch,
+and a check firing almost every time is learned as noise within a week.
+**detent does not resolve and does not merge the integration branch into a task
+branch**, not behind a flag and not when it would be clean; and the merge at the
+end of the run is unchanged, because a branch can go stale between the start of
+a run and its merge. [ADR
+0026](docs/adr/0026-the-base-of-a-resumed-branch-is-re-asked-before-the-work.md)
+records it, including what it rejected: rebasing or merging for the person, and
+warning on staleness rather than on conflict.
+
+**A telegram notification can be turned on from the dashboard, which is what
+the Notifications panel was for.** Everything behind it worked and almost
+nothing about it was discoverable: the panel drew the channels `product.json`
+declared, a product that declared none got `Channel 1 — command` and nothing
+else, and the one note about it said a channel is added in the file without
+saying what to write — so `kind`, `chat`, `thread` and `tokenEnv` were
+discoverable only by reading `core/notify/telegram.mjs`. **The form is now drawn
+whether or not the file declares a channel**, with what each field takes beside
+it: a chat id is text — `-100…` for a group, a positive number for a person,
+`@name` for a public channel — and a thread is a forum topic, left empty when
+the chat is not a forum. Saving it writes the channel through the same write
+every configuration change goes through: refused while a run is active,
+validated whole, nothing written if anything fails. The name of the environment
+variable is filled in rather than demanded, because somebody with a chat id and
+a token has no reason to have an opinion about it. The token typed beside it
+keeps the path [ADR
+0025](docs/adr/0025-a-channel-is-a-kind-and-the-secret-is-not-in-the-configuration.md)
+gave it — `.detent/secrets.json`, created `0600` and gitignored, written after
+`product.json` and only if that write was accepted, never in `product.json` and
+never read back to the page. An empty form adds nothing: a telegram channel that
+existed only because a form was drawn would be a send with no chat, failing once
+per event. **A channel can be removed there too**, and its secret goes with it
+unless another channel still asks for that name — two chats may be the same bot,
+and the token belongs to the bot. The page says which of those it will do before
+you Save and which of them it did afterwards, in one sentence from one place:
+the line under the remove box is said again whenever anything in any channel
+block changes, including a name typed into the add-a-channel form and not yet
+saved, because a box that promises to delete a token and a Save that then
+declines to delete it is a worse answer than either alone.
+
+**And the panel reads as a view rather than as a form that has broken.** The
+events were seven rows reading `on`, `off`, `off` as bare words, with nothing
+beside them to say they were values being shown; each is now an icon and a word
+like every other status on the page. The sentence explaining that this is what
+the file says, and where it is changed, was underneath everything it explained
+and is now above it. **Entering the editor is visible from either panel**: the
+same Edit, Save and Discard appear under Configuration and under Notifications,
+wired to the same handlers, and while it is open both panels say it is open —
+one mode over one file, with two ways in rather than one that needed scrolling
+back to find. **The secret control no longer draws a dropdown with nothing in
+it**: when no channel asks for a secret the input is absent and the panel says
+why, and the placeholder that arrived as `the token — written to a` is three
+words, with the sentence it was trying to be a line beside the control. The
+panel also says when a variable exported in a shell is winning over the file,
+which `core/secret.mjs` has always done and nothing said out loud.
+
 ## 0.8.0 — 2026-10-23
 
 **A queue card shows the cost whole, and the live log stops repeating itself.**

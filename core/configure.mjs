@@ -8,6 +8,14 @@
 // and a page cannot create what it names; they are read back so the page can
 // show them, each with the reason it is not editable here.
 //
+// **`notify` includes the list of channels, so a channel is added and removed
+// here.** It used to be added by hand, and the reason given was that a form
+// composing a list was a feature of its own — but a telegram channel names
+// nothing on disk: it is a chat id, an optional topic and the name of a
+// variable. The test in `NOT_EDITABLE` is whether a page can make the thing
+// named, and a page can make all three. Which kinds may be composed is the
+// kind's own answer (`offer` in `core/notify/`), not this module's.
+//
 // **One value is written and never read back**, which is the one break in the
 // rule that this page shows what the file says: a channel's token. It is not in
 // `product.json` — the validator refuses it there by name — and
@@ -157,10 +165,20 @@ function notifyConfiguration(dir, raw) {
     }),
     names: EVENTS,
     labels: EVENT_LABELS,
-    // Each kind with the fields it declares, so the page draws a channel
-    // without knowing what a chat id or a shell command is.
-    kinds: KIND_NAMES.map((name) => ({ kind: name, fields: KINDS[name].fields })),
+    // Each kind with the fields it declares, which field names its secret, and
+    // the form the page offers for one nothing has declared — so the page draws
+    // and composes a channel without knowing what a chat id or a shell command
+    // is, and a third kind draws itself with no change there.
+    kinds: KIND_NAMES.map((name) => ({
+      kind: name,
+      fields: KINDS[name].fields,
+      secretKey: KINDS[name].secretKey,
+      offer: KINDS[name].offer,
+    })),
     secretFile: SECRETS_FILE,
+    // The word `secretState` uses for the place that wins, so the panel can
+    // recognise it rather than repeat the string and drift from it.
+    environment: ENVIRONMENT,
     problems,
   }
 }
@@ -173,6 +191,13 @@ function notifyConfiguration(dir, raw) {
 // Refused for a name no channel asks for, so the file cannot quietly collect
 // values nothing will ever read — a secret stored under a name with no channel
 // behind it is a secret on disk doing nothing.
+//
+// **Removing one is never refused, whatever the channels say.** The rule above
+// is about *collecting* values, and a removal collects nothing: a channel
+// removed from the page takes its secret with it, and by the time that write
+// happens the file no longer declares a channel asking for the name. Refusing
+// it would leave a token on disk that nothing reads and nothing on this page
+// can get rid of, which is the opposite of what the rule is for.
 //
 // **Not refused during a run, and that is deliberate.** ADR 0015 shuts the
 // configuration while a run is active because `product.json` is one of the
@@ -193,19 +218,31 @@ export function writeChannelSecret(productDir, patch) {
     return { outcome: 'invalid', message: `the value for ${patch.name} must be text, or null to unset it` }
   }
 
-  const { raw } = readConfig(dir)
-  const named = notifyPlan(isObject(raw) ? raw.notify : undefined).channels.flatMap((channel) => {
-    const name = KINDS[channel.kind].secret(channel)
-    return name === null ? [] : [name]
-  })
-  if (!named.includes(patch.name)) {
-    return {
-      outcome: 'unknown',
-      message: `no channel in ${PRODUCT_FILE} asks for ${patch.name}${named.length > 0 ? ` — ${[...new Set(named)].join(', ')}` : ', and none of its channels asks for a secret at all'}`,
+  const removing = patch.value === null || patch.value === undefined || patch.value === ''
+  if (!removing) {
+    const { raw } = readConfig(dir)
+    const named = notifyPlan(isObject(raw) ? raw.notify : undefined).channels.flatMap((channel) => {
+      const name = KINDS[channel.kind].secret(channel)
+      return name === null ? [] : [name]
+    })
+    if (!named.includes(patch.name)) {
+      return {
+        outcome: 'unknown',
+        message: `no channel in ${PRODUCT_FILE} asks for ${patch.name}${named.length > 0 ? ` — ${[...new Set(named)].join(', ')}` : ', and none of its channels asks for a secret at all'}`,
+      }
     }
   }
 
   const secret = writeSecret(dir, patch.name, patch.value ?? null)
+  if (removing) {
+    // What a removal leaves behind, which is the half worth saying: a variable
+    // exported in a shell is not detent's to unset, so the page must not be
+    // told the token is gone when a send would still find one.
+    const left = secret.set
+      ? ` It is still set in ${secret.where}, which detent cannot unset — unset it in your shell.`
+      : ''
+    return { outcome: 'written', secret, message: `${patch.name} is removed from ${SECRETS_FILE}.${left}` }
+  }
   const where = secret.set
     ? secret.where === ENVIRONMENT
       ? `set in ${ENVIRONMENT}, which is what a send uses — ${SECRETS_FILE} was written and the variable wins over it`

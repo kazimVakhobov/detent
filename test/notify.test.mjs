@@ -80,7 +80,7 @@ test('the default is today’s behaviour: a pause, and nothing else', async () =
 })
 
 test('events are named, and a raw outcome may be named on its own', async () => {
-  assert.deepEqual([...EVENTS], ['paused', 'passed', 'promoted', 'escalated', 'rejected', 'error', 'red'])
+  assert.deepEqual([...EVENTS], ['paused', 'passed', 'promoted', 'escalated', 'rejected', 'error', 'red', 'stale'])
   const cwd = dir()
   const asking = (events) => ({ dir: cwd, notify: { events, channels: [{ kind: 'command', command: 'true' }] } })
 
@@ -94,6 +94,9 @@ test('events are named, and a raw outcome may be named on its own', async () => 
   assert.equal((await notify(onlyErrors, { ...details, outcome: 'error' })).asked, true)
   assert.equal((await notify(onlyErrors, { ...details, outcome: 'escalated' })).asked, false)
   assert.equal((await notify(onlyErrors, { ...details, outcome: 'rejected' })).asked, false)
+  assert.equal((await notify(onlyErrors, { ...details, outcome: 'stale' })).asked, false)
+  // The pause that cost nothing, asked for on its own (ADR 0026).
+  assert.equal((await notify(asking(['stale']), { ...details, outcome: 'stale' })).asked, true)
 
   // And an empty list is silence, said out loud: present means what it says.
   assert.equal((await notify({ dir: cwd, notify: { events: [] } }, details)).asked, false)

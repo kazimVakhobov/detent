@@ -25,7 +25,7 @@ import { KINDS, KIND_NAMES } from './kinds.mjs'
 // outcomes — so somebody who wants to hear about `error` and nothing else can
 // ask for `error` and nothing else.
 export const OCCASIONS = Object.freeze(['paused', 'passed', 'promoted'])
-export const OUTCOMES = Object.freeze(['escalated', 'rejected', 'error', 'red'])
+export const OUTCOMES = Object.freeze(['escalated', 'rejected', 'error', 'red', 'stale'])
 export const EVENTS = Object.freeze([...OCCASIONS, ...OUTCOMES])
 
 // **The default is today's behaviour.** A `notify` that does not say which
@@ -45,6 +45,7 @@ export const EVENT_LABELS = Object.freeze({
   rejected: 'rejected alone — the acceptance pass raised doubts',
   error: 'error alone — the run or the agent broke',
   red: 'red alone — a promote gauge failed on a batch',
+  stale: 'stale alone — a resumed branch conflicts with the integration branch, before any attempt',
 })
 
 // The channel a product that names none gets: the command channel with no

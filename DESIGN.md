@@ -255,6 +255,10 @@ tasks/todo/0042-wallet-endpoint.md
   git checkout -b agent/task-0042-wallet-endpoint agent/dev
         (or the existing branch, when a paused task is resumed)
 
+  a branch that already existed: the merge into agent/dev, tried on nothing
+        ──→ it conflicts: stale — the task is paused, no agent is asked,
+            nothing is spent; merely behind says nothing and runs
+
   the shared context to its remote's tip — every submodule outside neverCommit
         ──→ one that cannot be reached: the task is paused, no agent is asked
 
@@ -284,6 +288,7 @@ tasks/todo/0042-wallet-endpoint.md
 | `passed` | gauge green, acceptance raised nothing | deleted after merge | yes |
 | `rejected` | **gauge green and the task still was not done**, on the last of `attempts` attempts | kept | no |
 | `escalated` | the last of `attempts` attempts was red, or the merge conflicted | kept | no |
+| `stale` | **a resumed branch would conflict with `agent/dev`, found before the first attempt** | kept | no |
 | `error` | the run itself broke — quota, crash, exception | kept | no |
 | `skipped` | the gate refused: dirty tree, no `agent/dev` | none | no |
 
@@ -299,6 +304,14 @@ again; `rejected` is the outcome of a doubt on the last one. The reviewer still
 never approves — a round ends in a merge because the gauge was green and no
 doubt was raised — so what the budget bought is how many times the reviewer
 gets to speak before a person is called, and nothing about who grants green.
+
+**`stale` is the pause that cost nothing**
+([ADR 0026](docs/adr/0026-the-base-of-a-resumed-branch-is-re-asked-before-the-work.md)).
+It is the same conflict `escalated` reports and the same step for the person,
+found at the other end of the run: `attempts` is `0`, `rounds` is empty, and
+the cost is zero rather than `null`, because no model was asked for anything.
+Folding it into `escalated` would hide the one number this check exists to
+produce — what asking early saved.
 
 Failed work never reaches `agent/dev`, so the next task in that repository
 branches from a clean base and does not inherit someone else's mess.
@@ -448,14 +461,32 @@ than chaining into one. With nobody on stdin nothing is asked, each paused task
 is named in a line, and everything a paused barrier bars stays barred
 ([ADR 0024](docs/adr/0024-a-barrier-bars-until-it-passes-and-a-resume-is-a-decision-not-a-move.md)).
 Nothing about the resumed run itself changes: the same branch, the same fresh
-budget, the same doubts handed to the implementer.
+budget, the same doubts handed to the implementer — and the branch keeps the
+base it was cut from, which is the one thing a resumed run now asks about
+before it starts.
+
+**The base of a resumed branch is re-asked before the work**
+([ADR 0026](docs/adr/0026-the-base-of-a-resumed-branch-is-re-asked-before-the-work.md)).
+A fresh task branches from `agent/dev` as it is now; a resumed one was cut from
+`agent/dev` as it was, and what landed meanwhile may conflict with it. So a run
+whose branch already exists **tries the merge first**, with `merge-tree` — in
+the object database, touching no ref, no index and no file — and a conflict
+pauses the task as `stale` before an agent is asked for anything. **Only a
+conflict is said out loud:** a branch that is merely behind `agent/dev`, which
+is the ordinary state of nearly every resumed branch, says nothing and runs.
+The merge in `land()` is unchanged and still runs, because a branch can go
+stale between the start of a run and its merge, and because the agent's own
+commits can conflict with something that was clean when the run began. Early is
+cheaper; it is not instead.
 
 A **conflict** is the one pause a resume cannot get past on its own. detent
 never resolves a conflict, and the agent is not let into a merge either — a
 resolution is a judgement about two pieces of work, one of which the agent has
 never seen. So the notification names the paths and the person's step: merge
 `agent/dev` into the task branch, resolve, commit, and move the task back to
-`todo/`. The next run lands it.
+`todo/`. The next run lands it. That step and that sentence are the same
+whether the conflict was found by the trial before the first attempt or by the
+merge after the last one.
 
 ### Who is told, and how
 
@@ -479,7 +510,7 @@ file has to be edited to go on behaving as it did.
 task that needs a person — or a promotion that did not happen; `passed` is a task
 that landed on the integration branch; `promoted` is a batch that reached
 `agent/staging` (§7). The raw outcomes may be named instead — `escalated`,
-`rejected`, `error`, `red` — so somebody can ask for `error` alone. Present means
+`rejected`, `error`, `red`, `stale` — so somebody can ask for `error` alone. Present means
 exactly what it says: `"events": []` is silence.
 
 **A channel is a kind, one module per kind** (`core/notify/`). The `command` kind
@@ -500,6 +531,11 @@ gitignores it. A secret may also be typed on the dashboard, which writes it to
 `init` writes — and the page reports **whether** it is set, never what it is
 (§12). A channel whose variable is unset is reported as "named, and not set".
 Nothing prints, logs or journals a secret: a failed send names the condition.
+**The environment wins over the file**, because it is the one a person can
+change for one run without editing anything — and the page says so when it
+does, naming the place rather than leaving somebody who typed a token into it
+to discover from a message arriving from the wrong bot that a variable was
+exported.
 
 **A channel that fails is reported and never fatal, per channel.** One failing
 does not stop the others, `record.notified` carries a result per channel, and
@@ -1152,10 +1188,11 @@ scan can see, and is said to be one rather than skipped. A failure is anything
 that would stop a run or make it skip a repository, or that leaves the product
 in a shape its own `product.json` does not describe; worth a look is anything
 that lets a run go ahead with less than it could have: no gauge, no reviewer,
-an `agent/dev` that tracks a remote. It exits 1 on a failure and writes
-nothing; where there is a command that fixes a finding, it prints the command.
+an `agent/dev` that tracks a remote, a declared check no stage of the gauge
+runs. It exits 1 on a failure and writes nothing; where there is a command that
+fixes a finding, it prints the command.
 
-### Six things `doctor` checks beyond the nine conditions
+### Seven things `doctor` checks beyond the nine conditions
 
 - **the queue exists** — `tasks/{todo,hold,done,failed}` (§11); a product with
   nowhere to put a task is not ready, whatever else the report says. `init`
@@ -1178,6 +1215,32 @@ nothing; where there is a command that fixes a finding, it prints the command.
   configuration can aim detent at a human branch
 - **`gauge.promote` declared with no `branches.staging`** — a declared check
   that nothing ever runs is the same invented green as a missing gauge (§6)
+- **a check the repository declares that no stage of its gauge runs** — the
+  gauge is whatever `product.json` says it is and `product.json` was written
+  once, so a repository that gains a `test` script afterwards gains it
+  silently: an agent can be told to write tests, write them, and be let go by a
+  gauge that never ran one — green, and telling the truth. The checks are the
+  scripts `init` proposes stages from, read by the same code
+  ([ADR 0003](docs/adr/0003-declared-gauge-stages.md)),
+  so `doctor` holds no list of its own and nothing is read beyond what the
+  repository declares. Whether a stage runs one is decided by **what its
+  command runs, never by what the stage is called**: a stage named `checks`
+  that runs `npm test` runs the tests, through another script if that is how it
+  is spelled, as does one that runs the script's own command — and a stage
+  named `test` that runs the linter does not. It is **worth a look and never a
+  failure**: slow, flaky and needs a database are all reasons a person leaves
+  a check out of the gauge, and a tool that argues about it has decided
+  something ADR 0003 left to them — so `failures` leaves it out, no run is
+  blocked by it, and the report still answers `ready` with it outstanding. The
+  line names the script and that a stage is added in `product.json`; adding one
+  is the person's, and `doctor` writes nothing. Where a gauge command cannot be
+  read — a `make` target, a shell handed a string, a pipe, a fan-out over
+  workspaces — **nothing is reported about that repository at all**, because
+  naming a check as unrun when the gauge in fact runs it is an argument with
+  somebody who did nothing wrong. A gauge that covers what its repository
+  declares says nothing, a repository that declares no such scripts says
+  nothing, and a repository with no gauge at all is told it has no lock once,
+  by condition 4
 - **every tracked submodule is one everybody else can see** — a submodule
   outside `neverCommit` is a deliberate configuration and is reported as
   tracked, with the note that its pointer is committed with the task once
@@ -1594,7 +1657,42 @@ value under one key, and which events and a list of channels is not one value
 Notifications shows the events as choices and the channels as a list — for a
 telegram channel its chat, its topic and the name of its variable with `set` or
 `not set` beside it — drawn from the same read and written by the same Save,
-because it is the same file. A channel is added or removed in the file.
+because it is the same file. In the view an event that is on and one that is off
+are an icon and a word like every other status here, and the sentence saying
+that this is the file and where it is changed is above what it explains: seven
+rows reading `on`, `off`, `off` as bare words, under a note that came after
+them, read as a set of controls that had stopped working rather than as values
+being shown.
+
+**A channel is added and removed on the page**, which is what `NOT_EDITABLE`
+turns on: `repos`, `queue`, `docs` and `branches` are shown and not editable
+there because a page cannot make a clone, four folders, a repository or a ref,
+and a telegram channel is a chat id, an optional topic and the name of a
+variable. So the form for a kind that can be composed is drawn whether or not
+the file declares one — the panel exists to answer how a telegram notification
+is turned on, and naming a file was not an answer — and left empty it adds
+nothing, because a channel that existed only because a form was drawn would be a
+send with no chat failing once per event. Which kinds may be composed is the
+kind's own answer, not the page's. The name of the variable is defaulted rather
+than demanded; the token typed beside it keeps the path above, written after
+`product.json` and only if that write was accepted, since until the channel is
+in the file nothing asks for the name. Removing a channel takes its secret with
+it unless another channel still asks for that name — two chats may be the same
+bot, and the token belongs to the bot. **Which of those will happen and which of
+them did are one sentence from one function.** The line under the remove box is
+said again whenever anything in any channel block changes, because the answer is
+a fact about the *other* blocks — including a name typed into the add-a-channel
+form and not yet saved — and a box that promises to delete a token followed by a
+Save that declines to delete it is a worse answer than either alone. Two
+channels of one bot, both removed, are one removal and one sentence.
+
+**Entering the editor is visible from either panel and covers both.** The same
+three controls appear under Configuration and under Notifications, wired to the
+same three handlers, and while it is open both panels say it is open: the block
+is far enough down that the only way in was to scroll back to a button that did
+not say it came there too. It is still one mode over one file — two editors over
+one `product.json` would be two sets of pending changes where the last Save wins
+silently.
 
 **And it holds the one control whose value is written and never read back.** A
 secret typed there goes to `.detent/secrets.json` through a path of its own, and
@@ -1604,7 +1702,12 @@ otherwise the rule this panel is built on: a token read back is a token in a
 browser, which is exactly why it is not in `product.json`. The secret write is
 *not* refused during a run — that refusal exists because `product.json` is
 fingerprinted before each of the agent's turns, this file is not, and a run whose
-channel is missing its token is when somebody needs to supply one.
+channel is missing its token is when somebody needs to supply one. **No control
+is drawn that cannot do anything**: when no channel asks for a secret the input
+is absent and the panel says why, because an empty dropdown beside a label that
+did not finish is a control that can do nothing with nothing saying which of
+those is the reason. What a field takes is a line beside it rather than a
+placeholder, which is clipped at the width of its input.
 
 Three things hold every write.
 
@@ -1663,7 +1766,12 @@ that arrives later disguised as a mystery.
   read Y is the unchecked claim this whole project is against. A submodule in
   `neverCommit` is not fetched, not moved and not committed.
 - **Never resolve a merge conflict.** `merge --abort`, escalate, let a person
-  look at it.
+  look at it. And never merge the integration branch into a task branch — not
+  automatically, not behind a flag, not when it would be clean. detent asks
+  whether it would conflict, before the work rather than after it, and reports
+  ([ADR 0026](docs/adr/0026-the-base-of-a-resumed-branch-is-re-asked-before-the-work.md));
+  what arrives on the agent's branch from the integration branch arrives there
+  by a person's hand.
 - **Never work in a dirty repository.** Skip it, say so, continue elsewhere.
   Stashing is how work gets lost.
 

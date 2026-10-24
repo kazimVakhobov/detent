@@ -55,7 +55,7 @@ div.status { white-space: normal; }
    the header's chip is \`.running\` too, and its dot is the thing that reads
    there. */
 .status.running .icon { color: var(--good); }
-.escalated .icon, .look .icon { color: var(--warning); }
+.escalated .icon, .stale .icon, .look .icon { color: var(--warning); }
 .rejected .icon { color: var(--serious); }
 .error .icon { color: var(--critical); }
 .skipped .icon, .info .icon { color: var(--muted); }
@@ -268,6 +268,30 @@ pre.log:empty { display: none; }
 .pair { display: flex; gap: 8px; flex-wrap: wrap; }
 .pair select { min-width: 9em; }
 .pair input { flex: 1 1 10em; min-width: 0; }
+
+/* A control with what it takes under it. **The sentence is beside the control,
+   never inside it**: a placeholder is clipped at the width of its input, so
+   \`the token — written to a file of its own, never read back\` arrived as
+   \`the token — written to a\` and there is no width at which that is a
+   sentence. A hint is a line of its own, wrapping like any other line, and the
+   placeholder that is left is an example short enough to survive any width the
+   panel takes. \`justify-items: start\` so a checkbox stays its own size; a
+   text input takes the column up to a readable measure. */
+.stack { display: grid; gap: 4px; justify-items: start; }
+.stack > input:not([type="checkbox"]) { width: 100%; max-width: 30em; }
+.hint { font-size: 12px; }
+p.hint { margin: 0 0 10px; }
+
+/* One editor over two panels, and the line in each that says it is open
+   (ADR 0025). Like the lock above it: an icon and a word, and the colour
+   repeats them. \`.status\` is an inline-flex, which beats the browser's own
+   rule for \`hidden\`, so the attribute is said here. */
+.mode { margin-bottom: 12px; }
+.mode[hidden] { display: none; }
+#notify-secret { margin: 16px 0 0; }
+#notify-secret p { margin: 0; }
+#notify-secret .field { margin: 10px 0 0; }
+#notify-secret-note:empty { display: none; }
 input, select, button { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
 input:disabled, select:disabled, button:disabled { opacity: .55; cursor: not-allowed; }
 button { background: var(--accent); color: #ffffff; border-color: transparent; font-weight: 600; cursor: pointer; }
