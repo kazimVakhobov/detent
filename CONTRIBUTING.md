@@ -122,6 +122,16 @@ none of its stages opened a markdown file ([0011](docs/adr/0011-a-gauge-that-can
 It settles what can be settled without judgement; whether a sentence is true is
 still nobody's stage.
 
+## The site
+
+`node scripts/build-site.mjs` writes `_site/`: the landing page from
+[`site/index.html`](site/index.html), and under `demo/` the dashboard page
+answering from a made-up product the script builds in a temporary folder. The
+answers are the real server's, taken when the site is built, so the demo is
+what this version of the dashboard draws. `test/site.test.mjs` builds it on
+every run of the gauge, and [`pages.yml`](.github/workflows/pages.yml) publishes
+it to GitHub Pages on every push to `main`.
+
 ## Commits
 
 `type(scope): subject`, imperative, in English. Types in use: `feat`, `fix`,

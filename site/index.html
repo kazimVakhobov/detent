@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>detent — nothing finishes until your checks pass</title>
+<meta name="description" content="Run coding agents against a queue of tasks, and let nothing finish until your own checks pass.">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --ink: #1b1d22; --muted: #5f6570; --line: #e3e1da;
+  --accent: #2f5bd3; --accent-ink: #ffffff; --green: #1f7a4d; --red: #b4362f; --amber: #9a6100;
+  --human: #eef1f6; --agent: #f3efe6; --code: #f1efe9;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121418; --panel: #1a1d23; --ink: #e8e9ec; --muted: #a0a6b1; --line: #2c3038;
+    --accent: #7ea2ff; --accent-ink: #0d1117; --green: #5fc48f; --red: #ef7b73; --amber: #e3ac4f;
+    --human: #1c222c; --agent: #241f17; --code: #20242b;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+a { color: var(--accent); }
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.88em; }
+code { background: var(--code); padding: 0.1em 0.35em; border-radius: 4px; }
+pre { background: var(--code); padding: 14px 16px; border-radius: 8px; overflow-x: auto; margin: 0; }
+pre code { background: none; padding: 0; }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 0 16px; }
+header.top { display: flex; justify-content: space-between; align-items: center; padding: 18px 0; }
+header.top .name { font-weight: 700; letter-spacing: 0.02em; }
+header.top nav a { margin-left: 18px; color: var(--muted); text-decoration: none; }
+header.top nav a:hover { color: var(--ink); }
+.hero { padding: 56px 0 40px; }
+.hero h1 { font-size: clamp(30px, 5vw, 50px); line-height: 1.12; margin: 0 0 18px; letter-spacing: -0.02em; max-width: 18ch; }
+.hero p.lead { font-size: 19px; color: var(--muted); max-width: 62ch; margin: 0 0 26px; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.button { display: inline-block; padding: 11px 18px; border-radius: 8px; text-decoration: none; font-weight: 600; border: 1px solid var(--line); color: var(--ink); background: var(--panel); }
+.button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.install { margin-top: 26px; max-width: 460px; }
+.install small { color: var(--muted); display: block; margin-top: 8px; font-size: 14px; }
+blockquote { margin: 34px 0 0; padding-left: 16px; border-left: 3px solid var(--line); color: var(--muted); max-width: 62ch; font-style: italic; }
+section { padding: 44px 0; border-top: 1px solid var(--line); }
+section h2 { font-size: 26px; margin: 0 0 8px; letter-spacing: -0.01em; }
+section > .wrap > p.intro { color: var(--muted); max-width: 66ch; margin: 0 0 26px; }
+.claims { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; }
+.card h3 { margin: 0 0 8px; font-size: 17px; }
+.card p { margin: 0; color: var(--muted); font-size: 15.5px; }
+.note { color: var(--muted); max-width: 66ch; margin: 20px 0 0; }
+.diagram { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; overflow-x: auto; }
+.diagram svg { display: block; min-width: 760px; width: 100%; height: auto; }
+.diagram svg text { fill: var(--ink); font: 14px ui-sans-serif, system-ui, sans-serif; }
+.diagram svg text.small { font-size: 12.5px; fill: var(--muted); }
+.diagram svg text.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; }
+.diagram svg .box { fill: var(--bg); stroke: var(--line); stroke-width: 1.5; }
+.diagram svg .box.ok { stroke: var(--green); }
+.diagram svg .box.stop { stroke: var(--amber); }
+.diagram svg .edge { fill: none; stroke: var(--muted); stroke-width: 1.6; }
+.diagram svg .edge.red { stroke: var(--red); }
+.diagram svg .edge.ok { stroke: var(--green); }
+.diagram svg .edge.stop { stroke: var(--amber); }
+.diagram svg .human { fill: var(--human); }
+.diagram svg .agent { fill: var(--agent); }
+.diagram svg .boundary { stroke: var(--ink); stroke-width: 2; stroke-dasharray: 6 5; }
+.legend { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 14px; color: var(--muted); font-size: 14px; }
+.legend span::before { content: ""; display: inline-block; width: 18px; height: 3px; margin-right: 7px; vertical-align: middle; background: currentColor; }
+.legend .l-red { color: var(--red); } .legend .l-ok { color: var(--green); } .legend .l-stop { color: var(--amber); }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: start; }
+@media (max-width: 760px) { .two { grid-template-columns: 1fr; } header.top nav a.hide-sm { display: none; } }
+.demo-cta { display: grid; grid-template-columns: 1.3fr 1fr; gap: 22px; align-items: center; }
+@media (max-width: 760px) { .demo-cta { grid-template-columns: 1fr; } }
+.two > *, .demo-cta > * { min-width: 0; }
+.demo-cta ul { margin: 0; padding-left: 20px; color: var(--muted); }
+.commands { width: 100%; border-collapse: collapse; font-size: 15.5px; }
+.commands td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.commands td:first-child { white-space: nowrap; }
+footer { padding: 32px 0 48px; color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <span class="name">detent</span>
+    <nav>
+      <a href="#run" class="hide-sm">How a run goes</a>
+      <a href="#branches" class="hide-sm">Branches</a>
+      <a href="demo/">Live demo</a>
+      <a href="https://github.com/kazimVakhobov/detent">GitHub</a>
+    </nav>
+  </header>
+
+  <div class="hero">
+    <h1>Let nothing finish until your own checks pass.</h1>
+    <p class="lead">detent dispatches Claude Code at a queue of tasks, one at a time. It holds each one behind
+      the repository's own gauge on the way out, has a second model read every green diff, merges what survives
+      into a branch of its own, and writes down what each run cost in attempts, time and money.</p>
+    <div class="actions">
+      <a class="button primary" href="demo/">Open the live dashboard demo</a>
+      <a class="button" href="https://github.com/kazimVakhobov/detent#readme">Read the README</a>
+    </div>
+    <div class="install">
+      <pre><code>npm i -g @kazimvakhobov/detent</code></pre>
+      <small>Version {{version}} · Node 22 · macOS or Linux · Claude Code installed and signed in · zero dependencies</small>
+    </div>
+    <blockquote>A detent is the catch that holds a mechanism in a defined position until it is deliberately
+      released. Here it is released by a green gauge, and by nothing else.</blockquote>
+  </div>
+</div>
+
+<section>
+  <div class="wrap">
+    <h2>The three claims</h2>
+    <p class="intro">The constraints are in the code, not in the prompt.</p>
+    <div class="claims">
+      <div class="card"><h3>When is the agent allowed to stop?</h3>
+        <p>When the project's checks pass, not when it says it is done. Red means it does not get to leave, and it is
+          handed the failure text to work from.</p></div>
+      <div class="card"><h3>Was it worth it?</h3>
+        <p>Every run is a line in a journal: which model, how many rounds, which stage it died on, how long, how much.
+          "Which model should run this repository" becomes a number.</p></div>
+      <div class="card"><h3>Who says it is done?</h3>
+        <p>A second model reads the diff against the acceptance criteria. It may demote, never approve. Green is
+          granted by machine checks only.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="run">
+  <div class="wrap">
+    <h2>How a run goes</h2>
+    <p class="intro">A task is a markdown file, and only its body reaches the agent. Up to <code>attempts</code>
+      rounds (three by default), each one spent the same way whether the gauge was red or the reviewer had a doubt.</p>
+    <div class="diagram" role="img" aria-label="A task goes from tasks/todo to the agent's turn, then the exit gauge, then the acceptance pass, and lands on agent/dev. A red gauge or a doubt sends it back to the agent for another round. Out of rounds, it moves to tasks/hold and a person is told; moving the file back to todo resumes it.">
+      <svg viewBox="0 0 1060 330" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker>
+        </defs>
+        <rect class="box" x="10" y="40" width="140" height="62" rx="8"/>
+        <text class="mono" x="80" y="68" text-anchor="middle">tasks/todo/</text>
+        <text class="small" x="80" y="88" text-anchor="middle">0042-wallet.md</text>
+
+        <rect class="box" x="220" y="40" width="170" height="62" rx="8"/>
+        <text x="305" y="68" text-anchor="middle" font-weight="600">the agent's turn</text>
+        <text class="small" x="305" y="88" text-anchor="middle">a prompt and a directory</text>
+
+        <rect class="box" x="460" y="40" width="160" height="62" rx="8"/>
+        <text x="540" y="68" text-anchor="middle" font-weight="600">exit gauge</text>
+        <text class="small" x="540" y="88" text-anchor="middle">lint · typecheck · test</text>
+
+        <rect class="box" x="700" y="40" width="190" height="62" rx="8"/>
+        <text x="795" y="68" text-anchor="middle" font-weight="600">acceptance pass</text>
+        <text class="small" x="795" y="88" text-anchor="middle">a second model reads the diff</text>
+
+        <rect class="box ok" x="935" y="40" width="115" height="62" rx="8"/>
+        <text class="mono" x="992" y="68" text-anchor="middle">agent/dev</text>
+        <text class="small" x="992" y="88" text-anchor="middle">a merge commit</text>
+
+        <path class="edge" d="M150,71 L218,71" marker-end="url(#arrow)"/>
+        <path class="edge" d="M390,71 L458,71" marker-end="url(#arrow)"/>
+        <path class="edge ok" d="M620,71 L698,71" marker-end="url(#arrow)"/>
+        <text class="small" x="659" y="62" text-anchor="middle">green</text>
+        <path class="edge ok" d="M890,71 L933,71" marker-end="url(#arrow)"/>
+        <text class="small" x="912" y="124" text-anchor="middle">no doubt</text>
+
+        <path class="edge red" d="M540,102 C540,150 340,150 336,104" marker-end="url(#arrow)"/>
+        <text class="small" x="440" y="162" text-anchor="middle">red: the failure text, one round spent</text>
+        <path class="edge red" d="M795,40 C795,-4 335,-4 330,38" marker-end="url(#arrow)"/>
+        <text class="small" x="560" y="33" text-anchor="middle">a doubt: the doubt itself, one round spent</text>
+
+        <path class="edge stop" d="M270,102 L270,226" marker-end="url(#arrow)"/>
+        <text class="small" x="280" y="196">out of rounds, a conflict,</text>
+        <text class="small" x="280" y="212">or a broken run</text>
+        <rect class="box stop" x="180" y="228" width="180" height="62" rx="8"/>
+        <text class="mono" x="270" y="256" text-anchor="middle">tasks/hold/</text>
+        <text class="small" x="270" y="276" text-anchor="middle">branch kept, work parked</text>
+
+        <path class="edge stop" d="M360,259 L438,259" marker-end="url(#arrow)"/>
+        <rect class="box" x="440" y="228" width="220" height="62" rx="8"/>
+        <text x="550" y="256" text-anchor="middle" font-weight="600">a person is told</text>
+        <text class="small" x="550" y="276" text-anchor="middle">desktop, Telegram, a command</text>
+
+        <path class="edge" d="M180,259 C70,259 70,180 70,104" marker-end="url(#arrow)"/>
+        <text class="small" x="82" y="160">resume: move the</text>
+        <text class="small" x="82" y="176">file back to todo/</text>
+      </svg>
+    </div>
+    <div class="legend"><span class="l-ok">lets it through</span><span class="l-red">costs a round</span><span class="l-stop">stops and asks a person</span></div>
+    <p class="note">Every run leaves one line in <code>runs/journal.jsonl</code>: outcome, rounds, the stage it died on,
+      the model that actually ran, and what it cost. The dashboard and <code>detent summary</code> are computed from
+      that file and nothing else.</p>
+  </div>
+</section>
+
+<section id="branches">
+  <div class="wrap">
+    <h2>The line agents do not cross</h2>
+    <p class="intro">detent reads and writes refs under <code>refs/heads/agent/</code> and nothing else. Both gates
+      between the two territories are human operations, in both directions.</p>
+    <div class="diagram" role="img" aria-label="Human branches dev, staging and main on the left; agent branches agent/task, agent/dev and the optional agent/staging on the right. A person merges dev into agent/dev, and agent/staging into dev.">
+      <svg viewBox="0 0 980 330" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker>
+        </defs>
+        <rect class="human" x="0" y="0" width="488" height="330" rx="10"/>
+        <rect class="agent" x="492" y="0" width="488" height="330" rx="10"/>
+        <line class="boundary" x1="490" y1="8" x2="490" y2="322"/>
+        <text x="20" y="30" font-weight="700">human</text>
+        <text x="960" y="30" font-weight="700" text-anchor="end">agents</text>
+
+        <rect class="box" x="40" y="60" width="110" height="44" rx="8"/><text class="mono" x="95" y="87" text-anchor="middle">dev</text>
+        <rect class="box" x="190" y="60" width="110" height="44" rx="8"/><text class="mono" x="245" y="87" text-anchor="middle">staging</text>
+        <rect class="box" x="340" y="60" width="110" height="44" rx="8"/><text class="mono" x="395" y="87" text-anchor="middle">main</text>
+        <path class="edge" d="M150,82 L188,82" marker-end="url(#arrow2)"/>
+        <path class="edge" d="M300,82 L338,82" marker-end="url(#arrow2)"/>
+        <text class="small" x="160" y="128">feature/*, hotfix/* → dev, through a pull request</text>
+
+        <rect class="box" x="560" y="60" width="230" height="44" rx="8"/><text class="mono" x="675" y="87" text-anchor="middle">agent/task-&lt;id&gt;-&lt;slug&gt;</text>
+        <rect class="box ok" x="560" y="150" width="230" height="44" rx="8"/><text class="mono" x="675" y="177" text-anchor="middle">agent/dev</text>
+        <rect class="box" x="560" y="250" width="230" height="44" rx="8" stroke-dasharray="5 4"/><text class="mono" x="675" y="277" text-anchor="middle">agent/staging</text>
+        <path class="edge ok" d="M675,104 L675,148" marker-end="url(#arrow2)"/>
+        <text class="small" x="685" y="131">merge, when the gauge is green</text>
+        <path class="edge ok" d="M675,194 L675,248" marker-end="url(#arrow2)"/>
+        <text class="small" x="685" y="225">promote, when the batch is green</text>
+        <text class="small" x="800" y="277">(optional)</text>
+
+        <path class="edge" d="M125,104 C125,172 300,172 558,172" marker-end="url(#arrow2)"/>
+        <text class="small" x="150" y="196">a person: "here is my work, take it into account"</text>
+        <path class="edge" d="M558,272 C300,272 65,272 65,106" marker-end="url(#arrow2)"/>
+        <text class="small" x="150" y="296">a person: "I accept yours"</text>
+      </svg>
+    </div>
+    <p class="note">It refuses to start on a dirty tree, and never moves a ref outside its own namespace. Nothing in a
+      repository of your product is ever pushed by it, not <code>agent/dev</code> and not a tag.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap demo-cta">
+    <div>
+      <h2>Watch a run in the dashboard</h2>
+      <p class="intro"><code>detent dashboard</code> serves one page on 127.0.0.1 that loads nothing from anywhere else.
+        The demo is that same page, built from this version's code against a made-up product called
+        <code>acme</code>: two repositories, a queue in all four folders, a journal, and a task that is running right now.</p>
+      <div class="actions"><a class="button primary" href="demo/">Open the demo</a>
+        <a class="button" href="demo/#queue">Straight to the queue</a></div>
+    </div>
+    <ul>
+      <li>the figures: pass rate, cost per task that landed, how many green runs the reviewer demoted</li>
+      <li>the queue as cards, and why each held task is held</li>
+      <li>a task opened in a drawer, with every round it took and what its agent is saying</li>
+      <li>the configuration and the notification channels, as the page edits them between runs</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <div class="wrap two">
+    <div>
+      <h2>A task is the prompt</h2>
+      <p class="intro">The frontmatter is bookkeeping. The spec written before the work is what the agent gets.</p>
+<pre><code>---
+id: 0001
+repo: acme-api
+touches_contract: false
+---
+
+# Goal
+
+One paragraph: what must work when this is done.
+
+# Acceptance criteria
+
+- [ ] a checkable statement
+
+# Out of scope
+
+What not to do while you are in there.</code></pre>
+    </div>
+    <div>
+      <h2>The commands</h2>
+      <table class="commands">
+        <tr><td><code>detent doctor</code></td><td>whether this product is in the shape detent expects</td></tr>
+        <tr><td><code>detent init</code></td><td>scan the workspace and write <code>product.json</code></td></tr>
+        <tr><td><code>detent plan</code></td><td>discuss a task with an agent; it writes the task files</td></tr>
+        <tr><td><code>detent run</code></td><td>work the queue</td></tr>
+        <tr><td><code>detent promote</code></td><td>merge <code>agent/dev</code> into <code>agent/staging</code> behind the batch gauge</td></tr>
+        <tr><td><code>detent summary</code></td><td>pass rate, rounds, cost per pass</td></tr>
+        <tr><td><code>detent dashboard</code></td><td>a page that watches this product</td></tr>
+        <tr><td><code>detent gauge</code></td><td>run a repository's gauge by hand</td></tr>
+        <tr><td><code>detent recover</code></td><td>return repositories an interrupted run left behind</td></tr>
+        <tr><td><code>detent prune</code></td><td>delete <code>agent/task-*</code> branches already merged</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">detent {{version}} · MIT ·
+    <a href="https://github.com/kazimVakhobov/detent">github.com/kazimVakhobov/detent</a> ·
+    <a href="https://www.npmjs.com/package/@kazimvakhobov/detent">npm</a></div>
+</footer>
+</body>
+</html>
