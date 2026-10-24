@@ -4,7 +4,20 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
-## Unreleased
+## 0.9.0 — 2026-10-24
+
+**The README leads with what detent does, and with what it has measured on
+itself.** It opened on a sentence about a catch in a mechanism and a status
+paragraph that ran fifteen lines without stopping, and the question a reader
+arrives with — what is this for — was answered four screens down. It now says
+in its first line that it runs coding agents against a queue and lets nothing
+finish until the project's checks pass, and the third section is this
+repository's own journal: 39 runs, 72% pass rate, $10.52 for a task that
+landed, and **22% of the green runs the reviewer read had not done the task.**
+A product whose claim is that it measures this shows its own measurement.
+The retry loop a doubt now costs an attempt in, the commands as a table rather
+than as a clause in that long sentence, and the status moved to the end where a
+status belongs.
 
 **`doctor` says when a repository declares a check its gauge does not run.**
 The gauge is whatever `product.json` says it is, and `product.json` was written
