@@ -4,6 +4,16 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
+## Unreleased
+
+**The README draws what it describes, and the dashboard can be seen without
+installing anything.** How a run goes, where a task file goes and the line
+agents do not cross are mermaid diagrams GitHub renders in place, where the
+last of them was ASCII. The project has a site on GitHub Pages: a landing page,
+and a demo that is the real `detent dashboard` page built from this version's
+code against a made-up product, with a task running in it and its agent
+talking. Nothing on the demo is written.
+
 ## 0.9.0 — 2026-10-24
 
 **The README leads with what detent does, and with what it has measured on
