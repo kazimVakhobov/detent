@@ -18,6 +18,12 @@ test('the site builds, and the demo is the dashboard answering from what it was 
   assert.doesNotMatch(landing, /\{\{\w+\}\}/, 'every placeholder is filled')
   assert.match(landing, /href="demo\/"/)
 
+  // The site is deployed from an artifact, and an artifact without this file
+  // is a deployment that drops the custom domain — quietly, on the next push
+  // to main, with the old address answering again. It is one line, and it is
+  // the only thing that keeps the published address the published address.
+  assert.equal(readFileSync(join(out, 'CNAME'), 'utf8').trim(), 'detent.kazimvakhobov.com')
+
   const demo = readFileSync(join(out, 'demo', 'index.html'), 'utf8')
   assert.match(demo, /window\.fetch =/)
   for (const path of ['state.json', 'configuration.json', 'task.json?task=0013', 'log.json?task=0013']) {
