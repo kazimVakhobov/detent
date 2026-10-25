@@ -382,8 +382,14 @@ const BANNER = `<div style="font:13px/1.4 system-ui,sans-serif;padding:8px 16px;
 Demo of <code>detent dashboard</code> ${pkg.version}, on a made-up product. Nothing here is written. · <a href="../" style="color:#93c5fd">back to the overview</a>
 </div>`
 
+// The landing page's icon, so the demo tab belongs to the same site. It is
+// added here rather than to the page itself: the dashboard a person runs is
+// served under a policy that allows no images at all, not even a data URI
+// (`core/commands/dashboard.mjs`), and a favicon is not worth widening it.
+const ICON = `<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%232f5bd3'/><rect x='6' y='11' width='11' height='10' rx='2.5' fill='%23fff'/><rect x='21' y='5' width='5' height='22' rx='2.5' fill='%23fff'/></svg>">`
+
 const demo = page
-  .replace('<title>detent</title>', '<title>detent — dashboard demo</title>')
+  .replace('<title>detent</title>', `<title>detent — dashboard demo</title>\n${ICON}`)
   .replace('<body>\n', `<body>\n${BANNER}\n`)
   .replace('<script>\n', () => `<script>\n${SHIM}\n`)
 

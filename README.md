@@ -27,7 +27,7 @@ npm i -g @kazimvakhobov/detent
 Node 22, macOS or Linux, and Claude Code installed and signed in. detent drives
 the agent you already pay for and ships none of its own. Zero dependencies.
 
-**[See the dashboard live](https://kazimvakhobov.github.io/detent/demo/)** — the
+**[See the dashboard live](https://detent.kazimvakhobov.com/demo/)** — the
 real `detent dashboard`, built from this version's code against a made-up
 product, with a task running in it.
 
