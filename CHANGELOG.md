@@ -6,6 +6,18 @@ Notable changes, newest first. The format follows
 
 ## Unreleased
 
+**The landing page shows what a run is, instead of only saying it.** The hero
+was a column of text with nothing beside it. It now carries the thing the
+product is: a queue, two repositories' gauges, the way back, and the branch
+they merge into — one task is held at a gauge and let through, another is
+refused and spends a round returning to the queue, and `agent/dev` only ever
+grows from what passed. Both lanes are busy at once, because one task runs per
+repository and several repositories run together ([§8](DESIGN.md#8-scheduling)).
+A second section prints the lines `detent run` actually prints, including the
+one that says a task paused with its three attempts spent. It is one `<svg>`
+and a stylesheet: the site still fetches nothing and depends on nothing, and
+`prefers-reduced-motion` stops all of it.
+
 **The README draws what it describes, and the dashboard can be seen without
 installing anything.** How a run goes, where a task file goes and the line
 agents do not cross are mermaid diagrams GitHub renders in place, where the
