@@ -32,7 +32,8 @@ header.top { display: flex; justify-content: space-between; align-items: center;
 header.top .name { font-weight: 700; letter-spacing: 0.02em; }
 header.top nav a { margin-left: 18px; color: var(--muted); text-decoration: none; }
 header.top nav a:hover { color: var(--ink); }
-.hero { padding: 56px 0 40px; }
+.hero { padding: 56px 0 40px; display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 8px 44px; align-items: center; }
+.hero > * { min-width: 0; }
 .hero h1 { font-size: clamp(30px, 5vw, 50px); line-height: 1.12; margin: 0 0 18px; letter-spacing: -0.02em; max-width: 18ch; }
 .hero p.lead { font-size: 19px; color: var(--muted); max-width: 62ch; margin: 0 0 26px; }
 .actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
@@ -41,6 +42,132 @@ header.top nav a:hover { color: var(--ink); }
 .install { margin-top: 26px; max-width: 460px; }
 .install small { color: var(--muted); display: block; margin-top: 8px; font-size: 14px; }
 blockquote { margin: 34px 0 0; padding-left: 16px; border-left: 3px solid var(--line); color: var(--muted); max-width: 62ch; font-style: italic; }
+.hero blockquote { grid-column: 1 / -1; }
+
+/* A queue under control. The belts run without stopping; nothing gets past a
+   gauge on the strength of having arrived at it. One task per repository, two
+   repositories at once — so the two lanes are busy together, and around 8s
+   both gauges are holding a task at the same time. The lower lane's first
+   task is refused, takes the way back, and lands only on its second attempt.
+   Fourteen seconds, four merges, and the column is pushed down by exactly
+   what it grew, which is why the loop restarts without anything jumping. */
+.hero-art { margin: 0; }
+.hero-art svg { display: block; width: 100%; height: auto; }
+.hero-art .belt { stroke: var(--line); stroke-width: 2; stroke-dasharray: 6 6; stroke-linecap: round; animation: belt 1.2s linear infinite; }
+.hero-art .rail { fill: none; stroke: var(--line); stroke-width: 1.5; }
+.hero-art .ret { fill: none; stroke: var(--line); stroke-width: 1.5; stroke-dasharray: 3 5; }
+.hero-art .ret-arrow { fill: var(--line); }
+.hero-art .guide { stroke: var(--line); stroke-width: 1.5; }
+.hero-art .queued { fill: var(--panel); stroke: var(--line); stroke-width: 1.5; }
+.hero-art .block { fill: var(--panel); stroke: var(--muted); stroke-width: 1.5; animation: lane-one 14s ease-in-out infinite; }
+.hero-art .block.second { animation-name: lane-one-again; }
+.hero-art .block.retry { animation: lane-two 14s ease-in-out infinite, refused 14s step-end infinite; }
+.hero-art .block.last { animation-name: lane-two-again; }
+.hero-art .bar, .hero-art .head { fill: var(--ink); }
+.hero-art .gate.one { animation: gate-one 14s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+.hero-art .gate.two { animation: gate-two 14s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+.hero-art .lamp { fill: var(--line); }
+.hero-art .lamp.one { animation: lamp-one 14s step-end infinite; }
+.hero-art .lamp.two { animation: lamp-two 14s step-end infinite; }
+.hero-art .landed rect { fill: var(--panel); stroke: var(--green); stroke-width: 1.5; }
+.hero-art .landed { animation: land 14s cubic-bezier(0.2, 0, 0, 1) infinite; }
+.hero-art figcaption { margin-top: 12px; text-align: center; color: var(--muted); font-size: 13.5px; }
+@keyframes belt { to { stroke-dashoffset: -24; } }
+/* Out of the queue, up into the top lane, held, let through, merged. */
+@keyframes lane-one {
+  0% { transform: translate(-34px, 0); opacity: 0; }
+  2.1% { transform: translate(-24px, 0); opacity: 1; }
+  7.1% { transform: translate(24px, -52px); }
+  12.9%, 18.6% { transform: translate(90px, -52px); }
+  24.3% { transform: translate(160px, -52px); }
+  28.6% { transform: translate(204px, 0); opacity: 1; }
+  30%, 100% { transform: translate(204px, 0); opacity: 0; }
+}
+/* The same lane, the next task off the queue, while the other lane is busy. */
+@keyframes lane-one-again {
+  0%, 40% { transform: translate(-34px, 0); opacity: 0; }
+  42.1% { transform: translate(-24px, 0); opacity: 1; }
+  47.1% { transform: translate(24px, -52px); }
+  52.9%, 58.6% { transform: translate(90px, -52px); }
+  64.3% { transform: translate(160px, -52px); }
+  68.6% { transform: translate(204px, 0); opacity: 1; }
+  70%, 100% { transform: translate(204px, 0); opacity: 0; }
+}
+/* The lower lane: held, refused, sent back round, and only then landed. */
+@keyframes lane-two {
+  0%, 10% { transform: translate(-34px, 0); opacity: 0; }
+  12.1% { transform: translate(-24px, 0); opacity: 1; }
+  17.1% { transform: translate(24px, 44px); }
+  22.9%, 30% { transform: translate(90px, 44px); }
+  32.9% { transform: translate(90px, 100px); }
+  47.1% { transform: translate(-40px, 100px); }
+  50% { transform: translate(-40px, 0); }
+  54.3% { transform: translate(24px, 44px); }
+  60%, 65.7% { transform: translate(90px, 44px); }
+  71.4% { transform: translate(160px, 44px); }
+  75.7% { transform: translate(204px, 0); opacity: 1; }
+  77.1%, 100% { transform: translate(204px, 0); opacity: 0; }
+}
+/* The lower lane again, so the last seconds of the loop are not idle. */
+@keyframes lane-two-again {
+  0%, 74.3% { transform: translate(-34px, 0); opacity: 0; }
+  76.4% { transform: translate(-24px, 0); opacity: 1; }
+  81.4% { transform: translate(24px, 44px); }
+  85.7%, 91.4% { transform: translate(90px, 44px); }
+  95% { transform: translate(160px, 44px); }
+  97.1% { transform: translate(204px, 0); opacity: 1; }
+  98.6%, 100% { transform: translate(204px, 0); opacity: 0; }
+}
+@keyframes refused {
+  0% { fill: var(--panel); fill-opacity: 1; stroke: var(--muted); }
+  27.1% { fill: var(--red); fill-opacity: 0.25; stroke: var(--red); }
+  50% { fill: var(--panel); fill-opacity: 1; stroke: var(--muted); }
+}
+/* A bar lifts for what passed, and does not lift for what did not. */
+@keyframes gate-one {
+  0%, 17.9% { transform: translateY(0); }
+  18.6%, 25.7% { transform: translateY(-44px); }
+  27.1%, 57.9% { transform: translateY(0); }
+  58.6%, 65.7% { transform: translateY(-44px); }
+  67.1%, 100% { transform: translateY(0); }
+}
+@keyframes gate-two {
+  0%, 27.9% { transform: translateY(0); }
+  28.6% { transform: translateY(4px); }
+  30%, 64.3% { transform: translateY(0); }
+  65.7%, 72.9% { transform: translateY(-40px); }
+  74.3%, 90.7% { transform: translateY(0); }
+  91.4%, 97.1% { transform: translateY(-40px); }
+  98.6%, 100% { transform: translateY(0); }
+}
+@keyframes lamp-one {
+  0% { fill: var(--line); }
+  17.1% { fill: var(--green); }
+  25.7% { fill: var(--line); }
+  57.1% { fill: var(--green); }
+  65.7% { fill: var(--line); }
+}
+@keyframes lamp-two {
+  0% { fill: var(--line); }
+  27.1% { fill: var(--red); }
+  33.6% { fill: var(--line); }
+  64.3% { fill: var(--green); }
+  72.9% { fill: var(--line); }
+  90% { fill: var(--green); }
+  97.1% { fill: var(--line); }
+}
+/* Four merges a cycle, and the column is pushed down by exactly what it grew. */
+@keyframes land {
+  0%, 28.6% { transform: translateY(0); }
+  30.7%, 68.6% { transform: translateY(16px); }
+  70.7%, 75.7% { transform: translateY(32px); }
+  77.9%, 97.1% { transform: translateY(48px); }
+  100% { transform: translateY(64px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-art .belt, .hero-art .block, .hero-art .gate, .hero-art .lamp, .hero-art .landed { animation: none; }
+  .hero-art .block.second, .hero-art .block.retry, .hero-art .block.last { opacity: 0; }
+}
 section { padding: 44px 0; border-top: 1px solid var(--line); }
 section h2 { font-size: 26px; margin: 0 0 8px; letter-spacing: -0.01em; }
 section > .wrap > p.intro { color: var(--muted); max-width: 66ch; margin: 0 0 26px; }
@@ -67,7 +194,15 @@ section > .wrap > p.intro { color: var(--muted); max-width: 66ch; margin: 0 0 26
 .legend { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 14px; color: var(--muted); font-size: 14px; }
 .legend span::before { content: ""; display: inline-block; width: 18px; height: 3px; margin-right: 7px; vertical-align: middle; background: currentColor; }
 .legend .l-red { color: var(--red); } .legend .l-ok { color: var(--green); } .legend .l-stop { color: var(--amber); }
+.term { background: var(--code); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.term .bar { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+.term .bar i { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+.term pre { border-radius: 0; padding: 16px; font-size: 13.5px; line-height: 1.8; }
+.term .dim { color: var(--muted); }
+.term .ok { color: var(--green); }
+.term .stop { color: var(--amber); }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: start; }
+@media (max-width: 860px) { .hero { grid-template-columns: 1fr; } .hero-art { max-width: 340px; margin: 34px auto 0; } }
 @media (max-width: 760px) { .two { grid-template-columns: 1fr; } header.top nav a.hide-sm { display: none; } }
 .demo-cta { display: grid; grid-template-columns: 1.3fr 1fr; gap: 22px; align-items: center; }
 @media (max-width: 760px) { .demo-cta { grid-template-columns: 1fr; } }
@@ -92,18 +227,85 @@ footer { padding: 32px 0 48px; color: var(--muted); font-size: 14px; border-top:
   </header>
 
   <div class="hero">
-    <h1>Let nothing finish until your own checks pass.</h1>
-    <p class="lead">detent dispatches Claude Code at a queue of tasks, one at a time. It holds each one behind
-      the repository's own gauge on the way out, has a second model read every green diff, merges what survives
-      into a branch of its own, and writes down what each run cost in attempts, time and money.</p>
-    <div class="actions">
-      <a class="button primary" href="demo/">Open the live dashboard demo</a>
-      <a class="button" href="https://github.com/kazimVakhobov/detent#readme">Read the README</a>
+    <div>
+      <h1>Let nothing finish until your own checks pass.</h1>
+      <p class="lead">detent dispatches Claude Code at a queue of tasks, one at a time. It holds each one behind
+        the repository's own gauge on the way out, has a second model read every green diff, merges what survives
+        into a branch of its own, and writes down what each run cost in attempts, time and money.</p>
+      <div class="actions">
+        <a class="button primary" href="demo/">Open the live dashboard demo</a>
+        <a class="button" href="https://github.com/kazimVakhobov/detent#readme">Read the README</a>
+      </div>
+      <div class="install">
+        <pre><code>npm i -g @kazimvakhobov/detent</code></pre>
+        <small>Version {{version}} · Node 22 · macOS or Linux · Claude Code installed and signed in · zero dependencies</small>
+      </div>
     </div>
-    <div class="install">
-      <pre><code>npm i -g @kazimvakhobov/detent</code></pre>
-      <small>Version {{version}} · Node 22 · macOS or Linux · Claude Code installed and signed in · zero dependencies</small>
-    </div>
+    <figure class="hero-art">
+      <svg viewBox="0 0 360 212" xmlns="http://www.w3.org/2000/svg" role="presentation" aria-hidden="true" focusable="false">
+        <defs>
+          <!-- Cut on a slot boundary: the column is always four whole bars,
+               and only while it is being pushed is anything part-way in. -->
+          <clipPath id="landed"><rect x="278" y="88" width="74" height="64"/></clipPath>
+        </defs>
+
+        <!-- One queue, two repositories, one branch: the rails fork out of the
+             queue and come back together at agent/dev. A task is on one of
+             them or on the way back, and never on both. -->
+        <path class="rail" d="M78,95 C98,95 96,43 114,43"/>
+        <path class="rail" d="M78,95 C98,95 96,139 114,139"/>
+        <path class="rail" d="M216,43 C252,43 250,95 278,95"/>
+        <path class="rail" d="M216,139 C252,139 250,95 278,95"/>
+
+        <!-- the way back: taken by whatever a gauge would not let through -->
+        <path class="ret" d="M190,160 L190,188 Q190,196 182,196 L54,196 Q46,196 46,188 L46,112"/>
+        <path class="ret-arrow" d="M124,191 L116,196 L124,201Z"/>
+
+        <!-- the belts: the one thing here that never stops -->
+        <line class="belt" x1="104" y1="54" x2="276" y2="54"/>
+        <line class="belt" x1="104" y1="150" x2="276" y2="150"/>
+
+        <rect class="block" x="80" y="88" width="24" height="14" rx="3"/>
+        <rect class="block second" x="80" y="88" width="24" height="14" rx="3"/>
+        <rect class="block retry" x="80" y="88" width="24" height="14" rx="3"/>
+        <rect class="block last" x="80" y="88" width="24" height="14" rx="3"/>
+
+        <!-- what is waiting its turn, drawn last so a task leaves from under it -->
+        <rect class="queued" x="2" y="88" width="22" height="14" rx="3"/>
+        <rect class="queued" x="28" y="88" width="22" height="14" rx="3"/>
+        <rect class="queued" x="54" y="88" width="22" height="14" rx="3"/>
+
+        <!-- A gauge each, because the checks are the repository's own. Both
+             bars retract into a sleeve above their own lane. -->
+        <line class="guide" x1="205" y1="8" x2="205" y2="58"/>
+        <line class="guide" x1="205" y1="62" x2="205" y2="154"/>
+        <g class="gate one">
+          <rect class="head" x="197" y="8" width="16" height="6" rx="2"/>
+          <rect class="bar" x="202" y="12" width="6" height="48" rx="3"/>
+        </g>
+        <g class="gate two">
+          <rect class="head" x="197" y="104" width="16" height="6" rx="2"/>
+          <rect class="bar" x="202" y="108" width="6" height="48" rx="3"/>
+        </g>
+        <circle class="lamp one" cx="182" cy="22" r="6.5"/>
+        <circle class="lamp two" cx="182" cy="118" r="6.5"/>
+
+        <!-- agent/dev: it only ever gets longer, and only from a green gauge -->
+        <g clip-path="url(#landed)">
+          <g class="landed">
+            <rect x="284" y="24" width="44" height="14" rx="2"/>
+            <rect x="284" y="40" width="44" height="14" rx="2"/>
+            <rect x="284" y="56" width="44" height="14" rx="2"/>
+            <rect x="284" y="72" width="44" height="14" rx="2"/>
+            <rect x="284" y="88" width="44" height="14" rx="2"/>
+            <rect x="284" y="104" width="44" height="14" rx="2"/>
+            <rect x="284" y="120" width="44" height="14" rx="2"/>
+            <rect x="284" y="136" width="44" height="14" rx="2"/>
+          </g>
+        </g>
+      </svg>
+      <figcaption>Two repositories at once. Red costs a round.</figcaption>
+    </figure>
     <blockquote>A detent is the catch that holds a mechanism in a defined position until it is deliberately
       released. Here it is released by a green gauge, and by nothing else.</blockquote>
   </div>
@@ -124,6 +326,27 @@ footer { padding: 32px 0 48px; color: var(--muted); font-size: 14px; border-top:
         <p>A second model reads the diff against the acceptance criteria. It may demote, never approve. Green is
           granted by machine checks only.</p></div>
     </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>What a run says when it is over</h2>
+    <p class="intro">Two tasks off the queue. The lines are the ones <code>detent run</code> actually prints —
+      one as a task starts, one when it has stopped being detent's problem.</p>
+    <div class="term">
+      <div class="bar"><i></i><i></i><i></i> acme — detent run</div>
+<pre><code><span class="dim">$</span> detent run
+0042  acme-api  wallet-endpoint  <span class="dim">…</span>
+      <span class="dim">tail -f runs/logs/0042-attempt-1.jsonl  (one per attempt, up to -attempt-3)</span>
+0042  <span class="ok">passed</span> — merged into agent/dev (9f2c1ab), 2 attempts, $0.63
+0043  acme-web  tracking-map  <span class="dim">…</span>
+      <span class="dim">tail -f runs/logs/0043-attempt-1.jsonl  (one per attempt, up to -attempt-3)</span>
+0043  <span class="stop">paused (escalated)</span>: three identical failures on test — 3 attempts, $1.21</code></pre>
+    </div>
+    <p class="note"><code>passed</code> is the gauge's word and not the agent's: the commit named is a merge that
+      has already happened, and <code>2 attempts</code> is the round a red gauge cost. 0043 spent its three and is
+      now in <code>tasks/hold/</code> with its branch kept and a person told — the run did not quietly settle for it.</p>
   </div>
 </section>
 
