@@ -44,6 +44,22 @@ header.top nav a:hover { color: var(--ink); }
 .button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .install { margin-top: 26px; max-width: 460px; }
 .install small { color: var(--muted); display: block; margin-top: 8px; font-size: 14px; }
+/* The install line is there to be taken, not read. The button is the action a
+   keyboard and a screen reader get; the whole block is the same action for a
+   mouse, except when a selection says the click was meant to pick text. The
+   pointer only appears once the script has made the block do something. */
+.copyable { position: relative; }
+.copyable.live { cursor: pointer; }
+.copyable pre { padding-right: 58px; }
+/* Centred on the line it copies, not hung from the top of the block. */
+.copy { position: absolute; top: 50%; right: 8px; transform: translateY(-50%); display: flex; align-items: center; gap: 7px; padding: 7px 9px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; font: inherit; font-size: 13px; line-height: 1; }
+.copy:hover, .copyable:hover .copy { color: var(--ink); border-color: var(--line); background: var(--panel); }
+.copy:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.copy svg { width: 19px; height: 19px; display: block; }
+.copy .said { display: none; }
+.copy .tick, .copyable.copied .copy .mark { display: none; }
+.copyable.copied .copy { color: var(--green); border-color: transparent; background: none; }
+.copyable.copied .copy .tick, .copyable.copied .copy .said { display: block; }
 blockquote { margin: 34px 0 0; padding-left: 16px; border-left: 3px solid var(--line); color: var(--muted); max-width: 62ch; font-style: italic; }
 .hero blockquote { grid-column: 1 / -1; }
 
@@ -240,7 +256,19 @@ footer { padding: 32px 0 48px; color: var(--muted); font-size: 14px; border-top:
         <a class="button" href="https://github.com/kazimVakhobov/detent#readme">Read the README</a>
       </div>
       <div class="install">
-        <pre><code>npm i -g @kazimvakhobov/detent</code></pre>
+        <div class="copyable">
+<pre><code>npm i -g @kazimvakhobov/detent</code></pre>
+          <button class="copy" type="button" aria-label="Copy the install command">
+            <span class="said" role="status">Copied</span>
+            <svg class="mark" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <rect x="5.75" y="5.75" width="8.5" height="8.5" rx="2"/>
+              <path d="M10.25 3.75A2 2 0 0 0 8.25 1.75h-4.5a2 2 0 0 0-2 2v4.5a2 2 0 0 0 2 2"/>
+            </svg>
+            <svg class="tick" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 8.5 6.5 12 13 4.5"/>
+            </svg>
+          </button>
+        </div>
         <small>Version {{version}} · Node 22 · macOS or Linux · Claude Code installed and signed in · zero dependencies</small>
       </div>
     </div>
@@ -521,6 +549,47 @@ What not to do while you are in there.</code></pre>
     </div>
   </div>
 </section>
+
+<script>
+// The only script on this page, and it does one thing. Where the clipboard is
+// not there to be written to — an old browser, or the page opened over http —
+// the button is removed rather than left sitting there doing nothing.
+;(() => {
+  const block = document.querySelector('.copyable')
+  if (!block) return
+  const button = block.querySelector('.copy')
+  if (!navigator.clipboard) return button.remove()
+
+  const text = block.querySelector('code').textContent.trim()
+  const label = button.getAttribute('aria-label')
+  let saying
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      // Refused — by a permission, or by a browser that wanted a gesture it did
+      // not see. Saying nothing is better than saying "Copied" when it is not.
+      return
+    }
+    block.classList.add('copied')
+    button.setAttribute('aria-label', 'Copied')
+    clearTimeout(saying)
+    saying = setTimeout(() => {
+      block.classList.remove('copied')
+      button.setAttribute('aria-label', label)
+    }, 1600)
+  }
+
+  button.addEventListener('click', copy)
+  block.addEventListener('click', (event) => {
+    // The button has already handled its own click, and a click that leaves a
+    // selection behind was meant to pick the text rather than to take it.
+    if (event.target.closest('.copy') || !getSelection().isCollapsed) return
+    copy()
+  })
+  block.classList.add('live')
+})()
+</script>
 
 <footer>
   <div class="wrap">detent {{version}} · MIT ·
