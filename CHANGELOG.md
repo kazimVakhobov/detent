@@ -14,8 +14,10 @@ refused and spends a round returning to the queue, and `agent/dev` only ever
 grows from what passed. Both lanes are busy at once, because one task runs per
 repository and several repositories run together ([§8](DESIGN.md#8-scheduling)).
 A second section prints the lines `detent run` actually prints, including the
-one that says a task paused with its three attempts spent. It is one `<svg>`
-and a stylesheet: the site still fetches nothing and depends on nothing, and
+one that says a task paused with its three attempts spent. The install line
+copies itself, from its button or from anywhere in the block, and says so for a
+second afterwards. It is one `<svg>`, a stylesheet and twenty lines of script:
+the site still fetches nothing and depends on nothing, and
 `prefers-reduced-motion` stops all of it.
 
 **The README draws what it describes, and the dashboard can be seen without
