@@ -1,6 +1,6 @@
 {
   "name": "@kazimvakhobov/detent",
-  "version": "0.9.0",
+  "version": "1.0.0",
   "description": "Autonomy bounded by a machine-checkable gauge, and measured.",
   "type": "module",
   "bin": {
@@ -24,7 +24,7 @@
     "type": "git",
     "url": "git+https://github.com/kazimVakhobov/detent.git"
   },
-  "homepage": "https://github.com/kazimVakhobov/detent#readme",
+  "homepage": "https://detent.kazimvakhobov.com/",
   "bugs": "https://github.com/kazimVakhobov/detent/issues",
   "license": "MIT",
   "publishConfig": {
