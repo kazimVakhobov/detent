@@ -10,10 +10,10 @@
 **Run coding agents against a queue of tasks, and let nothing finish until your
 own checks pass.**
 
-detent dispatches Claude Code at one task at a time, holds it behind the
-repository's own gauge on the way out, has a second model read every green diff,
-merges what survives into a branch of its own — and writes down what each run
-cost in attempts, time and money.
+detent dispatches Claude Code at one task per repository at a time, holds each
+behind that repository's own gauge on the way out, has a second model read every
+green diff, merges what survives into a branch of its own — and writes down what
+each run cost in attempts, time and money.
 
 The constraints are in the code, not in the prompt.
 
@@ -82,9 +82,10 @@ reaches the agent** — the spec written before the work is the prompt.
 
 ```markdown
 ---
-id: 0001
-repo: acme-api
-touches_contract: false
+id: 0001                 # the order tasks run in, and the file name
+repo: acme-api           # which repository in product.json it is in
+touches_contract: false  # true makes it a barrier: it runs alone, and
+                         # no higher number starts until it has passed
 ---
 
 # Goal

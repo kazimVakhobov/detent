@@ -231,6 +231,9 @@ section > .wrap > p.intro { color: var(--muted); max-width: 66ch; margin: 0 0 26
 .commands td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .commands td:first-child { white-space: nowrap; }
 footer { padding: 32px 0 48px; color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); }
+footer p { margin: 0 0 6px; }
+footer p:last-child { margin: 0; }
+footer .by { color: var(--ink); }
 </style>
 </head>
 <body>
@@ -248,9 +251,9 @@ footer { padding: 32px 0 48px; color: var(--muted); font-size: 14px; border-top:
   <div class="hero">
     <div>
       <h1>Let nothing finish until your own checks pass.</h1>
-      <p class="lead">detent dispatches Claude Code at a queue of tasks, one at a time. It holds each one behind
-        the repository's own gauge on the way out, has a second model read every green diff, merges what survives
-        into a branch of its own, and writes down what each run cost in attempts, time and money.</p>
+      <p class="lead">detent dispatches Claude Code at a queue of tasks, one task per repository at a time. It holds
+        each one behind the repository's own gauge on the way out, has a second model read every green diff, merges
+        what survives into a branch of its own, and writes down what each run cost in attempts, time and money.</p>
       <div class="actions">
         <a class="button primary" href="demo/">Open the live dashboard demo</a>
         <a class="button" href="https://github.com/kazimVakhobov/detent#readme">Read the README</a>
@@ -335,7 +338,7 @@ footer { padding: 32px 0 48px; color: var(--muted); font-size: 14px; border-top:
           </g>
         </g>
       </svg>
-      <figcaption>Two repositories at once. Red costs a round.</figcaption>
+      <figcaption>Two repositories at once, one task in each. Red costs a round.</figcaption>
     </figure>
     <blockquote>A detent is the catch that holds a mechanism in a defined position until it is deliberately
       released. Here it is released by a green gauge, and by nothing else.</blockquote>
@@ -515,9 +518,10 @@ footer { padding: 32px 0 48px; color: var(--muted); font-size: 14px; border-top:
       <h2>A task is the prompt</h2>
       <p class="intro">The frontmatter is bookkeeping. The spec written before the work is what the agent gets.</p>
 <pre><code>---
-id: 0001
-repo: acme-api
-touches_contract: false
+id: 0001                 # the order tasks run in, and the file name
+repo: acme-api           # which repository in product.json it is in
+touches_contract: false  # true makes it a barrier: it runs alone, and
+                         # no higher number starts until it has passed
 ---
 
 # Goal
@@ -592,9 +596,12 @@ What not to do while you are in there.</code></pre>
 </script>
 
 <footer>
-  <div class="wrap">detent {{version}} · MIT ·
-    <a href="https://github.com/kazimVakhobov/detent">github.com/kazimVakhobov/detent</a> ·
-    <a href="https://www.npmjs.com/package/@kazimvakhobov/detent">npm</a></div>
+  <div class="wrap">
+    <p class="by">Built by <a href="https://github.com/kazimVakhobov">Kozimjon Vakhobov</a>.</p>
+    <p>detent {{version}} · MIT ·
+      <a href="https://github.com/kazimVakhobov/detent">github.com/kazimVakhobov/detent</a> ·
+      <a href="https://www.npmjs.com/package/@kazimvakhobov/detent">npm</a></p>
+  </div>
 </footer>
 </body>
 </html>
