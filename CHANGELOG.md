@@ -4,6 +4,34 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
+## Unreleased
+
+**The shared context has a block of its own, on the page and in the README.**
+How an agent gets the documents it needs was in the code, in three ADRs and in
+`product.json`, and nowhere a reader would meet it: submodules mounted into the
+working copy, brought to their remote's tip before the first turn, with the
+revision read written into the commit and the journal, and a pointer no remote
+branch contains pausing the task rather than being recorded as something nobody
+can look up. It is the part of the method that explains the rest — an agent is
+given a prompt and a working directory and nothing else, so what it has to read
+has to already be in the tree. Both now link the write-up it comes from,
+[Agents need context, not access](https://kazimvakhobov.com/agents-need-context-not-access/).
+
+**The site names who built it, and stops contradicting its own illustration.**
+The hero said detent dispatches a queue "one at a time" while the figure under
+it was captioned "two repositories at once", which is the same drift the README
+carried until 1.0.0: the rule is one task *per repository*, and `concurrency`
+decides how many of those run together. Both now say that. The footer had the
+version, the licence and two links and did not say whose work this is, which on
+a portfolio site is the one thing a reader came for — it is one line now, the
+name on the portfolio and two places to read more, and deliberately not every
+profile there is: a page that lists six ways to reach somebody is a page that
+has stopped choosing. And the frontmatter
+example showed `repo` and `touches_contract` without a word about either, on
+the page and in the README both — each field now carries the one line it needed,
+including the one that says `touches_contract: true` is what makes a task a
+barrier.
+
 ## 1.0.0 — 2026-10-28
 
 **1.0.0, because the condition for it was met on somebody else's product.**
