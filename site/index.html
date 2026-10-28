@@ -243,6 +243,7 @@ footer .by { color: var(--ink); }
     <nav>
       <a href="#run" class="hide-sm">How a run goes</a>
       <a href="#branches" class="hide-sm">Branches</a>
+      <a href="#context" class="hide-sm">Context</a>
       <a href="demo/">Live demo</a>
       <a href="https://github.com/kazimVakhobov/detent">GitHub</a>
     </nav>
@@ -490,6 +491,37 @@ footer .by { color: var(--ink); }
     </div>
     <p class="note">It refuses to start on a dirty tree, and never moves a ref outside its own namespace. Nothing in a
       repository of your product is ever pushed by it, not <code>agent/dev</code> and not a tag.</p>
+  </div>
+</section>
+
+<section id="context">
+  <div class="wrap">
+    <h2>Agents need context, not access</h2>
+    <p class="intro">An agent given a narrow working copy will do narrow work: it cannot read the data model, the
+      contract or the decision that explains why the obvious way is not the way. The answer is not to hand it the
+      rest of the product. It is to mount the documents into the repository it was given, as a submodule, and to
+      record which revision of them it actually read.</p>
+    <div class="claims">
+      <div class="card"><h3>Mounted, not fetched</h3>
+        <p>detent spawns the agent with a prompt and a working directory, and nothing else — no second repository to
+          go and read, and no wiring into the CLI's own extension points. The documents, and a kit beside them if the
+          product has one, are already in the tree as submodules.</p></div>
+      <div class="card"><h3>As of the moment the task started</h3>
+        <p>Every tracked submodule is fetched and moved to its remote's tip before the first turn, so the whole task
+          is worked against one revision of the context. What somebody pushes afterwards is not this task's
+          business.</p></div>
+      <div class="card"><h3>Written down, not assumed</h3>
+        <p>That revision goes into the commit and the journal. Before the commit, a submodule sitting at a commit no
+          remote branch contains pauses the task and names it: a pointer to nowhere would be a record of something
+          nobody can look up. One listed in <code>neverCommit</code> is never fetched, moved or committed, and the
+          prompt says so.</p></div>
+    </div>
+    <p class="note">A task links to a document by path — <code>shared-docs/adr/0003.md</code> in a task for
+      <code>acme-api</code> — checked after the context is refreshed and against the revision the agent will read. A
+      broken link is told to the agent, recorded and shown to the reviewer, and is never a reason to stop: detent
+      cannot tell a load-bearing link from a decorative one. The methodology this comes from, and why access is the
+      wrong thing to give, is written up here:
+      <a href="https://kazimvakhobov.com/agents-need-context-not-access/">Agents need context, not access</a>.</p>
   </div>
 </section>
 

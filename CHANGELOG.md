@@ -6,6 +6,17 @@ Notable changes, newest first. The format follows
 
 ## Unreleased
 
+**The shared context has a block of its own, on the page and in the README.**
+How an agent gets the documents it needs was in the code, in three ADRs and in
+`product.json`, and nowhere a reader would meet it: submodules mounted into the
+working copy, brought to their remote's tip before the first turn, with the
+revision read written into the commit and the journal, and a pointer no remote
+branch contains pausing the task rather than being recorded as something nobody
+can look up. It is the part of the method that explains the rest — an agent is
+given a prompt and a working directory and nothing else, so what it has to read
+has to already be in the tree. Both now link the write-up it comes from,
+[Agents need context, not access](https://kazimvakhobov.com/agents-need-context-not-access/).
+
 **The site names who built it, and stops contradicting its own illustration.**
 The hero said detent dispatches a queue "one at a time" while the figure under
 it was captioned "two repositories at once", which is the same drift the README
