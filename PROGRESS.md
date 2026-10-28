@@ -42,6 +42,7 @@ and moves no ref outside `refs/heads/agent/`.
 | **end to end** | after step 6 — a task goes from a file to a commit on `agent/dev`, and the journal says what it cost |
 | **worth showing** | after step 8 — there are numbers, and a page that displays them |
 | **self-hosting** | reached **2026-10-13** with task 0026, commit `f9b97b5` — the first time detent ran a task in this repository instead of a person running it by hand. The proof is this repository's own history: `git log --grep='^Acceptance: ' --date=short --pretty='%h %ad %s'` lists every task detent has worked here and the date each one landed, and every commit it names carries the `Task:`, `Gauge:`, `Agent:` and `Acceptance:` trailers [DESIGN.md §10](DESIGN.md#10-commits) specifies, none of which a person typed |
+| **another product** | reached **2026-10-23** on [Yuk Markaz 24](https://yukmarkaz24.uz), a freight marketplace in production — eleven tasks of its queue dispatched by `detent run`: thirteen runs across three of that product's seven repositories, 85% passed at $7.64 for a task that landed. One task spent all three attempts, stopped on a merge conflict in the API contract and passed when it was resumed; one green diff was refused outright by the acceptance pass, and two more were accepted on a round after a doubt. That product's own journal is the record, and none of those numbers come from this repository. [QMed](https://qmed.uz) is set up the same way — seven repositories, twelve edges, twelve tasks queued — and has had no run dispatched at it yet |
 
 ## Versions
 
@@ -56,7 +57,7 @@ never tagged, so the registry goes from `0.0.1` to it.
 | `0.1.0` | end to end — step 6 |
 | `0.2.0` | worth showing — step 8 |
 | `0.3.0` | all thirteen steps — the build order is complete |
-| `1.0.0` | all thirteen steps, and a real batch of tasks run against a real product |
+| `1.0.0` | all thirteen steps, and a real batch of tasks run against a real product — **cut 2026-10-28**, on the thirteen steps and the Yuk Markaz 24 batch above |
 
 ## detent builds itself, as far as agent/dev
 
