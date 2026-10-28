@@ -238,6 +238,24 @@ questions it asks; `--queue` and `--docs` answer them from the command line, and
 with no terminal on stdin the defaults are taken and printed, so `init` in a
 script never waits.
 
+**The documents are mounted, not fetched.** An agent is given a prompt and a
+working directory and nothing else
+([ADR 0013](docs/adr/0013-the-agent-gets-a-prompt-and-a-directory.md)), so what
+it has to read has to be in the tree it was handed: the documents, and a kit
+beside them if the product has one, arrive as submodules. Every tracked one is
+brought to its remote's tip before the first turn, so a task is worked against
+one revision of the context; that revision goes into the commit and the
+journal; and a submodule sitting at a commit no remote branch contains pauses
+the task by name rather than recording a pointer nobody can look up
+([ADR 0012](docs/adr/0012-the-queue-and-the-shared-context-may-be-repositories.md)).
+A task links to a document by path — `shared-docs/adr/0003.md` in a task for
+`acme-api` — and a broken link is told to the agent, recorded and shown to the
+reviewer, but never stops the run: detent cannot tell a load-bearing link from
+a decorative one
+([ADR 0014](docs/adr/0014-init-asks-where-the-queue-and-the-documents-are.md)).
+The methodology that comes from is written up in
+[Agents need context, not access](https://kazimvakhobov.com/agents-need-context-not-access/).
+
 Read the two things it cannot decide for you before an agent is held to them:
 
 - **the gauge.** Stages are proposed only from scripts a repository declares, so
