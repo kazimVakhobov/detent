@@ -4,7 +4,46 @@ Notable changes, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions mean what
 [`PROGRESS.md`](PROGRESS.md) says they mean.
 
-## Unreleased
+## 1.0.0 — 2026-10-28
+
+**1.0.0, because the condition for it was met on somebody else's product.**
+The version meant one thing in [`PROGRESS.md`](PROGRESS.md) from the start —
+all thirteen build steps, and a real batch of tasks run against a real product
+that is not this one — and the second half happened on 2026-10-21 and
+2026-10-23 without the file being brought up to date. It was
+[Yuk Markaz 24](https://yukmarkaz24.uz), a freight marketplace in production:
+eleven tasks of its queue dispatched by `detent run`, thirteen runs across
+three of its seven repositories, 85% passed at $7.64 for a task that landed,
+one green diff refused outright by the reviewer, and one task that spent all
+three attempts, stopped on a merge conflict in the OpenAPI contract and passed
+when it was resumed two days later. None of those numbers come from this
+repository. [QMed](https://qmed.uz) is named beside it for the narrower thing
+it shows — `init` reading a seven-repository product it was not built around,
+twelve edges and twelve tasks queued — and explicitly not for any run, because
+none has been dispatched there.
+
+**The README stops describing a rule that 0024 replaced.** Two sentences and
+two diagram labels still said that resuming a paused task is moving its file
+back. It is a decision the next `run` offers — leave it, resume it, or open
+`plan` to amend the criteria — detent carries the file itself, a paused
+contract change goes on barring every higher number in every repository, and
+`detent run --past <id>` is what overrides that. The claim that everything here
+is dispatched by `detent run` now names its exception, which the hand-merged
+site commits already named themselves, and `npm`'s page for the package points
+at [the site](https://detent.kazimvakhobov.com/) rather than back at the
+README it is showing.
+
+**And it describes three things that had shipped without a sentence in it.**
+That `concurrency` is 1, and that raising it runs tasks side by side but never
+two in one repository. That `touches_contract: true` is what makes a task a
+barrier — the frontmatter example had been showing the key since 0.3.1 without
+saying what it does, while the prose two screens down talked about barring. And notification at all: the two kinds, the three occasions and five
+outcomes an event can be, and the rule that a channel names its secret and
+never holds it ([0025](docs/adr/0025-a-channel-is-a-kind-and-the-secret-is-not-in-the-configuration.md)).
+The dashboard paragraph now says which address it answers on and what a write
+has to prove, and the `summary` row says what the command prints — attempts per
+run, where the README had a third word for the thing `product.json` calls
+`attempts`.
 
 **The landing page shows what a run is, instead of only saying it.** The hero
 was a column of text with nothing beside it. It now carries the thing the
