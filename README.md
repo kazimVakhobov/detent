@@ -1,6 +1,7 @@
 # detent
 
 [![npm](https://img.shields.io/npm/v/@kazimvakhobov/detent)](https://www.npmjs.com/package/@kazimvakhobov/detent)
+[![site: detent.kazimvakhobov.com](https://img.shields.io/badge/site-detent.kazimvakhobov.com-0b7285)](https://detent.kazimvakhobov.com/)
 [![verify](https://github.com/kazimVakhobov/detent/actions/workflows/verify.yml/badge.svg)](https://github.com/kazimVakhobov/detent/actions/workflows/verify.yml)
 ![node 22](https://img.shields.io/badge/node-22-339933)
 ![dependencies: zero](https://img.shields.io/badge/dependencies-zero-success)
@@ -27,9 +28,11 @@ npm i -g @kazimvakhobov/detent
 Node 22, macOS or Linux, and Claude Code installed and signed in. detent drives
 the agent you already pay for and ships none of its own. Zero dependencies.
 
-**[See the dashboard live](https://detent.kazimvakhobov.com/demo/)** — the
-real `detent dashboard`, built from this version's code against a made-up
-product, with a task running in it.
+**[detent.kazimvakhobov.com](https://detent.kazimvakhobov.com/)** is the site,
+and **[the dashboard is live on it](https://detent.kazimvakhobov.com/demo/)** —
+the real `detent dashboard`, built from this version's code against a made-up
+product, with a task running in it. Nothing on it is a mockup: the answers are
+the real server's, taken when the site was built.
 
 ## The three claims
 
@@ -52,7 +55,9 @@ agent another round, and on the last one sends the task to a person. Otherwise
 Since 2026-10-13 the tasks in this repository have been dispatched by
 `detent run`, held behind the gauge, read by the acceptance pass and merged by
 the tool. `git log --grep='^Acceptance: '` is the record, and nobody typed those
-trailers by hand.
+trailers by hand. Where that is not true the commit says so itself: the tasks
+after 0.9.0 were worked in a session and merged by hand, and each says as much
+in place of the `Gauge:` and `Acceptance:` trailers it does not carry.
 
 | From this repository's own journal | |
 |---|---|
@@ -96,7 +101,8 @@ What not to do while you are in there.
 ```
 
 Save it as `tasks/todo/0001-wallet-endpoint.md` and run `detent run`. Then, for
-up to `attempts` rounds (default three):
+up to `attempts` rounds (default three), each call to a model bounded by
+`timeout` minutes (default thirty):
 
 ```mermaid
 flowchart LR
@@ -108,7 +114,7 @@ flowchart LR
   accept -- "no doubt" --> dev[("agent/dev<br/>one merge commit")]
   agent -. "out of rounds, a conflict,<br/>a broken run" .-> hold["tasks/hold/<br/>branch kept, work parked"]
   hold --> told(["you are told"])
-  hold -. "you move the file back" .-> todo
+  hold -. "you resume it" .-> todo
 
   classDef ok stroke:#1f7a4d,stroke-width:2px
   classDef stop stroke:#9a6100,stroke-width:2px
@@ -122,18 +128,43 @@ flowchart LR
 3. **the acceptance pass** — a second model reads the diff. A doubt hands back
    the doubt and costs one round, the same budget the gauge spends
 
+**One task at a time, unless you say otherwise.** `concurrency` is 1 in
+`product.json`; raise it and tasks run side by side — but never two in the same
+repository, because they would be two agents in one working copy, and more
+slots than you have repositories is refused as a number that cannot be reached.
+**`touches_contract: true` makes a task a barrier:** the pool drains, it runs
+alone, and nothing with a higher number starts until it has passed, because a
+task queued behind a contract change must not begin against the contract that
+change is about to replace. The id and that one flag are the only ordering
+detent knows; it infers no dependency from anything else
+([DESIGN.md §8](DESIGN.md#8-scheduling)).
+
 Green and undoubted, the task lands on `agent/dev` as one merge commit carrying
 what it cost. Out of rounds, or a conflict, or a broken run, and the task moves
 to `tasks/hold/` with its branch kept and the work parked on it — and you are
-told, through whatever channel you configured. **Resuming is moving the file
-back**, and the next run hands the agent what stopped the last one.
+told, through whatever channel you configured.
+
+**A resume is a decision, not a `mv`.** The next `detent run` reads `hold/`
+before it starts anything and offers three answers for each task it finds
+there: leave it, resume it now, or open `plan` to amend the criteria that were
+wrong — which is very often what a rejected task actually needs. A bare Enter
+leaves it, because nothing a person did not answer should start a run that
+costs money. detent then carries the file back itself, and the next run hands
+the agent what stopped the last one. Moving the file by hand still works and
+means the same thing. **And a paused barrier goes on barring** — the rule above
+holds across runs and not only inside one, which is a correctness rule rather
+than a question, so it holds in a script and a cron line exactly as it does in
+a terminal. `detent run --past <id>` is how you say that contract landed
+another way
+([ADR 0024](docs/adr/0024-a-barrier-bars-until-it-passes-and-a-resume-is-a-decision-not-a-move.md)).
 
 Nothing has touched a branch of yours.
 
 ## Where a task file goes
 
 The queue is four folders, and the folder a file is in is the task's state.
-detent moves a file out of `todo/`; everything else is a person's move.
+detent moves a file out of `todo/`, and back into it when you resume one;
+`failed/` is the person's alone, and detent never moves a task there.
 
 ```mermaid
 stateDiagram-v2
@@ -141,7 +172,7 @@ stateDiagram-v2
   [*] --> todo: you write it, or detent plan does
   todo --> done: green and undoubted, merged to agent/dev
   todo --> hold: out of rounds, a conflict, a broken run
-  hold --> todo: you move it back, and the next run hears why it stopped
+  hold --> todo: you resume it, and the next run hears why it stopped
   hold --> failed: you give up on it
 ```
 
@@ -218,6 +249,30 @@ Read the two things it cannot decide for you before an agent is held to them:
   is yours to write
   ([ADR 0019](docs/adr/0019-the-offered-model-names-are-a-suggestion-in-the-product-file.md)).
 
+**And one thing you do not have to decide at all.** A product that configures
+nothing still reaches you: the desktop notifier, when a task pauses and on no
+other occasion. `notify` is either a shell command — run with the
+message on its stdin and the details in its environment — or
+`{ events, channels }`, where the events are the three occasions (`paused`,
+`passed`, `promoted`) and the five outcomes you can ask for on their own
+(`escalated`, `rejected`, `error`, `red`, `stale`), and a channel is one of the
+two kinds there are: `command` and `telegram`. A third is added when it has
+delivered a real message, not when its module compiles — the rule
+[0018](docs/adr/0018-one-agent-in-the-first-version-and-what-readmits-another.md)
+put on agents, carried across.
+
+**A channel names its secret and never holds it.** `product.json` says which
+environment variable the token is in, and detent reads it when it sends — the
+environment first, then `.detent/secrets.json`, created `0600` and gitignored
+by `init`. A token in `product.json` would be a token in a page, because the
+dashboard serves that file to a browser, and sooner or later a token in a
+commit; the dashboard is also where a channel and its token can be set without
+you editing either file. One channel failing is not the run failing — a task
+that paused is already a task you need to hear about. Each is attempted once,
+with no retry and no queue, because detent is not a notification router; each
+reports for itself; and nothing that comes back from one can carry the token
+([ADR 0025](docs/adr/0025-a-channel-is-a-kind-and-the-secret-is-not-in-the-configuration.md)).
+
 ## The commands
 
 | | |
@@ -227,18 +282,22 @@ Read the two things it cannot decide for you before an agent is held to them:
 | `detent plan` | discuss a task with an agent; it writes the task files |
 | `detent run` | work the queue |
 | `detent promote` | merge `agent/dev` into `agent/staging` behind the batch gauge |
-| `detent summary` | pass rate, rounds, cost per pass |
+| `detent summary` | pass rate, attempts per run, cost per pass |
 | `detent dashboard` | a page that watches this product |
 | `detent gauge` | run a repository's gauge by hand |
 | `detent recover` | return repositories an interrupted run left behind |
-| `detent prune` | delete `agent/task-*` branches already merged |
+| `detent prune` | delete `agent/task-*` branches already merged into `agent/dev` |
 
 Every command in `detent --help` does something.
 
 The dashboard watches a run while it happens — what the agent is saying as it
 says it, what each round of each task did and what it cost, and the
-configuration, which it will write back between runs. It listens on 127.0.0.1
-only and loads nothing from anywhere else.
+configuration, which it will write back between runs. It serves
+`http://127.0.0.1:4100` and nothing else (`--port` moves it), the page loads
+nothing from anywhere else, and a write has to come from the page it served:
+binding localhost stopped meaning anything the moment that page could save a
+configuration, since any site open in the same browser can post to a port on
+it.
 
 ## This product is opinionated
 
@@ -261,10 +320,33 @@ to everything:
 
 ## Status
 
-**Status: 0.9.0 — all thirteen build steps are done.** Every command listed above
-works. What 1.0.0 still wants is a real batch of tasks run against a real
-product that is not this one. [PROGRESS.md](PROGRESS.md) says where the build
-is.
+**Status: 1.0.0 — all thirteen build steps are done, and the queue of a
+shipped product that is not this one has been worked by the tool.** Those were
+the two conditions, and every command listed above works.
+
+**[Yuk Markaz 24](https://yukmarkaz24.uz) is the product that settled it.** A
+freight marketplace in production — seven repositories, a NestJS API every
+browser and mobile client is built against, the prose documents mounted into
+the code repositories as a submodule, and the queue in a repository of its own.
+On 2026-10-21 and 2026-10-23 its queue was dispatched by `detent run`: eleven
+tasks, thirteen runs across three of the seven, **85% of them passed, at $7.64
+for a task that landed.** Of the twelve runs whose machine checks came out
+green the reviewer refused one outright; twice more a doubt cost a round that
+the next round then answered. One task spent all three attempts and stopped on
+a merge conflict in the OpenAPI contract, was parked on its branch, and passed
+when it was resumed two days later. That is the whole mechanism — the gauge,
+the acceptance pass, the hold, the resume — exercised by a product that knows
+nothing about detent, and none of those numbers come from this repository.
+
+**[QMed](https://qmed.uz) is the second one, set up and queued.** A clinic
+platform, also in production and also seven repositories: `detent init` scanned
+it, recorded the six submodule edges a scan can see and six contract edges the
+model pass proposed on top of them, and twelve tasks are written and waiting in
+its `todo/`. No run has been dispatched there yet, so it is here for the one
+thing it proves — that `init` reads a product it was not built around — and for
+nothing more.
+
+[PROGRESS.md](PROGRESS.md) says where the build is, and what the versions mean.
 
 ## Where to read more
 
