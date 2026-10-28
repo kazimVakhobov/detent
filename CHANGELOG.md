@@ -12,7 +12,10 @@ it was captioned "two repositories at once", which is the same drift the README
 carried until 1.0.0: the rule is one task *per repository*, and `concurrency`
 decides how many of those run together. Both now say that. The footer had the
 version, the licence and two links and did not say whose work this is, which on
-a portfolio site is the one thing a reader came for. And the frontmatter
+a portfolio site is the one thing a reader came for — it is one line now, the
+name on the portfolio and two places to read more, and deliberately not every
+profile there is: a page that lists six ways to reach somebody is a page that
+has stopped choosing. And the frontmatter
 example showed `repo` and `touches_contract` without a word about either, on
 the page and in the README both — each field now carries the one line it needed,
 including the one that says `touches_contract: true` is what makes a task a
